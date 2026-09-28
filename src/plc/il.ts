@@ -241,7 +241,7 @@ export function parseIl(text: string, dialect: 'mitsubishi' | 'ls'): IlParseResu
       messages.push({ line: sl.line, message: `"${op}" 명령의 오퍼랜드가 부족합니다`, severity: 'error' });
       continue;
     }
-    if (sl.comment && mapped.args.length >= 1 && !mapped.cmp && ['LD', 'AND', 'OR', 'OUT', 'SET', 'RST', 'TMR', 'CTU', 'PLS'].includes(mapped.op)) {
+    if (sl.comment && mapped.args.length >= 1 && !mapped.cmp && ['LD', 'AND', 'OR', 'OUT', 'SET', 'RST', 'TMR', 'CTU', 'PLS', 'STL', 'MOV'].includes(mapped.op)) {
       const d = mapped.args[0];
       if (!inlineComments.has(d)) inlineComments.set(d, sl.comment);
     }

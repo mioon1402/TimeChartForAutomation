@@ -284,22 +284,31 @@ export function applySimulation(base: Project, prog: ParsedProgram, settings: Si
           points: a.points,
         });
     const idx = signals.findIndex((s) => s.address === a.model.extend || s.address === addressOf(a.model.extend));
-    if (idx >= 0) signals.splice(idx + 1, 0, sig);
+    if (idx >= 0) {
+      if (!prev) sig.group = signals[idx].group;
+      signals.splice(idx + 1, 0, sig);
+    }
     else signals.push(sig);
   }
 
   let steps: Step[] = base.steps;
   if (res.stepTrace) {
     const dev = res.stepTrace.device;
-    steps = stepsFromTrace(res.stepTrace, (v) => `STEP ${v}`, Math.min(duration, res.simulated));
-    steps.forEach((s) => (s.description = `${dev} = ${s.label.replace('STEP ', '')}`));
+    const names = prog.stepNames.get(dev);
+    steps = stepsFromTrace(res.stepTrace, (v) => (/^-?\d+$/.test(v) ? `S${v}` : v), Math.min(duration, res.simulated));
+    for (const s of steps) {
+      const v = s.label.replace(/^S(?=-?\d+$)/, '');
+      const name = names?.get(v);
+      if (name) s.label = `${s.label} ${name}`;
+      s.description = name ? `${name} (${dev} = ${v})` : `${dev} = ${v}`;
+    }
   } else if (res.stlTraces.length) {
     steps = [];
     for (const tr of res.stlTraces) {
       for (const iv of levelIntervals(tr.points, Math.min(duration, res.simulated), 1)) {
         const info = devInfo.get(tr.device);
         steps.push(
-          createStep({ label: tr.device, start: iv.start, end: iv.end, description: info?.comment ?? '', color: STEP_COLORS[steps.length % STEP_COLORS.length] }),
+          createStep({ label: info?.comment ? `${tr.device} ${info.comment}` : tr.device, start: iv.start, end: iv.end, description: info?.comment ?? '', color: STEP_COLORS[steps.length % STEP_COLORS.length] }),
         );
       }
     }

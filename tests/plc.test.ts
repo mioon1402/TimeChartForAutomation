@@ -157,7 +157,7 @@ describe('samples', () => {
     expect(x1[1].t).toBeGreaterThanOrEqual(400);
     expect(x1[1].t).toBeLessThanOrEqual(420);
     const project = applySimulation(createProject(), prog, s.sim, res);
-    expect(project.steps.map((st) => st.label)).toEqual(['STEP 10', 'STEP 20', 'STEP 30', 'STEP 40', 'STEP 50', 'STEP 60', 'STEP 70']);
+    expect(project.steps.map((st) => st.label)).toEqual(['S10', 'S20', 'S30', 'S40', 'S50', 'S60', 'S70']);
     expect(project.signals.find((x) => x.address === 'X0')!.name).toBe('자동 시작 PB');
     const cyl = project.signals.find((x) => x.role === 'actuator')!;
     expect(cyl.points[1].ramp).toBe(300);
@@ -176,7 +176,7 @@ describe('samples', () => {
     expect(y1[2].t - y1[1].t).toBe(1510);
     expect(vals(trace(res, 'S0'))).toEqual([1, 0, 1]);
     const project = applySimulation(createProject(), prog, s.sim, res);
-    expect(project.steps.map((x) => x.label)).toEqual(['S0', 'S20', 'S21', 'S22', 'S0']);
+    expect(project.steps.map((x) => x.label)).toEqual(['S0 초기 스텝', 'S20 리프터 상승', 'S21 컨베이어 반출', 'S22 리프터 하강', 'S0 초기 스텝']);
   });
 
   it('LS pick & place visits all 8 steps', () => {
@@ -222,6 +222,8 @@ describe('samples', () => {
     const project = applySimulation(createProject(), prog, s.sim, res);
     const clamp = project.signals.find((x) => x.comment === 'Clamp_SOL')!;
     expect(clamp.address).toBe('%QX0.0');
+    expect(project.steps[0].label).toBe('S10 클램프');
+    expect(project.steps[2].description).toBe('가압 유지 1.2s (Step = 30)');
   });
 });
 

@@ -177,7 +177,7 @@ export type Stmt =
   | { k: 'assign'; d: Designator; e: Expr; mode: ':=' | 'S' | 'R'; line: number }
   | { k: 'call'; d: Designator; args: FbArg[]; line: number }
   | { k: 'if'; branches: { cond: Expr; body: Stmt[] }[]; els: Stmt[] | null; line: number }
-  | { k: 'case'; sel: Expr; cases: { labels: (number | [number, number])[]; body: Stmt[] }[]; els: Stmt[] | null; line: number }
+  | { k: 'case'; sel: Expr; cases: { labels: (number | [number, number])[]; body: Stmt[]; line: number }[]; els: Stmt[] | null; line: number }
   | { k: 'for'; v: Designator; from: Expr; to: Expr; by: Expr | null; body: Stmt[]; line: number }
   | { k: 'while'; cond: Expr; body: Stmt[]; line: number }
   | { k: 'repeat'; body: Stmt[]; until: Expr; line: number }
@@ -450,7 +450,7 @@ export function parseSt(src: string): StProgram {
           p++;
           const sel = parseExpr();
           expectKw('OF');
-          const cases: { labels: (number | [number, number])[]; body: Stmt[] }[] = [];
+          const cases: { labels: (number | [number, number])[]; body: Stmt[]; line: number }[] = [];
           let els: Stmt[] | null = null;
           for (;;) {
             skipSemis();
@@ -461,6 +461,7 @@ export function parseSt(src: string): StProgram {
               break;
             }
             if (peek().k === 'eof') throw new ParseError('END_CASE 가 필요합니다', peek().line);
+            const labelLine = peek().line;
             const labels = parseCaseLabels();
             const stmts: Stmt[] = [];
             for (;;) {
@@ -469,7 +470,7 @@ export function parseSt(src: string): StProgram {
               const s = parseStatement();
               if (s) stmts.push(s);
             }
-            cases.push({ labels, body: stmts });
+            cases.push({ labels, body: stmts, line: labelLine });
           }
           expectKw('END_CASE');
           return { k: 'case', sel, cases, els, line };
@@ -1158,11 +1159,12 @@ export class StRuntime implements PlcRuntime {
 
 // ─────────────────────── 디바이스(변수) 분석 ───────────────────────
 
-export function analyzeSt(prog: StProgram): { devices: DeviceInfo[]; caseSelectors: string[] } {
+export function analyzeSt(prog: StProgram): { devices: DeviceInfo[]; caseSelectors: string[]; stepNames: Map<string, Map<string, string>> } {
   const info = new Map<string, DeviceInfo>();
   const declByKey = new Map(prog.decls.map((d) => [d.name.toUpperCase(), d]));
   const aliasToKey = new Map(prog.decls.filter((d) => d.addr).map((d) => [d.addr!, d.name.toUpperCase()]));
   const caseSelectors: string[] = [];
+  const stepNames = new Map<string, Map<string, string>>();
   const displayOf = (k: string) => declByKey.get(k)?.name ?? k;
 
   const nameOf = (d: Designator): string | null => {
@@ -1264,6 +1266,16 @@ export function analyzeSt(prog: StProgram): { devices: DeviceInfo[]; caseSelecto
           if (s.sel.k === 'var') {
             const n = nameOf(s.sel.d);
             if (n && !caseSelectors.includes(displayOf(n))) caseSelectors.push(displayOf(n));
+            // CASE 라벨 줄의 주석을 스텝 이름으로 (10: (* 클램프 *))
+            if (n) {
+              const names = stepNames.get(displayOf(n)) ?? new Map<string, string>();
+              for (const c of s.cases) {
+                const cm = prog.lineComments.get(c.line);
+                if (!cm) continue;
+                for (const l of c.labels) if (!Array.isArray(l) && !names.has(String(l))) names.set(String(l), cm);
+              }
+              stepNames.set(displayOf(n), names);
+            }
           }
           s.cases.forEach((c) => walk(c.body));
           if (s.els) walk(s.els);
@@ -1299,5 +1311,5 @@ export function analyzeSt(prog: StProgram): { devices: DeviceInfo[]; caseSelecto
     return 'internal';
   };
   const devices = [...info.values()].map((d) => ({ ...d, role: roleFor(d) }));
-  return { devices, caseSelectors };
+  return { devices, caseSelectors, stepNames };
 }

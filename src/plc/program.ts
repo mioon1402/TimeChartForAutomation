@@ -13,6 +13,8 @@ export interface ParsedProgram {
   stepCandidates: string[];
   /** 명령/문장 수 */
   size: number;
+  /** 스텝 디바이스 → 값 → 이름 (코드 주석에서) */
+  stepNames: Map<string, Map<string, string>>;
   createRuntime(settings: SimSettings): PlcRuntime;
 }
 
@@ -185,12 +187,13 @@ export function parseProgram(text: string, dialect: PlcDialect, comments?: Map<s
 
   if (dialect === 'st') {
     const prog = parseSt(text);
-    const { devices, caseSelectors } = analyzeSt(prog);
+    const { devices, caseSelectors, stepNames } = analyzeSt(prog);
     return {
       dialect,
       messages: prog.messages,
       devices: sortDevices(applyComments(devices, new Map())),
       stepCandidates: caseSelectors,
+      stepNames,
       size: prog.body.length,
       createRuntime: () => new StRuntime(prog),
     };
@@ -213,6 +216,7 @@ export function parseProgram(text: string, dialect: PlcDialect, comments?: Map<s
       messages,
       devices: sortDevices(applyComments(devices, r.inlineComments)),
       stepCandidates: steps,
+      stepNames: new Map(),
       size: r.instrs.length,
       createRuntime: () => new StlRuntime(r.instrs, r.labels),
     };
@@ -225,6 +229,7 @@ export function parseProgram(text: string, dialect: PlcDialect, comments?: Map<s
     messages: r.messages,
     devices: sortDevices(applyComments(devices, r.inlineComments)),
     stepCandidates: steps,
+    stepNames: new Map(),
     size: r.instrs.length,
     createRuntime: (settings) => new IlRuntime(r.instrs, r.labels, dialect, settings),
   };
