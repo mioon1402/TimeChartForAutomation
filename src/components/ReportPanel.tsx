@@ -9,6 +9,8 @@ import { ChartSvg } from '../render/ChartSvg';
 import { roleLabelKo } from '../io/csv';
 import { Check, Field, Icon, Select, TextInput, TimeInput } from './ui';
 import { tr } from '../i18n';
+import { storageGet, storageSet } from '../storage';
+import { WEB_TRIAL } from '../env';
 
 interface ReportOpts {
   paper: 'A4' | 'A3';
@@ -34,7 +36,7 @@ const TITLEBLOCK_MM = 21;
 function loadOpts(): ReportOpts {
   const def: ReportOpts = { paper: 'A4', orientation: 'landscape', cover: true, chart: true, signals: true, steps: true, rules: true, annotations: true, timePerPage: 0, grayscale: false, violations: true };
   try {
-    return { ...def, ...JSON.parse(localStorage.getItem(OPTS_KEY) ?? '{}') };
+    return { ...def, ...JSON.parse(storageGet(OPTS_KEY) ?? '{}') };
   } catch {
     return def;
   }
@@ -58,7 +60,7 @@ export function ReportPanel() {
   const set = (patch: Partial<ReportOpts>) => {
     const n = { ...o, ...patch };
     setO(n);
-    localStorage.setItem(OPTS_KEY, JSON.stringify(n));
+    storageSet(OPTS_KEY, JSON.stringify(n));
   };
   const size = paperSize(o);
 
@@ -88,10 +90,18 @@ export function ReportPanel() {
             <Icon name="report" /> {tr('보고서', 'Report')}
           </h3>
         </div>
-        <button type="button" className="btn primary run" onClick={() => window.print()}>
-          <Icon name="print" /> {tr('인쇄 / PDF 저장', 'Print / Save PDF')}
-        </button>
-        <p className="muted small">{tr('인쇄 대화상자에서 "PDF로 저장"을 선택하세요. 배경 그래픽 옵션을 켜면 색상이 그대로 출력됩니다.', 'Choose "Save as PDF" in the print dialog. Enable background graphics for colors.')}</p>
+        {WEB_TRIAL ? (
+          <p className="trial-note">
+            {tr('온라인 체험판에서는 인쇄와 PDF 저장이 막혀 있습니다. 보고서를 출력하려면 파일 버전(TimeChartStudio.html)을 PC에서 여세요. 미리보기는 여기서 그대로 확인할 수 있습니다.', 'Printing is blocked in the online trial. Open the file version (TimeChartStudio.html) on your PC to print. The preview below is the same.')}
+          </p>
+        ) : (
+          <>
+            <button type="button" className="btn primary run" onClick={() => window.print()}>
+              <Icon name="print" /> {tr('인쇄 / PDF 저장', 'Print / Save PDF')}
+            </button>
+            <p className="muted small">{tr('인쇄 대화상자에서 "PDF로 저장"을 선택하세요. 배경 그래픽 옵션을 켜면 색상이 그대로 출력됩니다.', 'Choose "Save as PDF" in the print dialog. Enable background graphics for colors.')}</p>
+          </>
+        )}
         <div className="grid2">
           <Field label={tr('용지', 'Paper')}>
             <Select value={o.paper} onChange={(v) => set({ paper: v })} options={[{ value: 'A4', label: 'A4' }, { value: 'A3', label: 'A3' }]} />

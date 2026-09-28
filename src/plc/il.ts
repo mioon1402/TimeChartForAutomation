@@ -1,6 +1,7 @@
 import type { CmpOp, Instr, ParseMessage, PlcDialect } from './types';
 import { csvInstructionListToLines, tokenizeMnemonic, type SourceLine } from './text';
 import { normDevice } from './devices';
+import { lsStreamLines } from './lsStream';
 
 export interface IlParseResult {
   instrs: Instr[];
@@ -196,7 +197,8 @@ function mapLs(op: string, args: string[], base: Omit<Instr, 'op' | 'args'>): In
 
 /** 미쓰비시 / LS 니모닉(IL) 파싱 */
 export function parseIl(text: string, dialect: 'mitsubishi' | 'ls'): IlParseResult {
-  const src: SourceLine[] = csvInstructionListToLines(text) ?? tokenizeMnemonic(text);
+  // LS: XG5000 은 IL 을 PDF 로만 내보낼 수 있으므로 PDF 추출 텍스트에 강한 토큰 흐름 해석기 사용
+  const src: SourceLine[] = csvInstructionListToLines(text) ?? (dialect === 'ls' ? lsStreamLines(text).lines : tokenizeMnemonic(text));
   const instrs: Instr[] = [];
   const labels = new Map<string, number>();
   const messages: ParseMessage[] = [];

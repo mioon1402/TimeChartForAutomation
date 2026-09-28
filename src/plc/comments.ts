@@ -18,7 +18,10 @@ export function parseDeviceComments(text: string, dialect: PlcDialect): Map<stri
   for (const line of lines) {
     let cells: string[];
     if (hasDelim && line.includes(delim)) cells = splitCsvLine(line, delim);
-    else {
+    else if (/\S\s{2,}\S/.test(line)) {
+      // PDF 에서 추출한 표: 넓은 공백이 열 구분
+      cells = line.trim().split(/\s{2,}/);
+    } else {
       const m = /^\s*(\S+)\s+(.+)$/.exec(line);
       if (!m) continue;
       cells = [m[1], m[2].trim()];

@@ -10,7 +10,9 @@ import { HelpModal, StatusBar, Toolbar, TopBar, useShortcuts } from './component
 import { PromptHost, Toasts } from './components/ui';
 import { loadFromText } from './components/fileActions';
 import { readTextSmart } from './io/files';
+import { readProgramFile } from './components/programFile';
 import { tr } from './i18n';
+import { WEB_TRIAL } from './env';
 
 export default function App() {
   const tab = useStore((s) => s.tab);
@@ -45,7 +47,7 @@ export default function App() {
 
   return (
     <div
-      className={`app tab-${tab}`}
+      className={`app tab-${tab} ${WEB_TRIAL ? 'web-trial' : ''}`}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault();
@@ -60,7 +62,9 @@ export default function App() {
         setDropping(false);
         const f = e.dataTransfer.files[0];
         if (!f) return;
-        const text = await readTextSmart(f);
+        const r = /\.(tchart|json|tct|csv|tsv)$/i.test(f.name) ? { text: await readTextSmart(f) } : await readProgramFile(f);
+        if (!r) return;
+        const text = r.text;
         if (/\.(tchart|json|tct|csv|tsv)$/i.test(f.name)) loadFromText(f.name, text);
         else {
           // PLC 소스로 간주
@@ -94,7 +98,7 @@ export default function App() {
       {help && <HelpModal onClose={() => setHelp(false)} />}
       <PromptHost />
       <Toasts />
-      {dropping && <div className="drop-overlay">{tr('파일을 놓으면 불러옵니다 (.tchart, .csv, .json, PLC 소스)', 'Drop to open (.tchart, .csv, .json, PLC source)')}</div>}
+      {dropping && <div className="drop-overlay">{tr('파일을 놓으면 불러옵니다 (.tchart, .csv, .json, PLC 소스, IL 인쇄 PDF)', 'Drop to open (.tchart, .csv, .json, PLC source, IL PDF)')}</div>}
     </div>
   );
 }

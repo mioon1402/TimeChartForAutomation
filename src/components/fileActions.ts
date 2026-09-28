@@ -10,34 +10,41 @@ import { parseLooseJson } from '../io/json5';
 import type { Project } from '../model/types';
 import { templates } from '../model/templates';
 import { tr } from '../i18n';
+import { WEB_TRIAL } from '../env';
+import { askConfirm } from './ui';
 
 type FileHandle = { name: string; createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> };
 let handle: FileHandle | null = null;
 
 const g = () => useStore.getState();
 
-function confirmDiscard(): boolean {
+/** 저장하지 않은 변경이 있으면 앱 안의 확인 창으로 묻는다 (브라우저 confirm 은 막힌 환경이 있음) */
+async function confirmDiscard(): Promise<boolean> {
   if (!g().dirty) return true;
-  return window.confirm(tr('저장하지 않은 변경 내용이 있습니다. 계속할까요?', 'You have unsaved changes. Continue?'));
+  return askConfirm(
+    tr('저장하지 않은 변경', 'Unsaved changes'),
+    tr('지금 차트를 다른 차트로 바꾸면 저장하지 않은 변경 내용이 사라집니다. 계속할까요?', 'Replacing the chart discards unsaved changes. Continue?'),
+    tr('계속', 'Continue'),
+  );
 }
 
-export function newProject() {
-  if (!confirmDiscard()) return;
+export async function newProject() {
+  if (!(await confirmDiscard())) return;
   handle = null;
   g().loadProject(newEmptyProject());
   g().setTab('editor');
 }
 
-export function loadSample() {
-  if (!confirmDiscard()) return;
+export async function loadSample() {
+  if (!(await confirmDiscard())) return;
   handle = null;
   g().loadProject(sampleProject());
   g().setTab('editor');
 }
 
-export function loadTemplate(id: string) {
+export async function loadTemplate(id: string) {
   const t = templates().find((x) => x.id === id);
-  if (!t || !confirmDiscard()) return;
+  if (!t || !(await confirmDiscard())) return;
   handle = null;
   g().loadProject(t.build());
   g().setTab('editor');
@@ -46,6 +53,11 @@ export function loadTemplate(id: string) {
 /** 어느 탭에서든 Ctrl+P → 보고서 탭으로 이동 후 인쇄 */
 export function printReport() {
   const s = g();
+  if (WEB_TRIAL) {
+    s.setTab('report');
+    s.toast(tr('온라인 체험판에서는 인쇄가 막혀 있습니다. 파일 버전(TimeChartStudio.html)에서 인쇄하세요.', 'Printing is blocked in the online trial. Use the file version.'), 'warn');
+    return;
+  }
   if (s.tab !== 'report') {
     s.setTab('report');
     setTimeout(() => window.print(), 400);
@@ -97,9 +109,9 @@ export function loadFromText(name: string, text: string): boolean {
 }
 
 export async function openProject() {
-  if (!confirmDiscard()) return;
+  if (!(await confirmDiscard())) return;
   const w = window as unknown as { showOpenFilePicker?: (o: unknown) => Promise<{ getFile(): Promise<File> }[]> };
-  if (w.showOpenFilePicker) {
+  if (w.showOpenFilePicker && !WEB_TRIAL) {
     try {
       const [h] = await w.showOpenFilePicker({
         types: [{ description: 'TimeChart', accept: { 'application/json': ['.tchart', '.json'], 'text/plain': ['.tct', '.csv', '.txt'] } }],
@@ -129,6 +141,10 @@ function projectJson(p: Project): string {
 
 export async function saveProject(saveAs = false) {
   const s = g();
+  if (WEB_TRIAL) {
+    s.toast(tr('온라인 체험판에서는 파일 저장이 막혀 있습니다. 작업 내용은 이 브라우저에 자동 백업됩니다. [내보내기 → TCT 텍스트 복사]로 내용을 옮길 수 있습니다.', 'Saving files is blocked in the online trial. Work is auto-backed up in this browser; use Export → Copy TCT text.'), 'warn');
+    return;
+  }
   const p = s.project;
   const name = `${safeFileName(p.meta.title)}.tchart`;
   const w = window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FileHandle> };
@@ -195,6 +211,18 @@ export function exportWaveDromFile() {
   const r = exportWaveDrom(g().project);
   r.warnings.forEach((w) => g().toast(w, 'warn'));
   downloadText(`${base()}.wavedrom.json`, r.source, 'application/json');
+}
+
+/** TCT 텍스트를 클립보드로 (체험판 ↔ 파일 버전 간 옮기기) */
+export async function copyTct() {
+  const text = serializeDsl(g().project);
+  try {
+    await navigator.clipboard.writeText(text);
+    g().toast(tr('TCT 텍스트를 복사했습니다. 다른 곳의 [텍스트 코드] 탭에 붙여넣고 [차트에 적용]하면 됩니다.', 'TCT text copied. Paste it into the Text code tab elsewhere and Apply.'), 'ok');
+  } catch {
+    g().setTab('text');
+    g().toast(tr('클립보드 복사가 막혀 있습니다. [텍스트 코드] 탭에서 직접 선택해 복사하세요.', 'Clipboard blocked. Select and copy from the Text code tab.'), 'warn');
+  }
 }
 
 export function exportTct() {

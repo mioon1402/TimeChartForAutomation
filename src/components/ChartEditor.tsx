@@ -8,6 +8,7 @@ import { checkRules } from '../model/analysis';
 import { formatTime, parseTime } from '../model/format';
 import { askText, Icon } from './ui';
 import { tr } from '../i18n';
+import { storageGet, storageSet } from '../storage';
 
 type Drag =
   | { kind: 'edge'; sigId: string; index: number; orig: WavePoint[] }
@@ -43,8 +44,9 @@ export function ChartEditor() {
   const st = useStore.getState;
 
   const [labelW, setLabelW] = useState(() => {
-    const v = Number(localStorage.getItem(LABEL_W_KEY));
-    return v >= 150 && v <= 520 ? v : 250;
+    const v = Number(storageGet(LABEL_W_KEY));
+    if (v >= 110 && v <= 520) return v;
+    return typeof window !== 'undefined' && window.innerWidth <= 760 ? 130 : 250;
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<SVGSVGElement>(null);
@@ -558,12 +560,12 @@ export function ChartEditor() {
             onPointerDown={(e) => {
               const startX = e.clientX;
               const startW = labelW;
-              const move = (ev: PointerEvent) => setLabelW(Math.min(520, Math.max(150, startW + ev.clientX - startX)));
+              const move = (ev: PointerEvent) => setLabelW(Math.min(520, Math.max(110, startW + ev.clientX - startX)));
               const up = () => {
                 window.removeEventListener('pointermove', move);
                 window.removeEventListener('pointerup', up);
                 setLabelW((w) => {
-                  localStorage.setItem(LABEL_W_KEY, String(w));
+                  storageSet(LABEL_W_KEY, String(w));
                   return w;
                 });
               };

@@ -4,6 +4,7 @@ import { formatTime } from '../model/format';
 import { Icon, IconButton, Menu, Modal } from './ui';
 import * as F from './fileActions';
 import { tr } from '../i18n';
+import { WEB_TRIAL } from '../env';
 import { templates } from '../model/templates';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
@@ -35,6 +36,11 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
         <span className="brand-name">
           TimeChart <b>Studio</b>
         </span>
+        {WEB_TRIAL && (
+          <span className="trial-badge" title={tr('인쇄·파일 저장·내보내기는 파일 버전(TimeChartStudio.html)에서 됩니다', 'Print, save and export work in the file version')}>
+            {tr('온라인 체험판', 'Online trial')}
+          </span>
+        )}
       </div>
       <nav className="menus">
         <Menu
@@ -42,13 +48,16 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
           items={[
             { label: tr('새 차트', 'New chart'), icon: 'plus', onClick: F.newProject },
             { label: tr('열기…', 'Open…'), icon: 'open', shortcut: 'Ctrl+O', onClick: F.openProject },
-            { label: tr('저장', 'Save'), icon: 'save', shortcut: 'Ctrl+S', onClick: () => F.saveProject() },
-            { label: tr('다른 이름으로 저장…', 'Save as…'), shortcut: 'Ctrl+Shift+S', onClick: () => F.saveProject(true) },
+            ...(WEB_TRIAL
+              ? []
+              : [
+                  { label: tr('저장', 'Save'), icon: 'save', shortcut: 'Ctrl+S', onClick: () => F.saveProject() },
+                  { label: tr('다른 이름으로 저장…', 'Save as…'), shortcut: 'Ctrl+Shift+S', onClick: () => F.saveProject(true) },
+                ]),
             { divider: true },
             ...templates().map((t) => ({ label: tr('템플릿: ', 'Template: ') + t.name, icon: 'chart', onClick: () => F.loadTemplate(t.id) })),
             { label: tr('예제: PLC 프로그램 → 차트', 'Example: PLC program → chart'), icon: 'cpu', onClick: () => setTab('plc') },
-            { divider: true },
-            { label: tr('보고서 인쇄 / PDF', 'Print report / PDF'), icon: 'print', shortcut: 'Ctrl+P', onClick: F.printReport },
+            ...(WEB_TRIAL ? [] : [{ divider: true }, { label: tr('보고서 인쇄 / PDF', 'Print report / PDF'), icon: 'print', shortcut: 'Ctrl+P', onClick: F.printReport }]),
           ]}
         />
         <Menu
@@ -62,7 +71,12 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
         />
         <Menu
           label={tr('내보내기', 'Export')}
-          items={[
+          items={WEB_TRIAL ? [
+            { label: tr('TCT 텍스트 복사 (파일 버전으로 옮기기)', 'Copy TCT text (move to file version)'), icon: 'copy', onClick: F.copyTct },
+            { label: tr('차트 이미지 복사 (클립보드)', 'Copy chart image'), icon: 'image', onClick: F.copyPng },
+            { divider: true },
+            { label: tr('인쇄·PDF·파일 저장은 파일 버전에서', 'Print, PDF and files: use the file version'), icon: 'help', disabled: true },
+          ] : [
             { label: tr('보고서 인쇄 / PDF', 'Print report / PDF'), icon: 'print', onClick: () => setTab('report') },
             { divider: true },
             { label: tr('PNG 이미지', 'PNG image'), icon: 'image', onClick: F.exportPng },
@@ -75,6 +89,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
             { divider: true },
             { label: 'WaveDrom JSON', icon: 'code', onClick: F.exportWaveDromFile },
             { label: tr('TCT 텍스트', 'TCT text'), icon: 'code', onClick: F.exportTct },
+            { label: tr('TCT 텍스트 복사', 'Copy TCT text'), icon: 'copy', onClick: F.copyTct },
           ]}
         />
       </nav>
@@ -111,7 +126,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
       <div className="top-right">
         <IconButton icon="undo" title={tr('실행 취소 (Ctrl+Z)', 'Undo (Ctrl+Z)')} onClick={undo} disabled={!canUndo} />
         <IconButton icon="redo" title={tr('다시 실행 (Ctrl+Y)', 'Redo (Ctrl+Y)')} onClick={redo} disabled={!canRedo} />
-        <IconButton icon="save" title={tr('저장 (Ctrl+S)', 'Save (Ctrl+S)')} onClick={() => F.saveProject()} />
+        {!WEB_TRIAL && <IconButton icon="save" title={tr('저장 (Ctrl+S)', 'Save (Ctrl+S)')} onClick={() => F.saveProject()} />}
         <IconButton icon="globe" title="한국어 / English" label={lang === 'ko' ? 'EN' : '한'} onClick={() => setLang(lang === 'ko' ? 'en' : 'ko')} />
         <IconButton icon={theme === 'dark' ? 'sun' : 'moon'} title={tr('테마 전환', 'Toggle theme')} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} />
         <IconButton icon="help" title={tr('도움말 · 단축키', 'Help & shortcuts')} onClick={onHelp} />
@@ -188,7 +203,7 @@ export function Toolbar() {
       </div>
       <span className="grow" />
       <div className="tool-group">
-        <IconButton icon="image" title={tr('PNG 내보내기', 'Export PNG')} onClick={F.exportPng} />
+        {!WEB_TRIAL && <IconButton icon="image" title={tr('PNG 내보내기', 'Export PNG')} onClick={F.exportPng} />}
         <IconButton icon="print" title={tr('보고서', 'Report')} onClick={() => useStore.getState().setTab('report')} />
         <IconButton icon="panel" title={tr('속성 패널', 'Properties panel')} active={showProps} onClick={toggleProps} />
       </div>

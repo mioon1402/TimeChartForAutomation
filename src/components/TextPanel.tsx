@@ -6,6 +6,7 @@ import { ChartSvg } from '../render/ChartSvg';
 import { downloadText, openTextFile, safeFileName } from '../io/files';
 import { Icon, TimeInput } from './ui';
 import { tr } from '../i18n';
+import { WEB_TRIAL } from '../env';
 import type { Project } from '../model/types';
 
 type Mode = 'dsl' | 'wavedrom';
@@ -97,9 +98,26 @@ export function TextPanel() {
           >
             <Icon name="open" size={14} /> {tr('열기', 'Open')}
           </button>
-          <button type="button" className="btn small" onClick={() => downloadText(`${safeFileName(project.meta.title)}.${mode === 'dsl' ? 'tct' : 'json'}`, text)}>
-            <Icon name="download" size={14} /> {tr('저장', 'Save')}
+          <button
+            type="button"
+            className="btn small"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text);
+                toast(tr('복사했습니다', 'Copied'), 'ok');
+              } catch {
+                taRef.current?.select();
+                toast(tr('클립보드가 막혀 있어 텍스트를 선택해 두었습니다. Ctrl+C 로 복사하세요.', 'Clipboard blocked; text selected, press Ctrl+C.'), 'warn');
+              }
+            }}
+          >
+            <Icon name="copy" size={14} /> {tr('복사', 'Copy')}
           </button>
+          {!WEB_TRIAL && (
+            <button type="button" className="btn small" onClick={() => downloadText(`${safeFileName(project.meta.title)}.${mode === 'dsl' ? 'tct' : 'json'}`, text)}>
+              <Icon name="download" size={14} /> {tr('저장', 'Save')}
+            </button>
+          )}
           <button type="button" className="btn primary small" onClick={apply} disabled={fatal}>
             <Icon name="check" size={14} /> {tr('차트에 적용', 'Apply')}
           </button>

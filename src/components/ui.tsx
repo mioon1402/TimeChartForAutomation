@@ -296,7 +296,7 @@ export function Modal({ title, children, onClose, footer, width }: { title: stri
 }
 
 interface PromptState {
-  req: { title: string; label: string; value: string; resolve: (v: string | null) => void; multiline?: boolean } | null;
+  req: { title: string; label: string; value: string; resolve: (v: string | null) => void; multiline?: boolean; confirm?: boolean; okLabel?: string } | null;
   set(r: PromptState['req']): void;
 }
 const usePrompt = create<PromptState>((set) => ({ req: null, set: (req) => set({ req }) }));
@@ -304,6 +304,11 @@ const usePrompt = create<PromptState>((set) => ({ req: null, set: (req) => set({
 /** window.prompt 대체 (비동기) */
 export function askText(title: string, label: string, value = '', multiline = false): Promise<string | null> {
   return new Promise((resolve) => usePrompt.getState().set({ title, label, value, resolve, multiline }));
+}
+
+/** window.confirm 대체 (비동기) - 일부 내장 뷰어는 confirm() 을 막는다 */
+export function askConfirm(title: string, message: string, okLabel?: string): Promise<boolean> {
+  return new Promise((resolve) => usePrompt.getState().set({ title, label: message, value: '', confirm: true, okLabel, resolve: (v) => resolve(v !== null) }));
 }
 
 export function PromptHost() {
@@ -326,12 +331,15 @@ export function PromptHost() {
           <button type="button" className="btn" onClick={() => done(null)}>
             {tr('취소', 'Cancel')}
           </button>
-          <button type="button" className="btn primary" onClick={() => done(v)}>
-            {tr('확인', 'OK')}
+          <button type="button" className="btn primary" autoFocus={req.confirm} onClick={() => done(v)}>
+            {req.okLabel ?? tr('확인', 'OK')}
           </button>
         </>
       }
     >
+      {req.confirm ? (
+        <p className="confirm-msg">{req.label}</p>
+      ) : (
       <Field label={req.label} wide>
         {req.multiline ? (
           <textarea className="input" rows={4} autoFocus value={v} onChange={(e) => setV(e.target.value)} />
@@ -339,6 +347,7 @@ export function PromptHost() {
           <input className="input" autoFocus value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && done(v)} />
         )}
       </Field>
+      )}
     </Modal>
   );
 }

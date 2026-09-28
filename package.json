@@ -10,9 +10,11 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "release": "npm run build && node -e \"require('fs').mkdirSync('release',{recursive:true});require('fs').copyFileSync('dist/index.html','release/TimeChartStudio.html')\""
+    "release": "npm run build && node -e \"require('fs').mkdirSync('release',{recursive:true});require('fs').copyFileSync('dist/index.html','release/TimeChartStudio.html')\"",
+    "build:web": "tsc --noEmit -p tsconfig.json && vite build --mode web --outDir dist-web"
   },
   "dependencies": {
+    "pdfjs-dist": "^5.7.284",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zustand": "^5.0.15"

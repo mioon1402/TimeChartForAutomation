@@ -32,7 +32,35 @@
   color-scheme: light;
 }
 
-[data-theme='dark'] {
+/* 운영체제가 다크 모드이고 밝은 테마를 고르지 않은 경우 (앱 스크립트가 테마를 정하기 전에도 적용) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0b1119;
+    --panel: #131b26;
+    --panel-2: #0f1620;
+    --border: #243142;
+    --border-strong: #33445a;
+    --text: #dbe3ee;
+    --muted: #8898ad;
+    --accent: #4f8cff;
+    --accent-soft: #1b2a45;
+    --top-bg: #070c13;
+    --chart-bg: #101822;
+    --chart-grid: #172231;
+    --chart-grid-major: #243246;
+    --chart-text: #dbe3ee;
+    --chart-muted: #8a9ab0;
+    --chart-row-sep: #1b2635;
+    --chart-group-bg: #172231;
+    --chart-range: rgba(79, 140, 255, 0.14);
+    --chart-annotation: #e2e8f0;
+    --step-shade: 0.09;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+}
+}
+
+:root[data-theme='dark'] {
   --bg: #0b1119;
   --panel: #131b26;
   --panel-2: #0f1620;
@@ -113,7 +141,7 @@ kbd {
 
 /* ───────────────────────── 앱 레이아웃 ───────────────────────── */
 .app {
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2090,6 +2118,32 @@ table.tbl tr.fail td {
   filter: grayscale(1);
 }
 
+/* ───────────────────────── 온라인 체험판 / 확인 창 ───────────────────────── */
+.trial-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: #f59e0b;
+  color: #1c1300;
+  white-space: nowrap;
+}
+
+.trial-note {
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: color-mix(in srgb, #f59e0b 14%, var(--panel));
+  border: 1px solid color-mix(in srgb, #f59e0b 45%, transparent);
+  line-height: 1.55;
+  font-size: 12.5px;
+}
+
+.confirm-msg {
+  margin: 0;
+  line-height: 1.6;
+}
+
 /* ───────────────────────── 인쇄 ───────────────────────── */
 @media print {
   html,
@@ -2137,7 +2191,7 @@ table.tbl tr.fail td {
   }
 }
 
-/* 좁은 화면 */
+/* 좁은 화면 (태블릿) */
 @media (max-width: 1100px) {
   .brand-name,
   .menus .menu-btn svg {
@@ -2155,4 +2209,91 @@ table.tbl tr.fail td {
   .plc-sim {
     grid-column: 1 / -1;
   }
+}
+
+/* 휴대폰 폭: 패널을 세로로 쌓고, 넓은 차트·표는 각자 가로 스크롤 */
+@media (max-width: 760px) {
+  .topbar {
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 4px;
+    padding-block: 6px;
+  }
+
+  .doc-title {
+    order: 10;
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+
+  .toolbar {
+    overflow-x: auto;
+  }
+
+  .props {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 150;
+    width: min(320px, 88vw);
+    box-shadow: var(--shadow);
+  }
+
+  .bottom-body {
+    height: 200px;
+  }
+
+  .analysis,
+  .rules,
+  .steps-tab {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rule-form,
+  .summary {
+    width: auto;
+  }
+
+  .plc,
+  .textpanel {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .plc-col,
+  .text-left,
+  .text-right {
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .report {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .report-side {
+    width: auto;
+    overflow: visible;
+  }
+
+  .report-preview {
+    overflow: auto;
+    min-height: 60vh;
+    padding: 10px;
+  }
+
+  .grid3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 온라인 체험판: 좌우 16px 여백 */
+.web-trial {
+  padding-inline: 16px;
+  background: var(--bg);
 }

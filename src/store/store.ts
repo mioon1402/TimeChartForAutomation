@@ -124,6 +124,9 @@ function loadPrefs(): { lang: Lang; theme: 'light' | 'dark' } {
   } catch {
     /* 무시 */
   }
+  // 저장된 설정이 없으면: 페이지를 연 곳이 지정한 테마(data-theme) → 운영체제 설정 순
+  const host = typeof document !== 'undefined' ? document.documentElement.dataset.theme : undefined;
+  if (host === 'dark' || host === 'light') return { lang: 'ko', theme: host };
   const dark = typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
   return { lang: 'ko', theme: dark ? 'dark' : 'light' };
 }
@@ -165,7 +168,8 @@ export const useStore = create<State>((set, get) => {
     lang: prefs.lang,
     theme: prefs.theme,
     bottom: 'analysis',
-    showProps: true,
+    // 휴대폰 폭에서는 속성 패널이 차트를 가리므로 닫힌 상태로 시작
+    showProps: typeof window === 'undefined' || window.innerWidth > 760,
     toasts: [],
     viewWidth: 1000,
     scrollToTime: null,

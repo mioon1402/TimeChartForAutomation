@@ -35,13 +35,25 @@ export function openTextFile(accept: string): Promise<OpenedFile | null> {
   });
 }
 
+/** 파일 선택 대화상자 → File */
+export function pickFile(accept: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    input.click();
+  });
+}
+
 /** UTF-8/UTF-16 BOM 처리, 깨진 문자가 많으면 EUC-KR(CP949)로 다시 해석 */
 export async function readTextSmart(f: Blob): Promise<string> {
   const buf = new Uint8Array(await f.arrayBuffer());
   if (buf[0] === 0xff && buf[1] === 0xfe) return new TextDecoder('utf-16le').decode(buf);
   if (buf[0] === 0xfe && buf[1] === 0xff) return new TextDecoder('utf-16be').decode(buf);
   const utf8 = new TextDecoder('utf-8').decode(buf);
-  const bad = (utf8.match(/�/g) ?? []).length;
+  // 깨진 문자(U+FFFD) 개수 - 소스와 빌드 결과에 문자 그대로 넣지 않도록 코드값으로 만든다
+  const bad = utf8.split(String.fromCharCode(0xfffd)).length - 1;
   if (bad > 2) {
     try {
       return new TextDecoder('euc-kr').decode(buf);

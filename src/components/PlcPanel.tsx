@@ -6,7 +6,8 @@ import { parseDeviceComments } from '../plc/comments';
 import { applySimulation, defaultWatch, newCylinderModel, newDelayModel, runSimulation, suggestStimuli, type SimResult } from '../plc/simulator';
 import { plcSamples } from '../plc/samples';
 import { formatTime } from '../model/format';
-import { openTextFile } from '../io/files';
+import { pickFile } from '../io/files';
+import { readProgramFile } from './programFile';
 import { Check, Field, Icon, Select, TimeInput } from './ui';
 import { roleOptions } from './PropertiesPanel';
 import { tr } from '../i18n';
@@ -86,20 +87,28 @@ export function PlcPanel() {
   };
 
   const openSource = async () => {
-    const f = await openTextFile('.txt,.csv,.il,.st,.scl,.awl,.stl,.xml,.prn,.mnm,.*');
+    const f = await pickFile('.pdf,.txt,.csv,.il,.st,.scl,.awl,.stl,.xml,.prn,.mnm,.*');
     if (!f) return;
-    const dialect = /\.(st|scl)$/i.test(f.name) ? 'st' : /\.(awl|stl)$/i.test(f.name) ? 'siemens' : detectDialect(f.text);
-    const parsed = parseProgram(f.text, dialect);
-    setCfg({ dialect, source: f.text, sim: { ...defaultSimSettings(), duration: sim.duration, scanTime: sim.scanTime, watch: defaultWatch(parsed), stimuli: suggestStimuli(parsed), stepDevice: parsed.stepCandidates[0] ?? '' } });
-    toast(tr(`${f.name} 불러옴 (${dialectName(dialect)})`, `Loaded ${f.name} (${dialectName(dialect)})`), 'ok');
+    const r = await readProgramFile(f);
+    if (!r) return;
+    const dialect = /\.(st|scl)$/i.test(f.name) ? 'st' : /\.(awl|stl)$/i.test(f.name) ? 'siemens' : detectDialect(r.text);
+    const parsed = parseProgram(r.text, dialect);
+    // 새 프로그램: 이전 프로그램의 디바이스 코멘트는 비운다
+    setCfg({ dialect, source: r.text, comments: '', sim: { ...defaultSimSettings(), duration: sim.duration, scanTime: sim.scanTime, watch: defaultWatch(parsed), stimuli: suggestStimuli(parsed), stepDevice: parsed.stepCandidates[0] ?? '' } });
+    toast(
+      tr(`${f.name} 불러옴 (${dialectName(dialect)}): 명령 ${parsed.size}개, 디바이스 ${parsed.devices.length}개`, `Loaded ${f.name} (${dialectName(dialect)}): ${parsed.size} instructions`),
+      parsed.size ? 'ok' : 'warn',
+    );
   };
 
   const openComments = async () => {
-    const f = await openTextFile('.csv,.txt,.tsv');
+    const f = await pickFile('.pdf,.csv,.txt,.tsv');
     if (!f) return;
-    setCfg({ comments: f.text });
+    const r = await readProgramFile(f);
+    if (!r) return;
+    setCfg({ comments: r.text });
     setShowComments(true);
-    toast(tr('디바이스 코멘트를 불러왔습니다', 'Device comments loaded'), 'ok');
+    toast(tr(`디바이스 코멘트 ${parseDeviceComments(r.text, cfg.dialect).size}개를 불러왔습니다`, 'Device comments loaded'), 'ok');
   };
 
   const autoSetup = () => {
@@ -185,8 +194,8 @@ export function PlcPanel() {
             <Icon name="cpu" /> {tr('PLC 프로그램', 'PLC program')}
           </h3>
           <span className="grow" />
-          <button type="button" className="btn small" onClick={openSource}>
-            <Icon name="open" size={14} /> {tr('파일 열기', 'Open file')}
+          <button type="button" className="btn small" onClick={openSource} title={tr('텍스트, CSV, PDF(XG5000 IL 인쇄본) 등', 'Text, CSV or PDF (printed IL)')}>
+            <Icon name="open" size={14} /> {tr('파일 열기 (PDF 가능)', 'Open file (PDF ok)')}
           </button>
         </div>
         <div className="plc-toolbar">
@@ -220,7 +229,7 @@ export function PlcPanel() {
             onScroll={(e) => {
               if (gutterRef.current) gutterRef.current.scrollTop = (e.target as HTMLTextAreaElement).scrollTop;
             }}
-            placeholder={tr('여기에 니모닉(IL), STL, ST 코드를 붙여넣으세요.\nGX Works → 프로젝트 → 다른 형식으로 저장 → CSV, XG5000 → 니모닉 보기 → 복사', 'Paste IL / STL / ST code here.')}
+            placeholder={tr('여기에 니모닉(IL), STL, ST 코드를 붙여넣거나 [파일 열기]로 불러오세요.\n· XG5000: 니모닉(IL)을 PDF로 인쇄한 파일을 그대로 열면 됩니다. PDF에서 복사한 텍스트를 붙여넣어도 됩니다.\n· GX Works: 프로젝트 → 다른 형식으로 저장 → CSV', 'Paste IL / STL / ST code here or open a file (PDF of printed IL works).')}
           />
         </div>
         <div className="msgs">
@@ -249,7 +258,7 @@ export function PlcPanel() {
             </button>
             <span className="grow" />
             <button type="button" className="btn small" onClick={openComments}>
-              <Icon name="open" size={14} /> CSV
+              <Icon name="open" size={14} /> CSV / PDF
             </button>
           </div>
           {showComments && (
