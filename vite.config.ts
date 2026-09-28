@@ -15,9 +15,10 @@ const escapeReplacementChar = (): Plugin => ({
 });
 
 // 단일 HTML 파일로 빌드 → 설치 없이 오프라인(공장 PC, USB)에서도 실행 가능
-export default defineConfig({
+// 웹 체험판(--mode web)은 웹에 올리기 쉽도록 HTML + JS/CSS 파일로 나눠서 빌드
+export default defineConfig(({ mode }) => ({
   base: './',
-  plugins: [react(), escapeReplacementChar(), viteSingleFile()],
+  plugins: [react(), escapeReplacementChar(), ...(mode === 'web' ? [] : [viteSingleFile()])],
   // pdf.js 한글 CMap (PDF 텍스트 추출용) 을 파일 안에 포함
   assetsInclude: ['**/*.bcmap'],
   build: {
@@ -28,4 +29,4 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     environment: 'node',
   },
-});
+}));
