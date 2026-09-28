@@ -56,10 +56,13 @@ function AnalysisTab() {
   const { setCursor, addAnnotation, revealTime } = useStore.getState();
   const u = project.settings.timeUnit;
   const bits = project.signals.filter((s) => s.kind === 'bit' || s.kind === 'clock');
-  const [from, setFrom] = useState(bits[0]?.id ?? '');
+  const [fromSel, setFrom] = useState(bits[0]?.id ?? '');
   const [fromEdge, setFromEdge] = useState<EdgeKind>('rise');
-  const [to, setTo] = useState(bits[1]?.id ?? '');
+  const [toSel, setTo] = useState(bits[1]?.id ?? '');
   const [toEdge, setToEdge] = useState<EdgeKind>('rise');
+  // 차트가 바뀌어 선택한 신호가 없어지면 기본값 사용
+  const from = bits.some((b) => b.id === fromSel) ? fromSel : bits[0]?.id ?? '';
+  const to = bits.some((b) => b.id === toSel) ? toSel : bits[1]?.id ?? bits[0]?.id ?? '';
   const delays = useMemo(() => (from && to ? measureDelays(project, from, fromEdge, to, toEdge) : []), [project, from, fromEdge, to, toEdge]);
   const edgeOpts = [
     { value: 'rise' as EdgeKind, label: tr('↑ 상승', '↑ rise') },
@@ -193,8 +196,10 @@ function RulesTab() {
   const u = project.settings.timeUnit;
   const bits = project.signals.filter((s) => s.kind === 'bit' || s.kind === 'clock');
   const [type, setType] = useState<TimingRule['type']>('delay');
-  const [a, setA] = useState(bits[0]?.id ?? '');
-  const [b, setB] = useState(bits[1]?.id ?? '');
+  const [aSel, setA] = useState(bits[0]?.id ?? '');
+  const [bSel, setB] = useState(bits[1]?.id ?? '');
+  const a = bits.some((x) => x.id === aSel) ? aSel : bits[0]?.id ?? '';
+  const b = bits.some((x) => x.id === bSel) ? bSel : bits[1]?.id ?? bits[0]?.id ?? '';
   const [ea, setEa] = useState<EdgeKind>('rise');
   const [eb, setEb] = useState<EdgeKind>('rise');
   const [min, setMin] = useState<number | undefined>();
@@ -332,7 +337,8 @@ function StepsTab() {
   const c = useMemo(() => cycleSummary(project), [project]);
   const u = project.settings.timeUnit;
   const buses = project.signals.filter((s) => s.kind === 'bus');
-  const [src, setSrc] = useState(buses[0]?.id ?? '');
+  const [srcSel, setSrc] = useState(buses[0]?.id ?? '');
+  const src = buses.some((x) => x.id === srcSel) ? srcSel : buses[0]?.id ?? '';
   const fromBus = () => {
     const sig = project.signals.find((s) => s.id === src);
     if (!sig) return;

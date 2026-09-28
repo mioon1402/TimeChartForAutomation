@@ -4,6 +4,7 @@ import { formatTime } from '../model/format';
 import { Icon, IconButton, Menu, Modal } from './ui';
 import * as F from './fileActions';
 import { tr } from '../i18n';
+import { templates } from '../model/templates';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
   const tab = useStore((s) => s.tab);
@@ -44,8 +45,10 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
             { label: tr('저장', 'Save'), icon: 'save', shortcut: 'Ctrl+S', onClick: () => F.saveProject() },
             { label: tr('다른 이름으로 저장…', 'Save as…'), shortcut: 'Ctrl+Shift+S', onClick: () => F.saveProject(true) },
             { divider: true },
-            { label: tr('예제: 드릴 가공 유닛', 'Example: drilling unit'), icon: 'chart', onClick: F.loadSample },
+            ...templates().map((t) => ({ label: tr('템플릿: ', 'Template: ') + t.name, icon: 'chart', onClick: () => F.loadTemplate(t.id) })),
             { label: tr('예제: PLC 프로그램 → 차트', 'Example: PLC program → chart'), icon: 'cpu', onClick: () => setTab('plc') },
+            { divider: true },
+            { label: tr('보고서 인쇄 / PDF', 'Print report / PDF'), icon: 'print', shortcut: 'Ctrl+P', onClick: F.printReport },
           ]}
         />
         <Menu
@@ -231,6 +234,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
     ['V / D / A / M / S / N / K', tr('선택 / 그리기 / 화살표 / 치수 / 스텝 / 메모 / 마커 도구', 'Tools: select, draw, arrow, dimension, step, note, marker')],
     ['Ctrl+Z, Ctrl+Y', tr('실행 취소, 다시 실행', 'Undo, redo')],
     ['Ctrl+S, Ctrl+O', tr('저장, 열기', 'Save, open')],
+    ['Ctrl+P', tr('보고서 인쇄 / PDF', 'Print report / PDF')],
     ['Ctrl+D', tr('선택 신호 복제', 'Duplicate signals')],
     ['Delete', tr('선택 항목 삭제', 'Delete selection')],
     ['Alt+↑ / Alt+↓', tr('선택 신호 위/아래로 이동', 'Move signal up/down')],
@@ -289,6 +293,11 @@ export function useShortcuts() {
       if (mod && k === 'o') {
         e.preventDefault();
         F.openProject();
+        return;
+      }
+      if (mod && k === 'p') {
+        e.preventDefault();
+        F.printReport();
         return;
       }
       if (typing) return;

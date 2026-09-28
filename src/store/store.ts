@@ -453,6 +453,7 @@ function shiftAnnotation(a: Annotation, f: (t: number) => number): Annotation {
 
 // 자동 저장 (0.8초 디바운스)
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let warnedQuota = false;
 useStore.subscribe((s, prev) => {
   if (s.project === prev.project) return;
   clearTimeout(saveTimer);
@@ -460,7 +461,11 @@ useStore.subscribe((s, prev) => {
     try {
       localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(s.project));
     } catch {
-      /* 저장 공간 부족 등 */
+      // 브라우저 저장 공간 부족 (대용량 CSV 로그 등) - 한 번만 알림
+      if (!warnedQuota) {
+        warnedQuota = true;
+        useStore.getState().toast('차트가 커서 자동 백업을 할 수 없습니다. 파일로 저장(Ctrl+S)하세요.', 'warn');
+      }
     }
   }, 800);
 });

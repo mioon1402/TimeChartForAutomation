@@ -160,3 +160,19 @@ arrow Y9@1 -> X0@2
     expect(errors.map((e) => e.line)).toEqual([10, 11]);
   });
 });
+
+describe('templates', () => {
+  it('build without DSL errors and pass their own rules', async () => {
+    const { templates } = await import('../src/model/templates');
+    const { parseDsl } = await import('../src/io/dsl');
+    for (const t of templates()) {
+      const p = t.build();
+      expect(p.format).toBe('timechart-studio');
+      if (t.id === 'robot' || t.id === 'inverter') {
+        expect(parseDsl(serializeDsl(p)).errors).toEqual([]);
+        expect(p.signals.length).toBeGreaterThan(5);
+        expect(checkRules(p).every((r) => r.status === 'ok')).toBe(true);
+      }
+    }
+  });
+});

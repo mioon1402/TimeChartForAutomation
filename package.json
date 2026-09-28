@@ -9,7 +9,8 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "release": "npm run build && node -e \"require('fs').mkdirSync('release',{recursive:true});require('fs').copyFileSync('dist/index.html','release/TimeChartStudio.html')\""
   },
   "dependencies": {
     "react": "^19.3.0",

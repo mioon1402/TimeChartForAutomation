@@ -8,6 +8,7 @@ import { copyPngToClipboard, downloadPng, downloadSvg } from '../render/exportIm
 import { checkRules } from '../model/analysis';
 import { parseLooseJson } from '../io/json5';
 import type { Project } from '../model/types';
+import { templates } from '../model/templates';
 import { tr } from '../i18n';
 
 type FileHandle = { name: string; createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> };
@@ -32,6 +33,23 @@ export function loadSample() {
   handle = null;
   g().loadProject(sampleProject());
   g().setTab('editor');
+}
+
+export function loadTemplate(id: string) {
+  const t = templates().find((x) => x.id === id);
+  if (!t || !confirmDiscard()) return;
+  handle = null;
+  g().loadProject(t.build());
+  g().setTab('editor');
+}
+
+/** 어느 탭에서든 Ctrl+P → 보고서 탭으로 이동 후 인쇄 */
+export function printReport() {
+  const s = g();
+  if (s.tab !== 'report') {
+    s.setTab('report');
+    setTimeout(() => window.print(), 400);
+  } else window.print();
 }
 
 /** 파일 내용으로 형식을 판별하여 불러오기 */
