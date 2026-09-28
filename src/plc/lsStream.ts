@@ -71,9 +71,15 @@ interface Tok {
   comment?: boolean;
 }
 
-function tokenize(text: string): { toks: Tok[]; lines: string[] } {
+/** XG5000 인쇄본의 "비실행문" = 실행하지 않도록 막아 둔 렁 → 그 줄은 통째로 제외 */
+const DISABLED_MARK = '비실행문';
+/** "설명문" = 렁 설명문 줄 → 그 뒤의 글자는 설명이므로 무시 */
+const COMMENT_MARK = '설명문';
+
+function tokenize(text: string): { toks: Tok[]; lines: string[]; disabled: number[] } {
   const lines = splitLines(text);
   const toks: Tok[] = [];
+  const disabled: number[] = [];
   lines.forEach((raw, i) => {
     let s = raw;
     let comment = '';
@@ -87,8 +93,15 @@ function tokenize(text: string): { toks: Tok[]; lines: string[] } {
       comment = s.slice(sc + 1).trim() || comment;
       s = s.slice(0, sc);
     }
+    const words = s.split(/[\s,|]+/).filter(Boolean);
+    if (words.includes(DISABLED_MARK)) {
+      disabled.push(i + 1);
+      return;
+    }
+    const cm = words.indexOf(COMMENT_MARK);
+    if (cm >= 0) words.length = cm;
     let first = true;
-    for (let w of s.split(/[\s,|]+/).filter(Boolean)) {
+    for (let w of words) {
       // "0LOAD" → "0" "LOAD"  (스텝 번호와 명령이 붙은 경우)
       const glued = /^(\d+)([A-Za-z].*)$/.exec(w);
       if (glued && isLsMnemonic(glued[2])) {
@@ -109,18 +122,20 @@ function tokenize(text: string): { toks: Tok[]; lines: string[] } {
     }
     if (comment) toks.push({ v: comment, line: i + 1, first: false, comment: true });
   });
-  return { toks, lines };
+  return { toks, lines, disabled };
 }
 
 export interface StreamResult {
   lines: SourceLine[];
   /** 명령으로 해석하지 않고 버린 토큰 수 */
   skipped: number;
+  /** "비실행문" 으로 제외한 줄 번호 */
+  disabled: number[];
 }
 
 /** 텍스트 → 명령 줄 목록 ("OP ARG..." 형태, 원본 줄 번호 유지) */
 export function lsStreamLines(text: string): StreamResult {
-  const { toks, lines } = tokenize(text);
+  const { toks, lines, disabled } = tokenize(text);
   const out: SourceLine[] = [];
   let skipped = 0;
   const n = toks.length;
@@ -184,5 +199,5 @@ export function lsStreamLines(text: string): StreamResult {
     prevWasStep = false;
     i = j;
   }
-  return { lines: out, skipped };
+  return { lines: out, skipped, disabled };
 }

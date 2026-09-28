@@ -104,3 +104,62 @@ describe('PDF text item → lines', () => {
     expect(lsStreamLines(lines.join('\n')).lines.map((l) => l.tokens.join(' '))).toEqual(['LOAD P00000', 'AND NOT M00010']);
   });
 });
+
+describe('XG5000 IL print layout (렁 / 스텝 / 명령어 / OP1..OP4)', () => {
+  // 실제 XG5000 인쇄본과 같은 배치 (내용은 테스트용)
+  const printout = [
+    '렁   스텝   명령어   OP 1   OP 2   OP 3   OP 4',
+    '0   비실행문   LOAD   M00900',
+    '비실행문   MOV   0   D08100',
+    '비실행문   OUT   P00040',
+    '1   0   설명문   Step 1 LOAD 조건 확인',
+    '2   1   LOAD   F00099',
+    '2   OUT   M00100',
+    '3   3   LOAD   P00008',
+    '4   AND NOT   P0000A',
+    '5   OUT   P00041',
+    '4   6   LOAD   P00009',
+    '7   TON   T0003   5',
+    '5   9   LOAD   T0003',
+    '10   OUT   P00042',
+    '6   11   LOAD>   D00232   D00230',
+    '12   OUT   M00101',
+    '2026-09-28 오후 3:56:50   1/2',
+    '',
+    'OP 5   OP 6   OP 7',
+    '2026-09-28 오후 3:56:50   2/2',
+  ].join('\n');
+
+  it('skips disabled rungs and rung comments, keeps rung + step numbers out of operands', () => {
+    const r = lsStreamLines(printout);
+    expect(r.disabled).toEqual([2, 3, 4]);
+    expect(r.lines.map((l) => l.tokens.join(' '))).toEqual([
+      'LOAD F00099',
+      'OUT M00100',
+      'LOAD P00008',
+      'AND NOT P0000A',
+      'OUT P00041',
+      'LOAD P00009',
+      'TON T0003 5',
+      'LOAD T0003',
+      'OUT P00042',
+      'LOAD> D00232 D00230',
+      'OUT M00101',
+    ]);
+    const prog = parseProgram(printout, 'ls');
+    expect(prog.messages.map((m) => m.message)).toEqual(['비실행문(실행하지 않는 렁) 3줄은 시뮬레이션에서 제외했습니다']);
+    expect(prog.devices.some((d) => d.name === 'M00900' || d.name === 'D08100')).toBe(false);
+  });
+
+  it('simulates: F00099 always on, TON 5 x 100ms', () => {
+    const prog = parseProgram(printout, 'ls');
+    const res = runSimulation(prog, { ...sample.sim, stimuli: [{ device: 'P00009', mode: 'pulse', pulses: [{ start: 100, end: 1000 }] }], models: [], watch: ['M00100', 'P00042'], duration: 1500 });
+    const [m100, p42] = res.traces;
+    expect(m100.points).toEqual([{ t: 0, v: 1 }]);
+    expect(p42.points).toEqual([
+      { t: 0, v: 0 },
+      { t: 600, v: 1 },
+      { t: 1000, v: 0 },
+    ]);
+  });
+});

@@ -198,10 +198,15 @@ function mapLs(op: string, args: string[], base: Omit<Instr, 'op' | 'args'>): In
 /** 미쓰비시 / LS 니모닉(IL) 파싱 */
 export function parseIl(text: string, dialect: 'mitsubishi' | 'ls'): IlParseResult {
   // LS: XG5000 은 IL 을 PDF 로만 내보낼 수 있으므로 PDF 추출 텍스트에 강한 토큰 흐름 해석기 사용
-  const src: SourceLine[] = csvInstructionListToLines(text) ?? (dialect === 'ls' ? lsStreamLines(text).lines : tokenizeMnemonic(text));
+  const csv = csvInstructionListToLines(text);
+  const stream = !csv && dialect === 'ls' ? lsStreamLines(text) : null;
+  const src: SourceLine[] = csv ?? stream?.lines ?? tokenizeMnemonic(text);
   const instrs: Instr[] = [];
   const labels = new Map<string, number>();
   const messages: ParseMessage[] = [];
+  if (stream?.disabled.length) {
+    messages.push({ line: stream.disabled[0], message: `비실행문(실행하지 않는 렁) ${stream.disabled.length}줄은 시뮬레이션에서 제외했습니다`, severity: 'warning' });
+  }
   const inlineComments = new Map<string, string>();
 
   for (const sl of src) {
