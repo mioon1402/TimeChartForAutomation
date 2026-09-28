@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store/store';
 import type { EdgeKind, Signal, TimingRule } from '../model/types';
-import { checkRules, cycleSummary, measureDelays } from '../model/analysis';
+import { checkRules, cycleSummary, isIoSignal, measureDelays, sequenceEvents, stepsFromOutputs } from '../model/analysis';
 import { formatTime } from '../model/format';
 import { effectivePoints, uid, valueAt } from '../model/wave';
 import { createStep, STEP_COLORS } from '../model/project';
@@ -19,6 +19,7 @@ export function BottomPanel() {
     { id: 'analysis', label: tr('측정 · 분석', 'Measure') },
     { id: 'rules', label: tr('타이밍 규칙 검증', 'Timing rules'), badge: project.rules.length ? (fails ? `NG ${fails}` : 'OK') : undefined, bad: fails > 0 },
     { id: 'steps', label: tr('공정 스텝 · 사이클 타임', 'Steps & cycle time') },
+    { id: 'events', label: tr('동작 순서표', 'Sequence of events') },
   ];
   return (
     <div className={`bottom ${bottom ? 'open' : ''}`}>
@@ -39,6 +40,7 @@ export function BottomPanel() {
           {bottom === 'analysis' && <AnalysisTab />}
           {bottom === 'rules' && <RulesTab />}
           {bottom === 'steps' && <StepsTab />}
+          {bottom === 'events' && <EventsTab />}
         </div>
       )}
     </div>
@@ -352,6 +354,16 @@ function StepsTab() {
     }
     commit({ ...project, steps });
   };
+  const outs = project.signals.filter((s) => s.kind === 'bit' && (s.role === 'output' || s.role === 'actuator'));
+  const fromOutputs = () => {
+    const d = project.settings.duration;
+    const steps = stepsFromOutputs(
+      outs.map((s) => ({ id: s.id, points: effectivePoints(s, d), name: s.name, address: s.address, rank: s.role === 'actuator' ? 0 : undefined })),
+      d,
+    );
+    if (!steps.length) return;
+    commit({ ...project, steps });
+  };
   const max = Math.max(...c.steps.map((r) => r.duration), 1);
   return (
     <div className="steps-tab">
@@ -371,6 +383,13 @@ function StepsTab() {
             <Icon name="plus" size={13} /> {tr('스텝 추가', 'Add step')}
           </button>
         </div>
+        {outs.length > 0 && (
+          <div className="rule-row">
+            <button type="button" className="btn small" onClick={fromOutputs} title={tr('어떤 출력이 켜져 있는지가 바뀔 때마다 스텝을 나눕니다 (UP → LEFT → 대기 …)', 'New step whenever the set of ON outputs changes')}>
+              <Icon name="wand" size={13} /> {tr('출력 조합으로 스텝 생성', 'Steps from outputs')}
+            </button>
+          </div>
+        )}
         {buses.length > 0 && (
           <div className="rule-row">
             <Select value={src} onChange={setSrc} options={sigOptions(buses)} />
@@ -428,6 +447,82 @@ function StepsTab() {
                 <td className="small">{r.step.description}</td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** 동작 순서표: 신호 변화를 시간 순으로 - "무엇이 켜지고 → 무엇이 꺼지는가" */
+function EventsTab() {
+  const project = useStore((s) => s.project);
+  const { revealTime, setCursor } = useStore.getState();
+  const [ioOnly, setIoOnly] = useState(true);
+  const hasIo = project.signals.some(isIoSignal);
+  const events = useMemo(() => sequenceEvents(project, ioOnly && hasIo ? isIoSignal : undefined), [project, ioOnly, hasIo]);
+  const u = project.settings.timeUnit;
+  let lastStep: string | null = null;
+  return (
+    <div className="events-tab">
+      <div className="events-head">
+        <span className="small muted">
+          {tr(`변화 ${events.length}건 · 행을 누르면 그 시각으로 이동`, `${events.length} changes · click a row to jump`)}
+        </span>
+        <span className="grow" />
+        {hasIo && (
+          <label className="check small">
+            <input type="checkbox" checked={ioOnly} onChange={(e) => setIoOnly(e.target.checked)} /> {tr('실제 입출력·설비만', 'Real I/O & equipment only')}
+          </label>
+        )}
+      </div>
+      <div className="card grow2 events-card">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>{tr('시각', 'Time')}</th>
+              <th>{tr('간격', 'Δt')}</th>
+              <th>{tr('주소', 'Address')}</th>
+              <th>{tr('신호', 'Signal')}</th>
+              <th>{tr('변화', 'Change')}</th>
+              <th>{tr('공정 스텝', 'Step')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {events.length === 0 && (
+              <tr>
+                <td colSpan={7} className="muted">
+                  {tr('신호 변화가 없습니다.', 'No signal changes.')}
+                </td>
+              </tr>
+            )}
+            {events.map((e, i) => {
+              const newStep = e.step && e.step.id !== lastStep;
+              lastStep = e.step?.id ?? null;
+              return (
+                <tr
+                  key={i}
+                  className={`clickable ${newStep ? 'step-start' : ''}`}
+                  onClick={() => {
+                    setCursor('A', e.t);
+                    revealTime(e.t);
+                  }}
+                >
+                  <td>{i + 1}</td>
+                  <td className="mono">{formatTime(e.t, u)}</td>
+                  <td className="mono muted">{e.dt !== null ? `+${formatTime(e.dt, u)}` : ''}</td>
+                  <td className="mono">{e.signal.address}</td>
+                  <td>
+                    <span className="lcolor" style={{ background: e.signal.color }} /> {e.signal.name}
+                  </td>
+                  <td>
+                    <span className={`ev ${e.kind}`}>{e.kind === 'on' ? `↑ ${e.value}` : e.kind === 'off' ? `↓ ${e.value}` : `= ${e.value}`}</span>
+                  </td>
+                  <td className="small">{newStep ? <b>{e.step!.label}</b> : e.step ? <span className="muted">〃</span> : ''}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

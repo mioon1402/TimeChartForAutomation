@@ -302,7 +302,7 @@ export function plcSamples(): PlcSample[] {
           newCylinderModel({ name: 'Y축 실린더', extend: 'P00042', extSensor: 'P00003', retSensor: 'P00004', extendTime: 600, retractTime: 600 }),
         ],
         watch: ['P00000', 'P00040', 'P00001', 'P00002', 'P00041', 'P00042', 'P00003', 'P00004', 'T0000', 'T0001', 'M00001', 'M00002', 'M00003', 'M00004', 'M00005', 'M00006', 'M00007', 'M00008'],
-        stepDevice: '',
+        stepDevice: '@OUTPUTS', // 켜진 출력 조합으로 공정 스텝 자동 생성
       },
     },
     {
@@ -322,7 +322,7 @@ export function plcSamples(): PlcSample[] {
         ],
         models: [newCylinderModel({ name: '푸셔 실린더', extend: 'Q4.1', extSensor: 'I0.4', retSensor: 'I0.3', extendTime: 300, retractTime: 300 })],
         watch: ['I0.0', 'I0.1', 'Q4.0', 'I0.2', 'T1', 'Q4.1', 'I0.4', 'I0.3', 'MW10'],
-        stepDevice: '',
+        stepDevice: '@OUTPUTS',
         autoTrim: false,
       },
     },

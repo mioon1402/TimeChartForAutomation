@@ -777,6 +777,10 @@ export class StRuntime implements PlcRuntime {
     this.set(this.lookupKey(d), v);
   }
 
+  writeWord(d: string, v: number): void {
+    this.set(this.lookupKey(d), v);
+  }
+
   private get(k: string): Val {
     const dot = k.indexOf('.');
     if (dot > 0 && !k.startsWith('%')) {

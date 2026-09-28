@@ -641,6 +641,38 @@ button.chip:hover {
   color: #c2410c;
 }
 
+.chip.axis {
+  background: #f5f3ff;
+  border-color: #c4b5fd;
+  color: #6d28d9;
+}
+
+.sub-list {
+  margin-top: 6px;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+}
+
+.sub-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.sub-row {
+  display: grid;
+  grid-template-columns: 1fr 90px 24px;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.sub-row.three {
+  grid-template-columns: 1fr 72px 72px 24px;
+}
+
 .chip.dly {
   background: #eff6ff;
   border-color: #93c5fd;
@@ -1229,6 +1261,41 @@ table.points .input {
   flex: 2;
 }
 
+.events-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+}
+
+.events-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.events-card {
+  flex: 1;
+  min-height: 0;
+}
+
+.events-card tr.step-start td {
+  border-top: 2px solid var(--border-strong);
+}
+
+.ev.on {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.ev.off {
+  color: var(--muted);
+}
+
+.ev.value {
+  color: var(--accent);
+}
+
 .card h4 {
   margin: 0 0 8px;
   font-size: 12.5px;
@@ -1557,6 +1624,41 @@ table.tbl tr.fail td {
 
 .watch-order {
   margin-top: 8px;
+}
+
+.watch-order-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-tag {
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.map-tag.in {
+  color: var(--ok);
+}
+
+.map-tag.out {
+  color: var(--accent);
+}
+
+.iomap {
+  margin-top: 6px;
+}
+
+.iomap .section-toggle {
+  padding: 6px 0;
+  flex-wrap: wrap;
+}
+
+.iomap-wrap {
+  flex: none;
+  min-height: 0;
+  max-height: 260px;
 }
 
 .watch-chips {
@@ -1996,6 +2098,10 @@ table.tbl tr.fail td {
 .rtable tfoot td {
   font-weight: 700;
   background: #f9fafb;
+}
+
+.rtable tr.step-start td {
+  border-top: 1.5px solid #6b7280;
 }
 
 .rtable .lcolor {

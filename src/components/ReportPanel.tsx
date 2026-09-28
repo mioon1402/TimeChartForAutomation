@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project, Signal } from '../model/types';
-import { checkRules, cycleSummary, signalStats, sigLabel, type RuleResult } from '../model/analysis';
+import { checkRules, cycleSummary, isIoSignal, sequenceEvents, signalStats, sigLabel, type RuleResult } from '../model/analysis';
 import { formatTime, todayString } from '../model/format';
 import { computeLayout } from '../render/layout';
 import { labelWidths } from '../render/ChartParts';
@@ -19,6 +19,8 @@ interface ReportOpts {
   chart: boolean;
   signals: boolean;
   steps: boolean;
+  /** 동작 순서표 (신호 변화 시간순) */
+  events: boolean;
   rules: boolean;
   annotations: boolean;
   /** 페이지당 시간 (0 = 한 페이지에 전체) */
@@ -34,7 +36,7 @@ const HEAD_MM = 9;
 const TITLEBLOCK_MM = 21;
 
 function loadOpts(): ReportOpts {
-  const def: ReportOpts = { paper: 'A4', orientation: 'landscape', cover: true, chart: true, signals: true, steps: true, rules: true, annotations: true, timePerPage: 0, grayscale: false, violations: true };
+  const def: ReportOpts = { paper: 'A4', orientation: 'landscape', cover: true, chart: true, signals: true, steps: true, events: true, rules: true, annotations: true, timePerPage: 0, grayscale: false, violations: true };
   try {
     return { ...def, ...JSON.parse(storageGet(OPTS_KEY) ?? '{}') };
   } catch {
@@ -118,6 +120,7 @@ export function ReportPanel() {
           <Check checked={o.chart} onChange={(v) => set({ chart: v })} label={tr('타임차트', 'Timing chart')} />
           <Check checked={o.signals} onChange={(v) => set({ signals: v })} label={tr('신호(I/O) 목록', 'Signal (I/O) list')} />
           <Check checked={o.steps} onChange={(v) => set({ steps: v })} label={tr('공정 스텝 · 사이클 타임', 'Steps & cycle time')} />
+          <Check checked={o.events} onChange={(v) => set({ events: v })} label={tr('동작 순서표 (입출력 변화 시간순)', 'Sequence of events')} />
           <Check checked={o.rules} onChange={(v) => set({ rules: v })} label={tr('타이밍 규칙 검증', 'Timing rule check')} />
           <Check checked={o.annotations} onChange={(v) => set({ annotations: v })} label={tr('인터록 · 주석 목록', 'Interlocks & notes')} />
           <Check checked={o.violations} onChange={(v) => set({ violations: v })} label={tr('차트에 규칙 위반 표시', 'Highlight violations')} />
@@ -501,6 +504,46 @@ function buildPages(project: Project, o: ReportOpts, size: { w: number; h: numbe
               )}
             </table>
           </div>
+        ),
+      }),
+    );
+  }
+
+  if (o.events) {
+    const hasIo = visible.some(isIoSignal);
+    const evs = sequenceEvents(project, hasIo ? isIoSignal : undefined);
+    const rows = evs.map((e, i) => ({ e, i, newStep: !!e.step && (i === 0 || evs[i - 1].step?.id !== e.step.id) }));
+    chunk(rows, tableRows).forEach((part, pi, all) =>
+      pages.push({
+        kind: 'events',
+        title: tr('동작 순서표', 'Sequence of events') + (hasIo ? tr(' (실제 입출력)', ' (real I/O)') : '') + (all.length > 1 ? ` (${pi + 1}/${all.length})` : ''),
+        body: (
+          <table className="rtable">
+            <thead>
+              <tr>
+                <th>No</th>
+                <th>{tr('시각', 'Time')}</th>
+                <th>{tr('간격', 'Δt')}</th>
+                <th>{tr('공정 스텝', 'Step')}</th>
+                <th>{tr('주소', 'Address')}</th>
+                <th>{tr('신호명', 'Name')}</th>
+                <th>{tr('변화', 'Change')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {part.map(({ e, i, newStep }) => (
+                <tr key={i} className={newStep ? 'step-start' : ''}>
+                  <td>{i + 1}</td>
+                  <td className="mono">{formatTime(e.t, u)}</td>
+                  <td className="mono">{e.dt !== null ? `+${formatTime(e.dt, u)}` : ''}</td>
+                  <td>{newStep ? <b>{e.step!.label}</b> : ''}</td>
+                  <td className="mono">{e.signal.address}</td>
+                  <td>{e.signal.name}</td>
+                  <td>{e.kind === 'on' ? `↑ ${e.value}` : e.kind === 'off' ? `↓ ${e.value}` : `= ${e.value}`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ),
       }),
     );

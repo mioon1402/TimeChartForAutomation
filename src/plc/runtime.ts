@@ -6,6 +6,8 @@ export interface PlcRuntime {
   readBit(d: string): boolean;
   writeBit(d: string, v: boolean): void;
   readWord(d: string): number;
+  /** 설비 모델이 워드/카운터 현재값을 쓸 때 (엔코더 등) */
+  writeWord(d: string, v: number): void;
   /** 트레이스용 값 (비트 → boolean, 워드 → number) */
   readValue(d: string): boolean | number;
   valueType(d: string): 'bit' | 'word';
@@ -252,6 +254,20 @@ export class IlRuntime implements PlcRuntime {
 
   writeBit(d: string, v: boolean): void {
     this.mem.setBit(d, v);
+  }
+
+  writeWord(d: string, v: number): void {
+    if (isCounterDevice(d, this.dialect)) {
+      let c = this.counters.get(d);
+      if (!c) {
+        c = { cv: 0, q: false, prevIn: false, preset: 0, init: true };
+        this.counters.set(d, c);
+      }
+      c.cv = Math.trunc(v);
+      return;
+    }
+    if (isTimerDevice(d, this.dialect)) return;
+    this.mem.setWord(d, Math.trunc(v));
   }
 
   readWord(d: string): number {
@@ -624,6 +640,11 @@ export class StlRuntime implements PlcRuntime {
 
   writeBit(d: string, v: boolean): void {
     this.mem.setBit(d, v);
+  }
+
+  writeWord(d: string, v: number): void {
+    if (/^C\d+$/.test(d)) this.counter(d).cv = Math.trunc(v);
+    else if (!/^T\d+$/.test(d)) this.mem.setWord(d, Math.trunc(v));
   }
 
   readWord(d: string): number {

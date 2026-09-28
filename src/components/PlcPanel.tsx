@@ -3,12 +3,13 @@ import { useStore } from '../store/store';
 import { defaultSimSettings, type DeviceInfo, type MachineModel, type PlcConfig, type PlcDialect, type PulseDef, type SimSettings, type Stimulus } from '../plc/types';
 import { detectDialect, dialectName, parseProgram, type ParsedProgram } from '../plc/program';
 import { parseDeviceComments } from '../plc/comments';
-import { applySimulation, defaultWatch, newCylinderModel, newDelayModel, runSimulation, suggestStimuli, type SimResult } from '../plc/simulator';
+import { applySimulation, defaultWatch, newAxisModel, newCylinderModel, newDelayModel, OUTPUT_STEPS, realOutputs, runSimulation, suggestStimuli, type SimResult } from '../plc/simulator';
+import { swapToRealIo } from '../plc/alias';
 import { plcSamples } from '../plc/samples';
 import { formatTime } from '../model/format';
 import { pickFile } from '../io/files';
 import { readProgramFile } from './programFile';
-import { Check, Field, Icon, Select, TimeInput } from './ui';
+import { Check, Field, Icon, NumberInput, Select, TimeInput } from './ui';
 import { roleOptions } from './PropertiesPanel';
 import { tr } from '../i18n';
 
@@ -94,7 +95,7 @@ export function PlcPanel() {
     const dialect = /\.(st|scl)$/i.test(f.name) ? 'st' : /\.(awl|stl)$/i.test(f.name) ? 'siemens' : detectDialect(r.text);
     const parsed = parseProgram(r.text, dialect);
     // 새 프로그램: 이전 프로그램의 디바이스 코멘트는 비운다
-    setCfg({ dialect, source: r.text, comments: '', sim: { ...defaultSimSettings(), duration: sim.duration, scanTime: sim.scanTime, watch: defaultWatch(parsed), stimuli: suggestStimuli(parsed), stepDevice: parsed.stepCandidates[0] ?? '' } });
+    setCfg({ dialect, source: r.text, comments: '', sim: { ...defaultSimSettings(), duration: sim.duration, scanTime: sim.scanTime, watch: defaultWatch(parsed), stimuli: suggestStimuli(parsed), stepDevice: defaultStepDevice(parsed) } });
     toast(
       tr(`${f.name} 불러옴 (${dialectName(dialect)}): 명령 ${parsed.size}개, 디바이스 ${parsed.devices.length}개`, `Loaded ${f.name} (${dialectName(dialect)}): ${parsed.size} instructions`),
       parsed.size ? 'ok' : 'warn',
@@ -112,7 +113,7 @@ export function PlcPanel() {
   };
 
   const autoSetup = () => {
-    setSim({ watch: defaultWatch(prog), stimuli: suggestStimuli(prog), stepDevice: prog.stepCandidates[0] ?? sim.stepDevice });
+    setSim({ watch: defaultWatch(prog), stimuli: suggestStimuli(prog), stepDevice: sim.stepDevice || defaultStepDevice(prog) });
     toast(tr('표시 디바이스와 입력 자극을 자동 설정했습니다', 'Auto-configured watch list and stimuli'), 'ok');
   };
 
@@ -155,7 +156,7 @@ export function PlcPanel() {
 
   const watchSet = new Set(sim.watch);
   const stimOf = (d: string) => sim.stimuli.find((s) => s.device === d);
-  const modelTargets = new Set(sim.models.flatMap((m) => (m.type === 'cylinder' ? [m.extSensor, m.retSensor] : [m.target])).filter(Boolean));
+  const modelTargets = new Set(sim.models.flatMap((m) => (m.type === 'cylinder' ? [m.extSensor, m.retSensor] : m.type === 'axis' ? m.sensors.map((x) => x.device) : [m.target])).filter(Boolean));
   const setStim = (d: string, s: Stimulus | null) => setSim({ stimuli: [...sim.stimuli.filter((x) => x.device !== d), ...(s ? [s] : [])] });
   const toggleWatch = (d: string, on: boolean) => {
     const order = prog.devices.map((x) => x.name);
@@ -164,6 +165,12 @@ export function PlcPanel() {
     const existing = sim.watch.filter((x) => next.includes(x));
     const added = next.filter((x) => !sim.watch.includes(x)).sort((a, b) => order.indexOf(a) - order.indexOf(b));
     setSim({ watch: [...existing, ...added] });
+  };
+  const mappedInWatch = prog.ioLinks.length ? swapToRealIo(sim.watch, prog.ioLinks).swapped : 0;
+  const swapWatch = () => {
+    const r = swapToRealIo(sim.watch, prog.ioLinks);
+    setSim({ watch: r.watch });
+    toast(tr(`매핑 릴레이 ${r.swapped}개를 실제 I/O 로 바꿨습니다`, `Replaced ${r.swapped} mapped relays with real I/O`), 'ok');
   };
   const moveWatch = (d: string, dir: -1 | 1) => {
     const i = sim.watch.indexOf(d);
@@ -181,10 +188,11 @@ export function PlcPanel() {
   const stepOpts = [
     { value: '', label: tr('(스텝 자동 생성 안 함)', '(no steps)') },
     ...(prog.stepCandidates.includes('@STL') ? [{ value: '@STL', label: tr('STL 스텝 릴레이 (S)', 'STL step relays (S)') }] : []),
+    ...(realOutputs(prog).length ? [{ value: OUTPUT_STEPS, label: tr('출력 조합으로 자동 (켜진 출력 = 공정)', 'From output combinations') }] : []),
     ...wordDevs.map((d) => ({ value: d.name, label: `${d.name}${d.comment ? '  ' + d.comment : ''}${prog.stepCandidates.includes(d.name) ? tr('  ★추천', '  ★suggested') : ''}` })),
   ];
   const q = filter.trim().toUpperCase();
-  const shownDevices = prog.devices.filter((d) => !q || d.name.toUpperCase().includes(q) || d.comment.toUpperCase().includes(q));
+  const shownDevices = prog.devices.filter((d) => !q || d.name.toUpperCase().includes(q) || d.comment.toUpperCase().includes(q) || (d.alias ?? '').toUpperCase().includes(q) || (d.drives ?? '').toUpperCase().includes(q));
 
   return (
     <div className="plc">
@@ -309,6 +317,16 @@ export function PlcPanel() {
                     <td className="mono">
                       {d.name}
                       {d.address && <div className="muted small">{d.address}</div>}
+                      {d.alias && (
+                        <div className="map-tag in" title={tr('실제 I/O 를 그대로 복사해 쓰는 매핑 릴레이', 'Relay that copies real I/O')}>
+                          = {d.alias}
+                        </div>
+                      )}
+                      {d.drives && (
+                        <div className="map-tag out" title={tr('이 릴레이가 그대로 켜는 실제 출력', 'Real output driven by this relay')}>
+                          → {d.drives}
+                        </div>
+                      )}
                     </td>
                     <td className="small">{d.comment}</td>
                     <td className="small">{roleOptions().find((o) => o.value === d.role)?.label.split(' ')[0] ?? d.role}</td>
@@ -326,9 +344,18 @@ export function PlcPanel() {
             </tbody>
           </table>
         </div>
+        {prog.ioLinks.length > 0 && <IoMapTable prog={prog} watch={watchSet} onToggle={toggleWatch} />}
         {sim.watch.length > 0 && (
           <div className="watch-order">
-            <div className="small muted">{tr('차트 행 순서', 'Chart row order')}</div>
+            <div className="watch-order-head">
+              <span className="small muted">{tr('차트 행 순서', 'Chart row order')}</span>
+              <span className="grow" />
+              {mappedInWatch > 0 && (
+                <button type="button" className="btn small" onClick={swapWatch} title={tr('M 릴레이로 매핑된 신호를 실제 입력/출력(P)으로 바꿔서 표시', 'Show the real I/O instead of mapping relays')}>
+                  <Icon name="wand" size={13} /> {tr(`실제 I/O로 바꾸기 (${mappedInWatch})`, `Use real I/O (${mappedInWatch})`)}
+                </button>
+              )}
+            </div>
             <div className="watch-chips">
               {sim.watch.map((w, i) => (
                 <span key={w} className="chip">
@@ -387,6 +414,9 @@ export function PlcPanel() {
           <button type="button" className="btn small" onClick={() => setSim({ models: [...sim.models, newDelayModel({ name: tr(`응답 ${sim.models.length + 1}`, `Response ${sim.models.length + 1}`) })] })}>
             <Icon name="plus" size={13} /> {tr('지연 응답', 'Delay')}
           </button>
+          <button type="button" className="btn small" title={tr('크레인 주행·횡행·권상, 컨베이어처럼 위치가 움직이는 축 (엔코더/리밋 스위치)', 'Moving axis with encoder / limit switches')} onClick={() => setSim({ models: [...sim.models, newAxisModel({ name: tr(`축 ${sim.models.length + 1} 위치`, `Axis ${sim.models.length + 1}`) })] })}>
+            <Icon name="plus" size={13} /> {tr('위치 축', 'Axis')}
+          </button>
         </div>
         <p className="muted small hint">{tr('출력(솔레노이드)이 켜지면 동작 시간 뒤 센서 입력이 자동으로 ON 됩니다. 실린더 동작은 경사선으로 차트에 표시됩니다.', 'Sensors respond automatically to outputs after the motion time; cylinder strokes are drawn as slopes.')}</p>
         <div className="models">
@@ -396,6 +426,7 @@ export function PlcPanel() {
               m={m}
               outOpts={devOpts(outputs)}
               inOpts={devOpts(inputs)}
+              wordOpts={devOpts(prog.devices.filter((d) => d.type === 'counter' || d.type === 'word'))}
               onChange={(nm) => setSim({ models: sim.models.map((x) => (x.id === m.id ? nm : x)) })}
               onRemove={() => setSim({ models: sim.models.filter((x) => x.id !== m.id) })}
             />
@@ -422,6 +453,69 @@ export function PlcPanel() {
           {tr('PLC 설정 초기화', 'Reset PLC config')}
         </button>
       </div>
+    </div>
+  );
+}
+
+function defaultStepDevice(p: ParsedProgram): string {
+  return p.stepCandidates[0] ?? (realOutputs(p).length ? OUTPUT_STEPS : '');
+}
+
+/** I/O 매핑표: 실제 I/O ↔ 프로그램 안에서 쓰는 M 릴레이 */
+function IoMapTable({ prog, watch, onToggle }: { prog: ParsedProgram; watch: Set<string>; onToggle: (d: string, on: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const info = new Map(prog.devices.map((d) => [d.name, d]));
+  const rows = useMemo(() => {
+    const m = new Map<string, { io: string; ins: string[]; outs: string[] }>();
+    for (const l of prog.ioLinks) {
+      const r = m.get(l.io) ?? { io: l.io, ins: [], outs: [] };
+      (l.dir === 'in' ? r.ins : r.outs).push(`${l.invert ? 'NOT ' : ''}${l.relay}`);
+      m.set(l.io, r);
+    }
+    const order = prog.devices.map((d) => d.name);
+    return [...m.values()].sort((a, b) => order.indexOf(a.io) - order.indexOf(b.io));
+  }, [prog]);
+  return (
+    <div className="iomap">
+      <button type="button" className="section-toggle" onClick={() => setOpen(!open)}>
+        <span className="caret">{open ? '▾' : '▸'}</span> {tr('I/O 매핑표', 'I/O mapping')} · {rows.length}
+        <span className="muted small"> {tr('— 실제 입출력(P)을 프로그램 안에서 어떤 M 릴레이로 쓰는지', '— which relays stand for each real I/O point')}</span>
+      </button>
+      {open && (
+        <div className="dev-table-wrap iomap-wrap">
+          <table className="tbl dev-table">
+            <thead>
+              <tr>
+                <th>✔</th>
+                <th>{tr('실제 I/O', 'Real I/O')}</th>
+                <th>{tr('설명', 'Comment')}</th>
+                <th>{tr('프로그램에서 쓰는 릴레이', 'Relays in program')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const d = info.get(r.io);
+                return (
+                  <tr key={r.io} className={watch.has(r.io) ? 'on' : ''}>
+                    <td>
+                      <input type="checkbox" checked={watch.has(r.io)} onChange={(e) => onToggle(r.io, e.target.checked)} />
+                    </td>
+                    <td className="mono">
+                      {r.io}
+                      <div className="muted small">{d?.role === 'output' ? tr('출력', 'output') : tr('입력', 'input')}</div>
+                    </td>
+                    <td className="small">{d?.comment}</td>
+                    <td className="mono small">
+                      {r.ins.length > 0 && <div className="map-tag in">{r.ins.join(', ')}</div>}
+                      {r.outs.length > 0 && <div className="map-tag out">{r.outs.join(', ')} → {r.io}</div>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -472,17 +566,18 @@ function StimEditor({ device, stim, onChange }: { device: string; stim: Stimulus
   );
 }
 
-function ModelCard({ m, outOpts, inOpts, onChange, onRemove }: { m: MachineModel; outOpts: { value: string; label: string }[]; inOpts: { value: string; label: string }[]; onChange: (m: MachineModel) => void; onRemove: () => void }) {
+function ModelCard({ m, outOpts, inOpts, wordOpts, onChange, onRemove }: { m: MachineModel; outOpts: { value: string; label: string }[]; inOpts: { value: string; label: string }[]; wordOpts: { value: string; label: string }[]; onChange: (m: MachineModel) => void; onRemove: () => void }) {
+  const kindLabel = m.type === 'cylinder' ? tr('실린더', 'Cylinder') : m.type === 'axis' ? tr('위치 축', 'Axis') : tr('지연', 'Delay');
   return (
     <div className="model-card">
       <div className="model-head">
-        <span className={`chip ${m.type === 'cylinder' ? 'cyl' : 'dly'}`}>{m.type === 'cylinder' ? tr('실린더', 'Cylinder') : tr('지연', 'Delay')}</span>
+        <span className={`chip ${m.type === 'cylinder' ? 'cyl' : m.type === 'axis' ? 'axis' : 'dly'}`}>{kindLabel}</span>
         <input className="input model-name" value={m.name} onChange={(e) => onChange({ ...m, name: e.target.value })} />
         <button type="button" className="mini-btn danger" onClick={onRemove} title={tr('삭제', 'Delete')}>
           <Icon name="trash" size={13} />
         </button>
       </div>
-      {m.type === 'cylinder' ? (
+      {m.type === 'cylinder' && (
         <div className="grid2">
           <Field label={tr('전진 출력', 'Extend output')}>
             <Select value={m.extend} onChange={(v) => onChange({ ...m, extend: v })} options={outOpts} />
@@ -506,7 +601,73 @@ function ModelCard({ m, outOpts, inOpts, onChange, onRemove }: { m: MachineModel
             <Select value={String(m.initial)} onChange={(v) => onChange({ ...m, initial: v === '1' ? 1 : 0 })} options={[{ value: '0', label: tr('후진', 'Retracted') }, { value: '1', label: tr('전진', 'Extended') }]} />
           </Field>
         </div>
-      ) : (
+      )}
+      {m.type === 'axis' && (
+        <>
+          <div className="grid2">
+            <Field label={tr('정방향 출력 (위치 +)', 'Forward output (+)')}>
+              <Select value={m.fwd} onChange={(v) => onChange({ ...m, fwd: v })} options={outOpts} />
+            </Field>
+            <Field label={tr('역방향 출력 (위치 −)', 'Reverse output (−)')}>
+              <Select value={m.rev} onChange={(v) => onChange({ ...m, rev: v })} options={outOpts} />
+            </Field>
+            <Field label={tr('기본 속도 (단위/초)', 'Base speed (units/s)')}>
+              <NumberInput value={m.speed} min={0} onChange={(v) => onChange({ ...m, speed: v ?? 0 })} />
+            </Field>
+            <Field label={tr('단위', 'Unit')}>
+              <input className="input" value={m.unit} placeholder="pulse, mm" onChange={(e) => onChange({ ...m, unit: e.target.value })} />
+            </Field>
+            <Field label={tr('최소 위치', 'Min')}>
+              <NumberInput value={m.min} onChange={(v) => onChange({ ...m, min: v ?? 0 })} />
+            </Field>
+            <Field label={tr('최대 위치', 'Max')}>
+              <NumberInput value={m.max} onChange={(v) => onChange({ ...m, max: v ?? 0 })} />
+            </Field>
+            <Field label={tr('시작 위치', 'Initial')}>
+              <NumberInput value={m.initial} onChange={(v) => onChange({ ...m, initial: v ?? 0 })} />
+            </Field>
+            <Field label={tr('엔코더 (카운터/워드)', 'Encoder (counter/word)')} hint={tr('위치 값을 여기에 써 줍니다', 'Position is written here')}>
+              <Select value={m.counter} onChange={(v) => onChange({ ...m, counter: v })} options={wordOpts} />
+            </Field>
+          </div>
+          <div className="sub-list">
+            <div className="sub-head">
+              <span>{tr('속도 선택 출력 (먼저 켜진 것 적용)', 'Speed outputs (first ON wins)')}</span>
+              <button type="button" className="mini-btn" title={tr('추가', 'Add')} onClick={() => onChange({ ...m, speeds: [...m.speeds, { device: '', speed: m.speed * 2 }] })}>
+                <Icon name="plus" size={12} />
+              </button>
+            </div>
+            {m.speeds.map((sp, i) => (
+              <div key={i} className="sub-row">
+                <Select value={sp.device} onChange={(v) => onChange({ ...m, speeds: m.speeds.map((x, j) => (j === i ? { ...x, device: v } : x)) })} options={outOpts} />
+                <NumberInput value={sp.speed} min={0} onChange={(v) => onChange({ ...m, speeds: m.speeds.map((x, j) => (j === i ? { ...x, speed: v ?? 0 } : x)) })} />
+                <button type="button" className="mini-btn" onClick={() => onChange({ ...m, speeds: m.speeds.filter((_, j) => j !== i) })}>
+                  <Icon name="x" size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="sub-list">
+            <div className="sub-head">
+              <span>{tr('리밋 스위치 / 위치 센서 (구간 안에서 ON)', 'Limit switches (ON inside range)')}</span>
+              <button type="button" className="mini-btn" title={tr('추가', 'Add')} onClick={() => onChange({ ...m, sensors: [...m.sensors, { device: '', from: m.max, to: m.max }] })}>
+                <Icon name="plus" size={12} />
+              </button>
+            </div>
+            {m.sensors.map((sn, i) => (
+              <div key={i} className="sub-row three">
+                <Select value={sn.device} onChange={(v) => onChange({ ...m, sensors: m.sensors.map((x, j) => (j === i ? { ...x, device: v } : x)) })} options={inOpts} />
+                <NumberInput value={sn.from} onChange={(v) => onChange({ ...m, sensors: m.sensors.map((x, j) => (j === i ? { ...x, from: v ?? 0 } : x)) })} />
+                <NumberInput value={sn.to} onChange={(v) => onChange({ ...m, sensors: m.sensors.map((x, j) => (j === i ? { ...x, to: v ?? 0 } : x)) })} />
+                <button type="button" className="mini-btn" onClick={() => onChange({ ...m, sensors: m.sensors.filter((_, j) => j !== i) })}>
+                  <Icon name="x" size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {m.type === 'delay' && (
         <div className="grid2">
           <Field label={tr('원인 (출력)', 'Source')}>
             <Select value={m.source} onChange={(v) => onChange({ ...m, source: v })} options={outOpts} />
@@ -526,5 +687,3 @@ function ModelCard({ m, outOpts, inOpts, onChange, onRemove }: { m: MachineModel
     </div>
   );
 }
-
-

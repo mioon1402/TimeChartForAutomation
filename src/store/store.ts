@@ -44,7 +44,7 @@ interface State {
   hoverT: number | null;
   lang: Lang;
   theme: 'light' | 'dark';
-  bottom: 'analysis' | 'rules' | 'steps' | null;
+  bottom: 'analysis' | 'rules' | 'steps' | 'events' | null;
   showProps: boolean;
   toasts: Toast[];
   /** 차트 편집 영역 가로 폭 (px) - 화면 맞춤에 사용 */

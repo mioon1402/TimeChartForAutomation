@@ -3,6 +3,7 @@ import { parseIl } from './il';
 import { parseStl } from './stl';
 import { analyzeSt, parseSt, StRuntime } from './st';
 import { IlRuntime, StlRuntime, type PlcRuntime } from './runtime';
+import { resolveAliases, aliasText, ioLinks, type Alias, type IoLink } from './alias';
 import { compareDevices, deviceRole, deviceType, isConstant, isSpecialDevice, isStepRelay } from './devices';
 
 export interface ParsedProgram {
@@ -15,6 +16,10 @@ export interface ParsedProgram {
   size: number;
   /** 스텝 디바이스 → 값 → 이름 (코드 주석에서) */
   stepNames: Map<string, Map<string, string>>;
+  /** I/O 매핑 릴레이 → 원본 (M00440 → P00019) */
+  aliases: Map<string, Alias>;
+  /** 내부 릴레이 ↔ 실제 I/O 연결 (입력 매핑 / 출력 매핑) */
+  ioLinks: IoLink[];
   createRuntime(settings: SimSettings): PlcRuntime;
 }
 
@@ -60,6 +65,20 @@ function analyzeIl(instrs: Instr[], dialect: PlcDialect): { devices: DeviceInfo[
     else info.written = true;
   };
   const cmpCount = new Map<string, number>();
+  /** 써 넣는 0 아닌 상수 값들 (스텝 레지스터는 MOV K10 D100, MOV K20 D100 처럼 여러 스텝 번호를 쓴다) */
+  const movVals = new Map<string, Set<string>>();
+  const movConst = (src: string | undefined, dst: string | undefined) => {
+    if (!dst || !src || !isConstant(src)) return;
+    cmpCount.set(dst, (cmpCount.get(dst) ?? 0) + 1);
+    const v = src.replace(/^[A-Za-z]+#/, '').replace(/^[KkHh]/, '');
+    if (!/^0+$/.test(v)) movVals.set(dst, (movVals.get(dst) ?? new Set()).add(v));
+  };
+  /** 상수와 비교한 횟수 */
+  const cmpConst = new Map<string, number>();
+  const cmpWith = (d: string) => {
+    cmpCount.set(d, (cmpCount.get(d) ?? 0) + 1);
+    cmpConst.set(d, (cmpConst.get(d) ?? 0) + 1);
+  };
   let hasStl = false;
   for (let i = 0; i < instrs.length; i++) {
     const I = instrs[i];
@@ -71,7 +90,7 @@ function analyzeIl(instrs: Instr[], dialect: PlcDialect): { devices: DeviceInfo[
         if (I.cmp) {
           touch(a[0], 'r', I.line);
           touch(a[1], 'r', I.line);
-          if (isConstant(a[1] ?? '') && !isConstant(a[0])) cmpCount.set(a[0], (cmpCount.get(a[0]) ?? 0) + 1);
+          if (isConstant(a[1] ?? '') && !isConstant(a[0])) cmpWith(a[0]);
         } else touch(a[0], 'r', I.line);
         break;
       case 'OUT':
@@ -91,7 +110,7 @@ function analyzeIl(instrs: Instr[], dialect: PlcDialect): { devices: DeviceInfo[
       case 'MOV':
         touch(a[0], 'r', I.line);
         touch(a[1], 'w', I.line);
-        if (isConstant(a[0])) cmpCount.set(a[1], (cmpCount.get(a[1]) ?? 0) + 1);
+        movConst(a[0], a[1]);
         break;
       case 'INC':
       case 'DEC':
@@ -143,13 +162,13 @@ function analyzeIl(instrs: Instr[], dialect: PlcDialect): { devices: DeviceInfo[
         const n1 = instrs[i + 1];
         const n2 = instrs[i + 2];
         if (n1?.op === 'L' && n2 && /^(==|<>|>=|<=|>|<)[IDR]$/.test(n2.op) && isConstant(n1.args[0]) && !isConstant(a[0])) {
-          cmpCount.set(a[0], (cmpCount.get(a[0]) ?? 0) + 1);
+          cmpWith(a[0]);
         }
         break;
       }
       case 'T':
         touch(a[0], 'w', I.line);
-        if (i > 0 && instrs[i - 1].op === 'L' && isConstant(instrs[i - 1].args[0])) cmpCount.set(a[0], (cmpCount.get(a[0]) ?? 0) + 1);
+        if (i > 0 && instrs[i - 1].op === 'L') movConst(instrs[i - 1].args[0], a[0]);
         break;
     }
   }
@@ -163,7 +182,13 @@ function analyzeIl(instrs: Instr[], dialect: PlcDialect): { devices: DeviceInfo[
     }
     return d;
   });
-  const steps = [...cmpCount.entries()].filter(([, n]) => n >= 2).sort((x, y) => y[1] - x[1]).map(([d]) => d);
+  // 스텝 후보: 상수와 여러 번 비교/대입하고, 0 아닌 스텝 번호를 써 넣는 워드
+  //  (서로 다른 값 2개 이상, 또는 값 1개 + 상수 비교) - 엔코더 비교만 있거나 설정값 한 개만 쓰는 워드는 제외
+  const isStepWord = (d: string) => {
+    const vals = movVals.get(d)?.size ?? 0;
+    return vals >= 2 || (vals >= 1 && (cmpConst.get(d) ?? 0) >= 1);
+  };
+  const steps = [...cmpCount.entries()].filter(([d, n]) => n >= 2 && isStepWord(d)).sort((x, y) => y[1] - x[1]).map(([d]) => d);
   if (hasStl) steps.unshift('@STL');
   return { devices, steps };
 }
@@ -194,6 +219,8 @@ export function parseProgram(text: string, dialect: PlcDialect, comments?: Map<s
       devices: sortDevices(applyComments(devices, new Map())),
       stepCandidates: caseSelectors,
       stepNames,
+      aliases: new Map(),
+      ioLinks: [],
       size: prog.body.length,
       createRuntime: () => new StRuntime(prog),
     };
@@ -217,6 +244,8 @@ export function parseProgram(text: string, dialect: PlcDialect, comments?: Map<s
       devices: sortDevices(applyComments(devices, r.inlineComments)),
       stepCandidates: steps,
       stepNames: new Map(),
+      aliases: new Map(),
+      ioLinks: [],
       size: r.instrs.length,
       createRuntime: () => new StlRuntime(r.instrs, r.labels),
     };
@@ -224,15 +253,62 @@ export function parseProgram(text: string, dialect: PlcDialect, comments?: Map<s
   const r = parseIl(text, dialect);
   const { devices, steps } = analyzeIl(r.instrs, dialect);
   if (!r.instrs.length && text.trim()) r.messages.push({ line: 1, message: '인식된 명령이 없습니다. PLC 종류를 확인하세요.', severity: 'error' });
+  const aliases = resolveAliases(r.instrs, dialect);
+  const mapped = withAliases(applyComments(devices, r.inlineComments), aliases);
   return {
     dialect,
     messages: r.messages,
-    devices: sortDevices(applyComments(devices, r.inlineComments)),
+    devices: sortDevices(mapped.devices),
     stepCandidates: steps,
     stepNames: new Map(),
+    aliases,
+    ioLinks: mapped.links,
     size: r.instrs.length,
     createRuntime: (settings) => new IlRuntime(r.instrs, r.labels, dialect, settings),
   };
+}
+
+/** 실제 I/O (입력/출력 역할의 비트) */
+function isRealIo(d: DeviceInfo | undefined): boolean {
+  return !!d && d.type === 'bit' && (d.role === 'input' || d.role === 'output');
+}
+
+/** 매핑 릴레이에 원본 표시, 설명이 비어 있으면 서로 채워 준다 */
+function withAliases(devices: DeviceInfo[], aliases: Map<string, Alias>): { devices: DeviceInfo[]; links: IoLink[] } {
+  if (!aliases.size) return { devices, links: [] };
+  const byName = new Map(devices.map((d) => [d.name, d]));
+  // 타이머/카운터 접점은 릴레이로 보지 않음 (T0051 → 램프 같은 연결은 제외)
+  const links = ioLinks(aliases, (n) => isRealIo(byName.get(n)), (n) => byName.get(n)?.type === 'bit');
+  const drives = new Map<string, string>();
+  const relays = new Map<string, string[]>();
+  for (const l of links) {
+    if (l.dir === 'out' && !drives.has(l.relay)) drives.set(l.relay, `${l.invert ? 'NOT ' : ''}${l.io}`);
+    if (l.dir === 'in') relays.set(l.io, [...(relays.get(l.io) ?? []), l.relay]);
+  }
+  const out = devices.map((d) => {
+    const a = aliases.get(d.name);
+    const next: DeviceInfo = { ...d };
+    // 실제 I/O 자체의 "= M…" 은 표시하지 않음 (출력은 drives 로 반대편에 표시)
+    if (a && !isRealIo(d)) {
+      next.alias = aliasText(a);
+      next.comment = d.comment || byName.get(a.source)?.comment || '';
+    }
+    const dv = drives.get(d.name);
+    if (dv) {
+      next.drives = dv;
+      next.comment = next.comment || byName.get(dv.replace(/^NOT /, ''))?.comment || '';
+    }
+    const rs = relays.get(d.name);
+    if (rs) next.relays = rs;
+    return next;
+  });
+  // 출력의 설명이 비어 있으면 켜 주는 릴레이 설명으로
+  for (const d of out) {
+    if (d.comment || !isRealIo(d) || d.role !== 'output') continue;
+    const l = links.find((x) => x.dir === 'out' && x.io === d.name && byName.get(x.relay)?.comment);
+    if (l) d.comment = byName.get(l.relay)!.comment;
+  }
+  return { devices: out, links };
 }
 
 export { isStepRelay };

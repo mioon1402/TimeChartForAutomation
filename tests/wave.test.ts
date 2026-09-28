@@ -12,8 +12,9 @@ import {
   valueAt,
 } from '../src/model/wave';
 import { formatTime, parseTime } from '../src/model/format';
-import { checkRules, cycleSummary, measureDelays, signalStats } from '../src/model/analysis';
+import { checkRules, cycleSummary, measureDelays, sequenceEvents, signalStats, stepsFromOutputs } from '../src/model/analysis';
 import { migrateProject, sampleProject } from '../src/model/project';
+import type { WavePoint } from '../src/model/types';
 
 describe('wave ops', () => {
   it('normalizes: sorts, dedupes, ensures t=0', () => {
@@ -143,5 +144,46 @@ describe('analysis', () => {
     const q = migrateProject(JSON.parse(JSON.stringify(p)));
     expect(q.signals.length).toBe(p.signals.length);
     expect(q.signals[2].points).toEqual(p.signals[2].points);
+  });
+});
+
+describe('process view', () => {
+  const on = (a: number, b: number): WavePoint[] => [{ t: 0, v: 0 }, { t: a, v: 1 }, { t: b, v: 0 }];
+  it('splits steps by output combinations, absorbing short overlaps', () => {
+    const t = (id: string, name: string, points: WavePoint[], rank?: 0 | 1) => ({ id, name, address: id, points, rank });
+    const tracks = [
+      t('P20', '전원 MC', [{ t: 0, v: 0 }, { t: 100, v: 1 }]), // 거의 항상 ON → 제외
+      t('P21', 'UP', on(1000, 10000)),
+      t('P22', '브레이크 해제', on(950, 10100)), // 브레이크가 모터보다 조금 먼저 풀리고 늦게 잠김
+      t('P23', 'SLOW', on(8000, 10000)),
+      t('P24', 'LEFT', on(12000, 17000)),
+      t('P25', '운전 램프', on(1000, 17000)), // 램프 → 제외
+      t('P26', '센터 도착', [{ t: 0, v: 0 }, { t: 17000, v: 1 }]), // 도중에 켜져 끝까지 = 상태 → 제외
+      t('P27', '', [{ t: 0, v: 0 }]), // 한 번도 안 켜짐
+    ];
+    const steps = stepsFromOutputs(tracks, 20000);
+    // 먼저 켜진 출력 두 개로 이름 → SLOW 가 더해져도 이름이 같으므로 한 스텝
+    expect(steps.map((s) => [s.label, s.start, s.end])).toEqual([
+      ['브레이크 해제 + UP', 950, 10100],
+      ['대기', 10100, 12000],
+      ['LEFT', 12000, 17000],
+    ]);
+    // 설비 모델의 동작/속도 출력이 있으면 그 이름으로
+    const ranked = stepsFromOutputs(tracks.map((x) => (x.id === 'P21' || x.id === 'P24' ? { ...x, rank: 0 as const } : x.id === 'P23' ? { ...x, rank: 1 as const } : x)), 20000);
+    expect(ranked.map((s) => s.label)).toEqual(['UP', 'UP + SLOW', '대기', 'LEFT']);
+    expect(ranked[1].description).toContain('P22 브레이크 해제');
+  });
+
+  it('lists signal changes in time order with the step they belong to', () => {
+    const p = sampleProject();
+    const evs = sequenceEvents(p);
+    expect(evs.length).toBeGreaterThan(3);
+    for (let i = 1; i < evs.length; i++) {
+      expect(evs[i].t).toBeGreaterThanOrEqual(evs[i - 1].t);
+      expect(evs[i].dt).toBeCloseTo(evs[i].t - evs[i - 1].t, 6);
+    }
+    expect(evs[0].dt).toBeNull();
+    const bitEv = evs.find((e) => e.signal.kind === 'bit')!;
+    expect(['on', 'off']).toContain(bitEv.kind);
   });
 });
