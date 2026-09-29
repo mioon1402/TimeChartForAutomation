@@ -42,7 +42,17 @@
 
 ## 2. 실행하기 (어디서 여나요?)
 
-이 프로그램은 **웹사이트가 아니라 파일**입니다. 인터넷 주소로 접속하는 게 아니라, 파일을 받아서 PC에서 엽니다.
+이 프로그램은 **HTML 파일 하나**입니다. 파일을 받아서 PC에서 열거나, GitHub Pages 에 올려서 인터넷 주소로 열 수 있습니다.
+
+### 웹 주소로 열기 (GitHub Pages)
+- 주소: **https://mioon1402.github.io/TimeChartForAutomation/** (아래 준비가 끝난 뒤부터 열립니다)
+- `main` 브랜치에 올라올 때마다 자동으로 빌드해서 이 주소에 올립니다 (`.github/workflows/pages.yml`).
+- 처음 한 번 준비할 것
+  1. GitHub Pages 는 **공개 저장소**이거나 **GitHub Pro 이상 요금제**여야 쓸 수 있습니다. 지금 저장소는 비공개입니다.
+  2. 저장소 **Settings → Pages → Build and deployment → Source** 를 **GitHub Actions** 로 바꿉니다.
+  3. 작업 브랜치를 `main` 에 합칩니다. 몇 분 뒤 위 주소가 열립니다. (Actions 탭에서 `GitHub Pages` → `Run workflow` 로 다시 올릴 수도 있습니다.)
+- 알아 두세요: Pages 주소는 **저장소가 비공개여도 주소를 아는 누구나 열 수 있습니다.** 주소에는 프로그램과 기본 예제만 있고, 여러분이 여는 PLC 프로그램이나 차트는 올라가지 않고 각자의 브라우저 안에서만 처리됩니다.
+- 웹 주소로 열어도 인쇄·PDF 저장·파일 저장 등 모든 기능이 됩니다.
 
 ### 파일 받기
 - 저장소의 `release/TimeChartStudio.html` 파일이 프로그램 전체입니다. 크기는 약 2.5MB입니다.
