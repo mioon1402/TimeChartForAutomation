@@ -1,0 +1,44 @@
+name: 문제 신고 (Bug report)
+description: 안 되는 것, 잘못 그려지는 것, PLC 프로그램을 못 읽는 경우
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        회사 PLC 프로그램 원본이나 설비 도면은 올리지 마세요. 문제가 나는 부분만 몇 줄 옮겨 적거나, 화면 캡처로 충분합니다.
+  - type: textarea
+    id: what
+    attributes:
+      label: 어떤 문제인가요?
+      description: 무엇을 했더니 어떻게 됐는지, 원래는 어떻게 되어야 하는지 적어 주세요.
+    validations:
+      required: true
+  - type: dropdown
+    id: plc
+    attributes:
+      label: PLC 종류 (PLC 기능 관련이면)
+      options:
+        - 해당 없음
+        - LS XG5000 (니모닉 인쇄 PDF)
+        - LS XG5000 (텍스트 붙여넣기)
+        - 미쓰비시 GX Works (CSV / 니모닉)
+        - 지멘스 STL
+        - ST / SCL
+        - 기타
+  - type: dropdown
+    id: where
+    attributes:
+      label: 어디서 열었나요?
+      options:
+        - 웹 주소 (github.io)
+        - 오프라인 파일 (TimeChartStudio.html)
+  - type: input
+    id: browser
+    attributes:
+      label: 브라우저
+      placeholder: 예) 크롬, 엣지, 사파리 / Windows, 맥, 휴대폰
+  - type: textarea
+    id: extra
+    attributes:
+      label: 화면 캡처나 문제가 나는 명령 몇 줄
+      description: 이미지는 끌어다 놓으면 붙습니다.
