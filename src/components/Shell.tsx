@@ -4,7 +4,7 @@ import { formatTime } from '../model/format';
 import { Icon, IconButton, Menu, Modal } from './ui';
 import * as F from './fileActions';
 import { tr } from '../i18n';
-import { GUIDE_URL, ISSUES_URL, OFFLINE_FILE, REPO_URL, servedFromWeb, WEB_TRIAL } from '../env';
+import { GUIDE_URL, introUrl, ISSUES_URL, OFFLINE_FILE, REPO_URL, servedFromWeb, WEB_TRIAL } from '../env';
 import { templates } from '../model/templates';
 import { tourTitle, type TourId } from './Tour';
 
@@ -262,8 +262,14 @@ export function StatusBar() {
 
 /** 도움말·시작 화면 공통: 설명서, 문제 신고, 오프라인 파일 */
 function PublicLinks() {
+  const intro = introUrl();
   return (
     <div className="public-links">
+      {intro && (
+        <a className="btn small" href={intro}>
+          <Icon name="globe" size={14} /> {tr('소개 페이지', 'About')}
+        </a>
+      )}
       <a className="btn small" href={GUIDE_URL} target="_blank" rel="noreferrer">
         <Icon name="report" size={14} /> {tr('사용 설명서', 'User guide')}
       </a>

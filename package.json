@@ -11,7 +11,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "release": "npm run build && node -e \"require('fs').mkdirSync('release',{recursive:true});require('fs').copyFileSync('dist/index.html','release/TimeChartStudio.html')\"",
-    "build:web": "tsc --noEmit -p tsconfig.json && vite build --mode web --outDir dist-web"
+    "build:web": "tsc --noEmit -p tsconfig.json && vite build --mode web --outDir dist-web",
+    "build:site": "npm run build && node scripts/build-site.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "^5.7.284",
