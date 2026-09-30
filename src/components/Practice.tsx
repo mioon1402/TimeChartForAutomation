@@ -78,7 +78,7 @@ export function PracticePicker({ onClose }: { onClose: () => void }) {
       kind: 'plc',
       title: tr('PLC 읽기: 프로그램을 보고 출력 파형 그리기', 'Read PLC: draw the outputs of a program'),
       desc: tr(
-        '짧은 PLC 프로그램(래더와 니모닉)과 입력 파형이 주어집니다. PLC 가 위에서 아래로 한 줄씩 실행된다고 생각하며 출력이 언제 켜지고 꺼지는지 그립니다. 자기유지, 타이머, 펄스, 인터록, 카운터, 플리커, 순차 동작을 차례로 연습합니다.',
+        '짧은 PLC 프로그램(래더와 니모닉)과 입력 파형이 주어집니다. PLC 가 위에서 아래로 한 줄씩 실행된다고 생각하며 출력이 언제 켜지고 꺼지는지 그립니다. 자기유지, 타이머, 펄스, 인터록, 카운터, 플리커, 순차 동작, 시간 초과 알람을 차례로 연습합니다.',
         'A short PLC program and input waveforms are given. Draw when each output turns on and off.',
       ),
     },

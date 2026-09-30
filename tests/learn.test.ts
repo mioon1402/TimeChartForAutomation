@@ -11,7 +11,7 @@ const on = (p: Project, key: string) => {
 
 describe('practice exercises', () => {
   it('has a good set of exercises, each fully explained', () => {
-    expect(EXERCISES.length).toBeGreaterThanOrEqual(14);
+    expect(EXERCISES.length).toBeGreaterThanOrEqual(15);
     expect(new Set(EXERCISES.map((e) => e.id)).size).toBe(EXERCISES.length);
     for (const e of EXERCISES) {
       expect(e.problem.length).toBeGreaterThan(80);
@@ -55,6 +55,14 @@ describe('practice exercises', () => {
     expect(od).toHaveLength(1);
     expect(od[0][0]).toBe(500);
     expect(Math.abs(od[0][1] - 6000)).toBeLessThanOrEqual(20);
+    // 타임아웃: 첫 번째는 0.8초 만에 도착해 알람 없음, 두 번째는 3.0 + 2초에 알람 → 한 스캔 뒤 SOL OFF
+    const to = a('plc-timeout');
+    const toY0 = on(to, 'Y0');
+    expect(toY0).toHaveLength(2);
+    expect(toY0[0]).toEqual([500, 2000]);
+    expect(toY0[1][0]).toBe(3000);
+    expect(Math.abs(toY0[1][1] - 5000)).toBeLessThanOrEqual(20);
+    expect(on(to, 'Y1')).toEqual([[5000, 6000]]);
   });
 
   it('machine answers match the problem text', () => {

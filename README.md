@@ -146,6 +146,7 @@
 | 6 | 중급 | 깜빡이(플리커) 회로 | 타이머 두 개가 서로 리셋하며 일정 주기의 ON/OFF 만들기 |
 | 7 | 응용 | 순차 기동 (1초 간격) | 타이머를 이어 여러 출력을 차례로 켜기, 공통 정지로 한꺼번에 끄기 |
 | 8 | 응용 | 컨베이어 정지 지연 | 입력이 꺼진 뒤 일정 시간 뒤에 끄는 OFF 딜레이를 ON 딜레이로 만들기 |
+| 9 | 응용 | 실린더 동작 시간 초과 알람 | 정해진 시간 안에 끝단 센서가 안 오면 알람(자기유지)을 내고 SOL 을 끊는 타임아웃 감시 |
 
 **설비 동작: 설명을 보고 솔레노이드 · 센서 파형 그리기** (정답은 작성 도우미와 같은 계산)
 
@@ -320,7 +321,7 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 - **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
 - **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.
 - **Step-by-step chart wizard** following real design practice: machine spec → moving devices and motion times → I/O list with PLC addresses → sequence (after / together with previous) → chart with solenoids, sensors, cylinder motion, cause arrows, steps, and cycle-time and interlock checks.
-- **Practice mode** (Learn → Practice): 14 problems. Read a short PLC program (self-holding, timers, pulses, interlocks, counters, flicker, sequential start, off-delay) or a machine description and draw the outputs and sensors yourself; each signal is graded with a specific message, with hints, the answer and a step-by-step explanation.
+- **Practice mode** (Learn → Practice): 15 problems. Read a short PLC program (self-holding, timers, pulses, interlocks, counters, flicker, sequential start, off-delay, timeout alarm) or a machine description and draw the outputs and sensors yourself; each signal is graded with a specific message, with hints, the answer and a step-by-step explanation.
 - **Built-in tutorials** (Help `?` or the start screen) point at each control and advance as you try it.
 - **Understand the process:** relays that just copy real I/O are traced back to the physical input/output, steps are built from which outputs are ON, and a sequence-of-events table lists every change in order.
 - **Check and report:** response time, interlock, pulse width and cycle-time rules; printable reports with a title block; PNG/SVG, Excel CSV, WaveDrom and a text format.
