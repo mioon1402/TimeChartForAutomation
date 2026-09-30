@@ -280,8 +280,8 @@ export const useStore = create<State>((set, get) => {
     practicePicker: false,
     // 휴대폰 폭에서는 아래 분석 패널을 접어서 차트를 넓게
     bottom: typeof window !== 'undefined' && window.innerWidth <= 760 ? null : 'analysis',
-    // 휴대폰 폭에서는 속성 패널이 차트를 가리므로 닫힌 상태로 시작
-    showProps: typeof window === 'undefined' || window.innerWidth > 760,
+    // 좁은 화면에서는 속성 패널이 차트를 가리므로 닫힌 상태로 시작 (도구 막대 오른쪽 버튼으로 열기)
+    showProps: typeof window === 'undefined' || window.innerWidth > 1100,
     toasts: [],
     viewWidth: 1000,
     scrollToTime: null,

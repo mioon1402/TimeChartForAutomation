@@ -386,6 +386,11 @@ function StepsTab() {
           <button type="button" className="btn small" onClick={() => addStep()}>
             <Icon name="plus" size={13} /> {tr('스텝 추가', 'Add step')}
           </button>
+          {project.sequence && (
+            <button type="button" className="btn small" onClick={() => useStore.getState().setTab('sequence')} title={tr('이 차트는 동작 순서표로 만들었습니다. 순서·시간을 표에서 고치고 다시 적용하세요.', 'This chart was built from a sequence table. Edit it there and apply again.')}>
+              <Icon name="table" size={13} /> {tr('동작 순서표에서 고치기', 'Edit in sequence table')}
+            </button>
+          )}
         </div>
         {outs.length > 0 && (
           <div className="rule-row">

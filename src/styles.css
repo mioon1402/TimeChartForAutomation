@@ -197,6 +197,13 @@ kbd {
   justify-content: center;
 }
 
+.title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .title-btn {
   background: none;
   border: 1px solid transparent;
@@ -205,9 +212,9 @@ kbd {
   color: #fff;
   font-weight: 600;
   font-size: 14px;
-  max-width: 420px;
+  max-width: min(420px, 100%);
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   cursor: text;
   display: flex;
@@ -749,6 +756,7 @@ button.chip:hover {
   border-radius: 6px;
   background: none;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .toolbar .menu-btn {
@@ -1209,6 +1217,8 @@ table.points .input {
   padding: 0 6px;
   height: 34px;
   border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .bottom:not(.open) .bottom-tabs {
@@ -1220,6 +1230,8 @@ table.points .input {
   background: none;
   height: 34px;
   padding: 0 12px;
+  white-space: nowrap;
+  flex: none;
   cursor: pointer;
   color: var(--muted);
   font-weight: 600;
@@ -1968,6 +1980,41 @@ table.tbl tr.fail td {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* 새 기능 안내 */
+.whats-new {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wn-item {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.wn-item > svg {
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+.wn-item p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.wn-foot {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* 설비 파일의 차트 탭 */
@@ -3232,8 +3279,27 @@ button.seq-kpi {
 .report-pages {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 18px;
+  width: max-content;
+  margin: 0 auto;
+}
+
+.report-zoom {
+  position: sticky;
+  top: -20px;
+  z-index: 3;
+  display: flex;
+  justify-content: flex-end;
+  margin: -20px -20px 10px;
+  padding: 8px 12px;
+  pointer-events: none;
+}
+
+.report-zoom .seg {
+  width: auto;
+  pointer-events: auto;
+  box-shadow: var(--shadow);
 }
 
 .page {
@@ -3362,7 +3428,8 @@ button.seq-kpi {
 .rtable th,
 .rtable td {
   border: 1px solid #d1d5db;
-  padding: 1.1mm 2mm;
+  padding: 0.7mm 1.8mm;
+  line-height: 1.35;
   vertical-align: middle;
 }
 
@@ -3819,6 +3886,13 @@ button.seq-kpi {
 
   .report-pages {
     display: block !important;
+    zoom: 1 !important;
+    width: auto !important;
+    margin: 0 !important;
+  }
+
+  .report-zoom {
+    display: none !important;
   }
 
   .page-measure {
@@ -3857,6 +3931,21 @@ button.seq-kpi {
 
   .plc-sim {
     grid-column: 1 / -1;
+  }
+}
+
+/* 좁은 노트북: 메뉴·버튼 간격을 줄여 한 줄에 */
+@media (max-width: 900px) {
+  .topbar {
+    gap: 6px;
+  }
+
+  .topbar .menu-btn {
+    padding: 0 6px;
+  }
+
+  .tab {
+    padding: 5px 8px;
   }
 }
 

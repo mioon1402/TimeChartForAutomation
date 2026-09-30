@@ -6,7 +6,7 @@ import { BottomPanel } from './components/BottomPanel';
 import { PlcPanel } from './components/PlcPanel';
 import { TextPanel } from './components/TextPanel';
 import { ReportPanel } from './components/ReportPanel';
-import { HelpModal, StatusBar, Toolbar, TopBar, useShortcuts, WelcomeModal } from './components/Shell';
+import { HelpModal, markWhatsNewSeen, StatusBar, Toolbar, TopBar, useShortcuts, WelcomeModal, WhatsNew, whatsNewPending } from './components/Shell';
 import { Tour } from './components/Tour';
 import { SequencePanel } from './components/SequencePanel';
 import { SheetBar } from './components/SheetBar';
@@ -29,12 +29,19 @@ export default function App() {
   const [help, setHelp] = useState(false);
   // 처음 방문(이전 작업 없음)이면 시작 화면
   const [welcome, setWelcome] = useState(() => !storageGet(WELCOME_KEY) && !hasAutosave());
+  // 이전 버전을 쓰던 사람(작업 기록이 있음)에게 한 번만 새 기능 안내. 처음 온 사람은 시작 화면이 대신한다.
+  const [whatsNew, setWhatsNew] = useState(() => whatsNewPending() && (!!storageGet(WELCOME_KEY) || hasAutosave()));
+  const closeWhatsNew = () => {
+    markWhatsNewSeen();
+    setWhatsNew(false);
+  };
   const tour = useStore((s) => s.tour);
   const picker = useStore((s) => s.practicePicker);
   const practice = useStore((s) => !!s.practice);
   const { setTour } = useStore.getState();
   const closeWelcome = () => {
     storageSet(WELCOME_KEY, '1');
+    markWhatsNewSeen();
     setWelcome(false);
   };
   const [dropping, setDropping] = useState(false);
@@ -56,6 +63,8 @@ export default function App() {
     else return;
     storageSet(WELCOME_KEY, '1');
     setWelcome(false);
+    setWhatsNew(false);
+    markWhatsNewSeen();
     history.replaceState(null, '', location.pathname + location.search);
   }, []);
 
@@ -131,6 +140,7 @@ export default function App() {
       {tab === 'report' && <ReportPanel />}
       {help && <HelpModal onClose={() => setHelp(false)} onWelcome={() => setWelcome(true)} onTour={setTour} />}
       {welcome && !help && !tour && !picker && <WelcomeModal onClose={closeWelcome} onTour={setTour} />}
+      {whatsNew && !welcome && !help && !tour && !picker && <WhatsNew onClose={closeWhatsNew} />}
       {tour && <Tour key={tour} id={tour} onClose={() => setTour(null)} />}
       {picker && <PracticePicker onClose={() => useStore.getState().setPracticePicker(false)} />}
       <PromptHost />

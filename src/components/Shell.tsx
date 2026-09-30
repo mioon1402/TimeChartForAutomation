@@ -126,8 +126,8 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
             }}
           />
         ) : (
-          <button type="button" className="title-btn" onClick={() => setEditing(true)} title={tr('제목 편집', 'Edit title')}>
-            {title}
+          <button type="button" className="title-btn" onClick={() => setEditing(true)} title={`${title} · ${tr('눌러서 제목 편집', 'click to edit')}`}>
+            <span className="title-text">{title}</span>
             {dirty && <span className="dirty-dot" title={tr('저장 안 됨 (자동 백업은 됨)', 'Unsaved (auto-backup on)')} />}
           </button>
         )}
@@ -306,6 +306,82 @@ function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primar
   );
 }
 
+const WHATS_NEW_KEY = 'timechart-studio.whats-new.v2';
+
+/** 이전 버전을 쓰던 사람에게 한 번만: 새로 생긴 기능 */
+export function WhatsNew({ onClose }: { onClose: () => void }) {
+  const setTab = useStore((s) => s.setTab);
+  const items: { icon: string; title: string; desc: string; go?: () => void; goLabel?: string }[] = [
+    {
+      icon: 'table',
+      title: tr('동작 순서 탭 (엑셀처럼 입력)', 'Sequence tab (spreadsheet-like)'),
+      desc: tr('팝업 대신 한 페이지에 ① 설비 → ⑤ 확인까지. 표에 바로 입력하고, 엑셀의 동작 순서표·I/O 리스트를 복사해 붙여 넣으면 차트가 됩니다.', 'One page from ① machine to ⑤ review. Type into tables or paste your Excel sequence table and I/O list.'),
+      go: () => setTab('sequence'),
+      goLabel: tr('열어 보기', 'Open'),
+    },
+    {
+      icon: 'open',
+      title: tr('설비 하나 = 파일 하나 (차트 여러 장)', 'One machine, one file (several charts)'),
+      desc: tr('위쪽 차트 탭의 [+ 차트 추가]로 자동 사이클, 원점 복귀, 유닛별 차트를 한 파일에 둡니다. 보고서에서 목차와 함께 한 번에 인쇄됩니다.', 'Use "+ Add chart" in the chart tabs to keep auto cycle, homing and unit charts in one file, and print them together.'),
+    },
+    {
+      icon: 'print',
+      title: tr('인쇄: 한 장으로 · 세로 · 흑백', 'Printing: one page, portrait, B&W'),
+      desc: tr('보고서 탭에서 "한 장으로"를 고르면 요약·전체 차트·스텝 표가 한 장에 들어갑니다. 흑백 프린터용은 색 대신 무늬로 구분하고, 세로 용지와 짧은 표 모아 찍기도 됩니다.', 'Pick "One page" in the Report tab. Black & white uses patterns; portrait and packed tables are supported.'),
+      go: () => setTab('report'),
+      goLabel: tr('보고서 보기', 'Open report'),
+    },
+  ];
+  return (
+    <Modal title={tr('새로 생긴 기능', "What's new")} onClose={onClose} width={620}>
+      <div className="whats-new">
+        {items.map((it) => (
+          <div key={it.title} className="wn-item">
+            <Icon name={it.icon} size={20} />
+            <div>
+              <b>{it.title}</b>
+              <p>{it.desc}</p>
+            </div>
+            {it.go && (
+              <button
+                type="button"
+                className="btn small"
+                onClick={() => {
+                  it.go!();
+                  onClose();
+                }}
+              >
+                {it.goLabel}
+              </button>
+            )}
+          </div>
+        ))}
+        <div className="wn-foot">
+          <button type="button" className="btn primary" onClick={onClose}>
+            {tr('확인', 'OK')}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function whatsNewPending(): boolean {
+  try {
+    return !localStorage.getItem(WHATS_NEW_KEY);
+  } catch {
+    return false;
+  }
+}
+
+export function markWhatsNewSeen(): void {
+  try {
+    localStorage.setItem(WHATS_NEW_KEY, '1');
+  } catch {
+    /* 무시 */
+  }
+}
+
 /** 처음 방문한 사람을 위한 시작 화면 */
 export function WelcomeModal({ onClose, onTour }: { onClose: () => void; onTour: (id: TourId) => void }) {
   const setTab = useStore((s) => s.setTab);
@@ -428,11 +504,13 @@ export function HelpModal({ onClose, onWelcome, onTour }: { onClose: () => void;
         </div>
         <h4>{tr('주요 기능', 'Features')}</h4>
         <ul>
+          <li>{tr('동작 순서 탭: 설비 → 동작 기기 → I/O → 동작 순서를 엑셀처럼 표에 적으면(엑셀 표 붙여넣기 가능) 타임차트·사이클 타임·인터록 검토가 바로 나옴', 'Sequence tab: fill in devices, I/O and sequence in spreadsheet-like tables (paste from Excel) to get the chart, cycle time and interlock checks')}</li>
+          <li>{tr('설비 파일: 한 설비의 차트 여러 장(자동 사이클, 원점 복귀, 유닛별 …)을 한 파일에 두고, 목차와 함께 한 번에 인쇄', 'Machine file: keep all charts of one machine in one file and print them together with a contents page')}</li>
           <li>{tr('PLC 프로그램(미쓰비시 GX Works 니모닉/CSV, LS XG5000, 지멘스 STL, IEC ST/SCL)을 불러와 스캔 시뮬레이션으로 타임차트 자동 생성', 'Generate charts from PLC programs (Mitsubishi, LS, Siemens STL, IEC ST) by scan simulation')}</li>
           <li>{tr('실린더/지연 설비 모델로 센서 응답을 자동 생성 → 전체 사이클 타임 산출', 'Equipment models auto-respond to outputs for full cycle-time simulation')}</li>
           <li>{tr('마우스로 파형 그리기, 에지 드래그, 실린더 동작 경사, 인과 화살표, 치수선, 공정 스텝', 'Draw waveforms, drag edges, sloped actuator motion, arrows, dimensions, steps')}</li>
           <li>{tr('타이밍 규칙 검증: 응답 시간, 인터록(동시 ON 금지), 펄스 폭, 목표 사이클 타임', 'Rule checks: response time, interlock, pulse width, cycle target')}</li>
-          <li>{tr('표제란이 있는 보고서 인쇄/PDF, PNG·SVG, 엑셀 CSV, WaveDrom, 텍스트 코드', 'Reports with title block (PDF), PNG/SVG, Excel CSV, WaveDrom, text code')}</li>
+          <li>{tr('표제란이 있는 보고서 인쇄/PDF: 한 장 요약, 가로·세로, 흑백 프린터용 무늬, 여러 장 보고서 / PNG·SVG, 엑셀 CSV, WaveDrom, 텍스트 코드', 'Reports with title block: one-page, portrait or landscape, black & white patterns, full report / PNG, SVG, Excel CSV, WaveDrom, text code')}</li>
           <li>{tr('설치 없이 오프라인 단일 HTML 파일로 실행, 작업 내용 자동 백업', 'Runs offline as a single HTML file, auto-backup')}</li>
         </ul>
         <h4>{tr('단축키 · 조작', 'Shortcuts')}</h4>

@@ -184,6 +184,20 @@ export function ReportPanel() {
     return [index, ...parts.flat()];
   }, [targets, o, size.w, size.h, rulesAll, blocks, meas, project, bookName]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 미리보기 배율: 화면 폭에 맞춤 (인쇄는 항상 실제 크기)
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [previewW, setPreviewW] = useState(1000);
+  const [zoomMode, setZoomMode] = useState<'fit' | '100'>(() => (storageGet('timechart-studio.report-zoom.v1') === '100' ? '100' : 'fit'));
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => setPreviewW(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const fit = Math.min(1, Math.max(0.3, (previewW - 8) / (size.w * MM)));
+  const zoom = zoomMode === 'fit' ? fit : 1;
+
   const m = project.meta;
   const addRevision = () => {
     commit({ ...project, revisions: [...project.revisions, { rev: nextRev(project.revisions.map((r) => r.rev)), date: todayString(), description: '', author: m.author }] });
@@ -362,8 +376,21 @@ export function ReportPanel() {
           {o.grayscale ? tr(' · 흑백', ' · B&W') : ''}
         </p>
       </aside>
-      <div className="report-preview">
-        <div className={`report-pages ${o.grayscale ? 'gray' : ''}`}>
+      <div className="report-preview" ref={previewRef}>
+        <div className="report-zoom">
+          {seg(
+            zoomMode,
+            [
+              { value: 'fit', label: tr(`화면에 맞춤 (${Math.round(fit * 100)}%)`, `Fit (${Math.round(fit * 100)}%)`) },
+              { value: '100', label: tr('실제 크기', 'Actual size') },
+            ],
+            (v) => {
+              setZoomMode(v);
+              storageSet('timechart-studio.report-zoom.v1', v);
+            },
+          )}
+        </div>
+        <div className={`report-pages ${o.grayscale ? 'gray' : ''}`} style={{ zoom }}>
           {pages.map((p, i) => (
             <div key={i} className="page" style={{ width: `${size.w}mm`, height: `${size.h}mm` }}>
               <div className="page-inner" style={{ padding: `${MARGIN}mm` }}>
