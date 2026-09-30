@@ -4,7 +4,7 @@
 
 ### ▶ 바로 쓰기: https://mioon1402.github.io/TimeChartForAutomation/
 
-설치나 회원가입 없이 크롬·엣지에서 바로 열립니다. 인터넷이 막힌 PC에서는 [오프라인 파일(TimeChartStudio.html)](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html)을 받아 더블클릭하세요.
+첫 주소는 무엇을 하는 도구인지 보여 주는 소개 페이지이고, **바로 시작하기**를 누르면 편집기(`…/TimeChartForAutomation/app/`)가 열립니다. 자주 쓰면 편집기 주소를 즐겨찾기하세요. 설치나 회원가입 없이 크롬·엣지에서 바로 열립니다. 인터넷이 막힌 PC에서는 [오프라인 파일(TimeChartStudio.html)](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html)을 받아 더블클릭하세요.
 
 ![TimeChart Studio 화면: 드릴 가공 유닛 사이클 타임차트](public/og.png)
 
@@ -55,11 +55,13 @@
 
 | 방법 | 이럴 때 | 여는 법 |
 |---|---|---|
-| **웹 주소** | 인터넷이 되는 PC, 태블릿, 휴대폰 | https://mioon1402.github.io/TimeChartForAutomation/ 에 접속 |
+| **웹 주소** | 인터넷이 되는 PC, 태블릿, 휴대폰 | https://mioon1402.github.io/TimeChartForAutomation/ (소개 페이지) → 바로 시작하기, 또는 편집기 바로 가기 `…/TimeChartForAutomation/app/` |
 | **오프라인 파일** | 공장 PC, 사내망처럼 인터넷이 막힌 곳 | 파일 1개(약 2.5MB)를 받아서 더블클릭 |
 
 ### 웹 주소로 열기
-- 크롬 또는 엣지를 권장합니다. 처음 열면 시작 화면에서 **예제 차트 둘러보기 / PLC 프로그램으로 만들기 / 빈 차트로 시작** 중 하나를 고릅니다.
+- 첫 주소는 **소개 페이지**입니다. 무엇을 할 수 있는지, 타임차트가 처음인 사람을 위한 설명, XG5000 PDF 로 만드는 법이 있고, 이 브라우저에 하던 작업이 있으면 **이어서 작업하기** 버튼이 나옵니다.
+- 소개 페이지의 버튼은 편집기의 원하는 화면으로 바로 갑니다: `app/#tutorial`(차트 그리기 튜토리얼), `app/#tutorial-plc`(PLC 튜토리얼), `app/#practice`(연습 문제), `app/#wizard`(순서대로 만들기), `app/#plc`(PLC 탭).
+- 크롬 또는 엣지를 권장합니다. 편집기를 처음 열면 시작 화면에서 **예제 차트 둘러보기 / PLC 프로그램으로 만들기 / 순서대로 새로 만들기** 중 하나를 고릅니다.
 - 휴대폰에서도 열리지만, 편집과 보고서 출력은 마우스가 있는 PC가 편합니다.
 - 새 기능이 나오면 같은 주소에서 바로 반영됩니다.
 
@@ -336,6 +338,7 @@ npm test           # 단위 테스트 (파형 연산, PLC 파서/시뮬레이터
 npm run build      # 타입 검사 + dist/index.html (단일 파일)
 npm run release    # 빌드 후 release/TimeChartStudio.html 갱신
 npm run build:web  # 인쇄·다운로드가 막힌 내장 뷰어용 체험판 빌드 (dist-web/)
+npm run build:site # GitHub Pages 사이트 조립 (_site/: 소개 페이지 + app/ 편집기 + 오프라인 파일)
 ```
 
 구성: React 19 + TypeScript + Zustand, Vite(단일 HTML 빌드), pdf.js(PDF 텍스트, 한글 CMap 포함), Vitest
@@ -347,11 +350,14 @@ src/plc         PLC 파서(미쓰비시·LS·지멘스 STL·ST), LS PDF 텍스�
 src/io          PDF 텍스트 추출, WaveDrom, CSV, TCT 텍스트, 파일 입출력
 src/render      차트 그리기 (화면·보고서·이미지 공용)
 src/components  편집기, PLC·텍스트·보고서 화면
+site            소개 페이지(index.html)와 화면 캡처(img/)
+scripts         사이트 조립(build-site.mjs)
 tests           단위 테스트
 ```
 
 ### 웹 주소 배포 (GitHub Pages)
-- `main`에 올라오면 `.github/workflows/pages.yml`이 테스트 → 빌드 → `https://mioon1402.github.io/TimeChartForAutomation/`에 배포합니다. 오프라인 파일(`TimeChartStudio.html`)과 링크 미리보기 이미지(`public/og.png`)도 함께 올라갑니다.
+- `main`에 올라오면 `.github/workflows/pages.yml`이 테스트 → `npm run build:site` → `https://mioon1402.github.io/TimeChartForAutomation/`에 배포합니다.
+- `npm run build:site`는 `_site/`에 사이트를 조립합니다: `/` 소개 페이지(`site/index.html`, 화면 캡처는 `site/img/`), `/app/` 편집기(단일 HTML 빌드), `/TimeChartStudio.html` 오프라인 파일, `/og.png` 링크 미리보기 이미지.
 - 저장소를 복제해서 따로 올릴 때: 저장소 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 바꾸고, `index.html`의 `og:` 주소와 `src/env.ts`의 `REPO_URL`을 자기 저장소로 고칩니다.
 
 ### 시뮬레이션 한계

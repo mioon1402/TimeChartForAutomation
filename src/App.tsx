@@ -43,6 +43,21 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  // 소개 페이지에서 바로 가기: /app/#tutorial, #tutorial-plc, #practice, #wizard
+  useEffect(() => {
+    const h = typeof location !== 'undefined' ? location.hash.replace('#', '') : '';
+    const s = useStore.getState();
+    if (h === 'tutorial') s.setTour('basic');
+    else if (h === 'tutorial-plc') s.setTour('plc');
+    else if (h === 'practice') s.setPracticePicker(true);
+    else if (h === 'wizard') s.setWizard('new');
+    else if (h === 'plc') s.setTab('plc');
+    else return;
+    storageSet(WELCOME_KEY, '1');
+    setWelcome(false);
+    history.replaceState(null, '', location.pathname + location.search);
+  }, []);
+
   // 첫 화면: 차트를 화면 폭에 맞춤
   useEffect(() => {
     const h = setTimeout(() => useStore.getState().fitZoom(), 50);

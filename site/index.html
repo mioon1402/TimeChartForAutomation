@@ -1,0 +1,1033 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>TimeChart Studio – 자동화 설비 타임차트 · PLC 시뮬레이션 무료 도구</title>
+    <meta name="description" content="자동화 설비의 타임차트를 직접 그리거나 LS XG5000 · 미쓰비시 · 지멘스 PLC 프로그램으로 자동으로 만들고, 표제란이 있는 보고서로 출력하는 무료 웹 도구. 설치와 회원가입 없이 브라우저에서 바로 씁니다." />
+    <meta name="theme-color" content="#0f1b2d" />
+    <link rel="canonical" href="https://mioon1402.github.io/TimeChartForAutomation/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="TimeChart Studio – 자동화 설비 타임차트" />
+    <meta property="og:description" content="PLC 프로그램으로 타임차트를 자동으로 그리고 보고서로 출력합니다. 설치·회원가입 없이 브라우저에서 바로 사용." />
+    <meta property="og:url" content="https://mioon1402.github.io/TimeChartForAutomation/" />
+    <meta property="og:image" content="https://mioon1402.github.io/TimeChartForAutomation/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M5 21h5v-9h6v9h4v-6l3-3h4' fill='none' stroke='white' stroke-width='2.4' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "TimeChart Studio",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Web browser",
+        "inLanguage": ["ko", "en"],
+        "url": "https://mioon1402.github.io/TimeChartForAutomation/",
+        "description": "자동화 설비 타임차트 작성, PLC 프로그램 시뮬레이션(LS XG5000, 미쓰비시, 지멘스, ST), 보고서 출력 도구",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" }
+      }
+    </script>
+    <script>
+      // 편집기에서 고른 테마를 소개 페이지에도
+      try {
+        var pref = JSON.parse(localStorage.getItem('timechart-studio.prefs.v1') || '{}');
+        if (pref.theme === 'dark' || pref.theme === 'light') document.documentElement.dataset.theme = pref.theme;
+      } catch (e) {}
+    </script>
+    <style>
+      :root {
+        --ink: #0f1b2d;
+        --ink-2: #1c2a40;
+        --bg: #f4f6f9;
+        --panel: #ffffff;
+        --text: #172131;
+        --muted: #5a6677;
+        --line: #dde2e9;
+        --accent: #2563eb;
+        --accent-2: #1d4ed8;
+        --accent-soft: #e8efff;
+        --out: #dc2626;
+        --sen: #059669;
+        --act: #ea580c;
+        --inp: #2563eb;
+        --tim: #0891b2;
+        --step-a: #dbeafe;
+        --step-b: #fef3c7;
+        --step-c: #dcfce7;
+        --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.1);
+        --font: 'Pretendard Variable', Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif;
+        --mono: 'JetBrains Mono', 'D2Coding', Consolas, Menlo, monospace;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          --bg: #0b1119;
+          --panel: #131b26;
+          --text: #dbe3ee;
+          --muted: #8a9ab0;
+          --line: #243142;
+          --accent: #4f8cff;
+          --accent-2: #6b9dff;
+          --accent-soft: #1b2a45;
+          --step-a: #1c2c47;
+          --step-b: #3a3218;
+          --step-c: #16352a;
+          --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+          color-scheme: dark;
+        }
+      }
+      :root[data-theme='dark'] {
+        --bg: #0b1119;
+        --panel: #131b26;
+        --text: #dbe3ee;
+        --muted: #8a9ab0;
+        --line: #243142;
+        --accent: #4f8cff;
+        --accent-2: #6b9dff;
+        --accent-soft: #1b2a45;
+        --step-a: #1c2c47;
+        --step-b: #3a3218;
+        --step-c: #16352a;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        font-family: var(--font);
+        font-size: 16px;
+        line-height: 1.65;
+        color: var(--text);
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+        /* 한글은 낱말 중간에서 줄을 바꾸지 않음 */
+        word-break: keep-all;
+        overflow-wrap: break-word;
+      }
+      img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+      }
+      a {
+        color: var(--accent);
+      }
+      h1,
+      h2,
+      h3 {
+        line-height: 1.3;
+        text-wrap: balance;
+        margin: 0;
+      }
+      .wrap {
+        max-width: 1140px;
+        margin: 0 auto;
+        padding-inline: 20px;
+      }
+      .mono {
+        font-family: var(--mono);
+      }
+
+      /* 머리 */
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--ink);
+        color: #dbe4f0;
+        padding-top: env(safe-area-inset-top, 0px);
+      }
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        height: 58px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: #fff;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 17px;
+        white-space: nowrap;
+      }
+      .logo b {
+        color: #7aa7ff;
+      }
+      .bar nav {
+        display: flex;
+        gap: 16px;
+        margin-left: 8px;
+      }
+      .bar nav a {
+        color: #b9c6d8;
+        text-decoration: none;
+        font-size: 14.5px;
+      }
+      .bar nav a:hover {
+        color: #fff;
+      }
+      .bar .grow {
+        flex: 1;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 11px 20px;
+        border-radius: 9px;
+        font-weight: 600;
+        font-size: 15.5px;
+        text-decoration: none;
+        border: 1px solid transparent;
+        white-space: nowrap;
+        transition:
+          background 0.15s,
+          border-color 0.15s,
+          transform 0.15s;
+      }
+      .btn:focus-visible {
+        outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+        outline-offset: 2px;
+      }
+      .btn.primary {
+        background: var(--accent);
+        color: #fff;
+      }
+      .btn.primary:hover {
+        background: var(--accent-2);
+      }
+      .btn.ghost {
+        background: var(--panel);
+        color: var(--text);
+        border-color: var(--line);
+      }
+      .btn.ghost:hover {
+        border-color: var(--accent);
+      }
+      .btn.small {
+        padding: 7px 14px;
+        font-size: 14px;
+      }
+      header .btn.primary {
+        background: #2563eb;
+      }
+
+      /* 첫 화면 */
+      .hero {
+        background: var(--ink);
+        padding: 44px 0 56px;
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.25fr);
+        gap: 40px;
+        align-items: start;
+      }
+      .eyebrow {
+        display: inline-block;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        color: #9fb4d0;
+        margin-bottom: 12px;
+      }
+      .hero h1 {
+        font-size: clamp(30px, 4.2vw, 46px);
+        font-weight: 800;
+        color: #fff;
+        letter-spacing: -0.02em;
+      }
+      .hero h1 em {
+        font-style: normal;
+        color: #7aa7ff;
+      }
+      .hero-copy {
+        color: #c7d3e3;
+        font-size: 17px;
+        margin: 16px 0 24px;
+        max-width: 34em;
+      }
+      .hero-left {
+        padding-top: 8px;
+      }
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .hero .btn.ghost {
+        background: transparent;
+        color: #e2e9f3;
+        border-color: #3a4a63;
+      }
+      .hero .btn.ghost:hover {
+        border-color: #7aa7ff;
+      }
+      .trust {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+        font-size: 13.5px;
+        color: #9fb4d0;
+      }
+      .trust li::before {
+        content: '';
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--sen);
+        margin-right: 7px;
+        vertical-align: 2px;
+      }
+      .continue {
+        margin-top: 22px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: #13233b;
+        border: 1px solid #2c4368;
+        color: #dbe4f0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .continue span {
+        font-size: 14px;
+        color: #9fb4d0;
+      }
+      .continue b {
+        color: #fff;
+        font-weight: 600;
+      }
+      .shot {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        background: var(--panel);
+      }
+      .hero .shot {
+        border-color: #2c3a50;
+      }
+
+      /* 공통 구역 */
+      section {
+        padding: 64px 0;
+      }
+      .sec-head {
+        max-width: 720px;
+        margin-bottom: 34px;
+      }
+      .sec-head h2 {
+        font-size: clamp(24px, 3vw, 32px);
+        font-weight: 800;
+        letter-spacing: -0.015em;
+      }
+      .sec-head p {
+        color: var(--muted);
+        margin: 10px 0 0;
+        font-size: 16.5px;
+      }
+      .kicker {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: var(--accent);
+        margin-bottom: 8px;
+      }
+
+      /* 기능 */
+      .feature {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+        gap: 40px;
+        align-items: center;
+        padding: 26px 0;
+      }
+      .feature + .feature {
+        border-top: 1px solid var(--line);
+      }
+      .feature.flip .f-text {
+        order: 2;
+      }
+      .f-text h3 {
+        font-size: 23px;
+        font-weight: 800;
+        margin-bottom: 10px;
+      }
+      .f-text > p {
+        color: var(--muted);
+        margin: 0 0 14px;
+      }
+      .ticks {
+        list-style: none;
+        margin: 0 0 18px;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .ticks li {
+        position: relative;
+        padding-left: 26px;
+        font-size: 15.5px;
+      }
+      .ticks li::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0.62em;
+        width: 14px;
+        height: 7px;
+        border-left: 2px solid var(--c, var(--accent));
+        border-bottom: 2px solid var(--c, var(--accent));
+        border-top: 2px solid transparent;
+        transform: translateY(-40%);
+      }
+      .f-text .tag {
+        display: inline-block;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 2px 9px;
+        border-radius: 99px;
+        margin-bottom: 10px;
+        color: var(--c);
+        background: color-mix(in srgb, var(--c) 13%, transparent);
+      }
+      .steps5 {
+        list-style: none;
+        margin: 0 0 18px;
+        padding: 0;
+        counter-reset: s;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .steps5 li {
+        counter-increment: s;
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        font-size: 15.5px;
+      }
+      .steps5 li::before {
+        content: counter(s);
+        flex: none;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        display: inline-grid;
+        place-items: center;
+        font-size: 12px;
+        font-weight: 700;
+        color: #fff;
+        background: var(--c, var(--accent));
+        transform: translateY(2px);
+      }
+
+      /* 처음이라면 */
+      .intro {
+        background: var(--panel);
+        border-block: 1px solid var(--line);
+      }
+      .intro-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        gap: 40px;
+        align-items: start;
+      }
+      .diagram {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px 16px 10px;
+        background: var(--bg);
+        overflow-x: auto;
+      }
+      .diagram svg {
+        display: block;
+        width: 100%;
+        min-width: 520px;
+        height: auto;
+      }
+      .diagram svg text {
+        font-family: var(--font);
+        fill: var(--text);
+      }
+      .diagram .t-muted {
+        fill: var(--muted);
+      }
+      .diagram .grid line {
+        stroke: var(--line);
+      }
+      .diagram figcaption {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 8px;
+      }
+      .wave {
+        fill: none;
+        stroke-width: 2.4;
+        stroke-linejoin: round;
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .wave {
+          stroke-dasharray: 900;
+          stroke-dashoffset: 900;
+          animation: draw 1.6s ease-out forwards;
+        }
+        .wave:nth-of-type(2) {
+          animation-delay: 0.2s;
+        }
+        .wave:nth-of-type(3) {
+          animation-delay: 0.4s;
+        }
+        .wave:nth-of-type(4) {
+          animation-delay: 0.6s;
+        }
+        @keyframes draw {
+          to {
+            stroke-dashoffset: 0;
+          }
+        }
+      }
+      .explain dl {
+        margin: 0;
+        display: grid;
+        gap: 12px;
+      }
+      .explain dt {
+        font-weight: 700;
+      }
+      .explain dd {
+        margin: 2px 0 0;
+        color: var(--muted);
+        font-size: 15.5px;
+      }
+      .order {
+        margin-top: 36px;
+      }
+      .order h3 {
+        font-size: 19px;
+        margin-bottom: 14px;
+      }
+      .order ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+        counter-reset: o;
+      }
+      .order li {
+        counter-increment: o;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--bg);
+        font-size: 14.5px;
+        color: var(--muted);
+      }
+      .order li b {
+        display: block;
+        color: var(--text);
+        font-size: 15.5px;
+        margin-bottom: 4px;
+      }
+      .order li b::before {
+        content: counter(o) '. ';
+        color: var(--accent);
+      }
+
+      /* XG5000 */
+      .xg {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 18px;
+      }
+      .card .num {
+        font-family: var(--mono);
+        font-weight: 700;
+        color: var(--accent);
+        font-size: 14px;
+      }
+      .card h3 {
+        font-size: 17.5px;
+        margin: 4px 0 6px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .note {
+        margin-top: 14px;
+        font-size: 15px;
+        color: var(--muted);
+      }
+
+      /* 지원 */
+      .support {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 15px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .support th,
+      .support td {
+        text-align: left;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      .support th {
+        width: 30%;
+        font-weight: 700;
+      }
+      .support tr:last-child th,
+      .support tr:last-child td {
+        border-bottom: 0;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      /* 안심 */
+      .trio {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      /* 마무리 */
+      .final {
+        background: var(--ink);
+        color: #dbe4f0;
+        text-align: center;
+      }
+      .final h2 {
+        color: #fff;
+        font-size: clamp(24px, 3vw, 32px);
+        font-weight: 800;
+      }
+      .final p {
+        color: #9fb4d0;
+        margin: 10px 0 24px;
+      }
+      .final .cta {
+        justify-content: center;
+      }
+      .final .btn.ghost {
+        background: transparent;
+        color: #e2e9f3;
+        border-color: #3a4a63;
+      }
+      footer {
+        background: var(--ink);
+        color: #8fa1b8;
+        font-size: 14px;
+        border-top: 1px solid #1f2c42;
+        padding: 22px 0 calc(22px + env(safe-area-inset-bottom, 0px));
+      }
+      footer .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 22px;
+        align-items: center;
+      }
+      footer a {
+        color: #b9c6d8;
+      }
+      footer .grow {
+        flex: 1;
+      }
+
+      @media (max-width: 900px) {
+        .bar nav {
+          display: none;
+        }
+        .hero-grid,
+        .feature,
+        .intro-grid {
+          grid-template-columns: 1fr;
+          gap: 24px;
+        }
+        .feature.flip .f-text {
+          order: 0;
+        }
+        .order ol,
+        .xg,
+        .trio {
+          grid-template-columns: 1fr;
+        }
+        section {
+          padding: 48px 0;
+        }
+      }
+      @media (max-width: 480px) {
+        .wrap {
+          padding-inline: 16px;
+        }
+        header .btn.small {
+          padding: 7px 10px;
+        }
+        .logo span {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap bar">
+        <a class="logo" href="./" aria-label="TimeChart Studio 첫 화면">
+          <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="7" fill="#2563eb" />
+            <path d="M5 21h5v-9h6v9h4v-6l3-3h4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" />
+          </svg>
+          <span>TimeChart <b>Studio</b></span>
+        </a>
+        <nav aria-label="바로 가기">
+          <a href="#features">기능</a>
+          <a href="#first">처음이라면</a>
+          <a href="#xg5000">XG5000</a>
+          <a href="https://github.com/mioon1402/TimeChartForAutomation#readme" target="_blank" rel="noreferrer">사용 설명서</a>
+        </nav>
+        <span class="grow"></span>
+        <a class="btn primary small" href="app/">바로 시작하기</a>
+      </div>
+    </header>
+
+    <main>
+      <div class="hero">
+        <div class="wrap hero-grid">
+          <div class="hero-left">
+            <span class="eyebrow">자동화 설비 · PLC 타임차트 도구</span>
+            <h1>PLC 프로그램을 넣으면 <em>타임차트</em>가 그려집니다</h1>
+            <p class="hero-copy">
+              설비가 한 사이클 동안 언제 무엇이 움직이는지 그리는 타임차트를 직접 그리거나, LS XG5000 · 미쓰비시 · 지멘스 PLC 프로그램으로 자동으로 만들고, 작성·검토·승인 칸이 있는 보고서로 뽑습니다.
+            </p>
+            <div class="cta">
+              <a class="btn primary" href="app/">바로 시작하기 →</a>
+              <a class="btn ghost" href="app/#tutorial">3분 튜토리얼</a>
+            </div>
+            <div class="continue" id="continue" hidden>
+              <span>이 브라우저에 하던 작업이 있습니다: <b id="continue-title"></b></span>
+              <a class="btn primary small" href="app/">이어서 작업하기</a>
+            </div>
+            <ul class="trust">
+              <li>무료</li>
+              <li>설치·회원가입 없음</li>
+              <li>파일은 서버로 보내지 않음</li>
+            </ul>
+          </div>
+          <div class="shot">
+            <img src="img/plc-result.png" width="1280" height="760" alt="LS PLC 예제 프로그램을 시뮬레이션해 만든 타임차트: 솔레노이드, 실린더 동작선, 센서가 시간 순서로 그려져 있고 위에 공정 스텝 띠, 아래에 동작 순서표가 있다" />
+          </div>
+        </div>
+      </div>
+
+      <section id="features">
+        <div class="wrap">
+          <div class="sec-head">
+            <span class="kicker">무엇을 할 수 있나요</span>
+            <h2>그리기, PLC 로 만들기, 실무 순서대로 만들기, 배우기</h2>
+            <p>설계 검토, 설비 사양서, 고객 보고서에 들어가는 타임차트를 한곳에서 만들고 검토합니다.</p>
+          </div>
+
+          <div class="feature">
+            <div class="f-text" style="--c: var(--out)">
+              <span class="tag">직접 그리기 · 검토</span>
+              <h3>마우스로 그리고, 규칙으로 검토</h3>
+              <p>ON/OFF 파형을 끌어서 그리고, 바뀌는 지점을 옮겨 시간을 맞춥니다.</p>
+              <ul class="ticks">
+                <li>실린더 동작 시간은 경사선, 공정 스텝은 색 띠, "이 신호 때문에 저 신호가 켜진다"는 화살표와 시간 치수선</li>
+                <li>응답 시간, 인터록(동시 ON 금지), 펄스 폭, 목표 사이클 타임을 자동으로 OK/NG 판정</li>
+                <li>표제란(작성·검토·승인)이 있는 PDF 보고서, PNG · SVG 이미지, 엑셀 CSV</li>
+              </ul>
+              <a class="btn ghost small" href="app/">예제 차트 열어 보기</a>
+            </div>
+            <div class="shot"><img src="img/editor.png" width="1280" height="760" loading="lazy" alt="드릴 가공 설비의 타임차트 편집 화면: 신호별 파형, 실린더 경사선, 인과 화살표, 공정 스텝 띠" /></div>
+          </div>
+
+          <div class="feature flip">
+            <div class="f-text" style="--c: var(--accent)">
+              <span class="tag">PLC 프로그램으로 자동 생성</span>
+              <h3>프로그램을 넣으면 PLC 처럼 계산해서 그립니다</h3>
+              <p>스캔 단위로 프로그램을 실행해 출력과 내부 릴레이, 타이머가 언제 바뀌는지 차트로 만듭니다.</p>
+              <ul class="ticks">
+                <li>LS XG5000 은 니모닉(IL)을 인쇄한 <b>PDF 를 그대로</b> 엽니다</li>
+                <li>실제 입출력을 M 릴레이로 옮겨 쓰는 프로그램도 <b>실제 I/O 로 풀어서</b> 보여 줍니다</li>
+                <li>실린더·위치 축(크레인, 컨베이어) 설비 모델로 센서가 저절로 반응해 사이클이 끝까지 돕니다</li>
+                <li>켜진 출력으로 공정 스텝을 자동으로 나누고, 동작 순서표로 몇 초에 무엇이 켜졌는지 보여 줍니다</li>
+              </ul>
+              <a class="btn ghost small" href="app/#tutorial-plc">PLC 튜토리얼 해 보기</a>
+            </div>
+            <div class="shot"><img src="img/plc.png" width="1280" height="760" loading="lazy" alt="PLC 시뮬레이션 화면: 왼쪽 LS 니모닉 프로그램, 가운데 디바이스와 입력 자극, 오른쪽 실린더 설비 모델" /></div>
+          </div>
+
+          <div class="feature">
+            <div class="f-text" style="--c: var(--act)">
+              <span class="tag">실무 순서대로 새로 만들기</span>
+              <h3>실무에서 만드는 순서 그대로 적으면 차트가 됩니다</h3>
+              <p>단계마다 무엇을 왜 하는지 설명이 붙어 있어 처음 만드는 사람도 따라갈 수 있습니다.</p>
+              <ol class="steps5">
+                <li>설비와 목표 사이클 타임</li>
+                <li>움직이는 기기와 동작 시간 (실린더, 모터, 흡착)</li>
+                <li>I/O 목록과 PLC 주소 (미쓰비시 · LS · 지멘스)</li>
+                <li>동작 순서 (앞 동작 뒤에 / 동시에)</li>
+                <li>타임차트와 사이클 타임 · 인터록 검토</li>
+              </ol>
+              <a class="btn ghost small" href="app/#wizard">순서대로 만들어 보기</a>
+            </div>
+            <div class="shot"><img src="img/wizard.png" width="1280" height="760" loading="lazy" alt="작성 도우미의 동작 순서 단계 화면" /></div>
+          </div>
+
+          <div class="feature flip">
+            <div class="f-text" style="--c: var(--sen)">
+              <span class="tag">직접 그려 보며 배우기</span>
+              <h3>튜토리얼과 채점되는 연습 문제 14개</h3>
+              <p>튜토리얼은 누를 버튼을 하나씩 짚어 주고, 연습 문제는 직접 그린 차트를 신호별로 채점합니다.</p>
+              <ul class="ticks">
+                <li>PLC 읽기 8문제: 자기유지, 타이머, 펄스, 인터록, 카운터, 플리커, 순차 기동, OFF 딜레이</li>
+                <li>설비 동작 6문제: 실린더 왕복부터 픽앤플레이스, 드릴 가공까지</li>
+                <li>틀리면 "3.2초에 ON 되어야 하는데 1.5초에 ON" 처럼 어디가 다른지 알려 주고, 힌트와 단계별 해설이 있습니다</li>
+              </ul>
+              <a class="btn ghost small" href="app/#practice">연습 문제 풀기</a>
+            </div>
+            <div class="shot"><img src="img/practice.png" width="1280" height="760" loading="lazy" alt="정·역회전 인터록 연습 문제를 채점한 화면: 두 신호 중 하나가 맞고 하나는 틀린 이유가 적혀 있다" /></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="first" class="intro">
+        <div class="wrap">
+          <div class="sec-head">
+            <span class="kicker">타임차트가 처음이라면</span>
+            <h2>가로는 시간, 세로는 신호 한 줄씩</h2>
+            <p>타임차트는 설비가 한 사이클 동안 언제 무엇이 켜지고 꺼지는지, 무엇이 얼마나 걸려 움직이는지 한 장에 그린 그림입니다.</p>
+          </div>
+          <div class="intro-grid">
+            <figure class="diagram" style="margin: 0">
+              <svg viewBox="0 0 640 262" role="img" aria-labelledby="dg-title">
+                <title id="dg-title">클램프 한 사이클 타임차트 예: 시작 버튼, 클램프 솔레노이드, 클램프 실린더, 전진단 센서</title>
+                <rect x="150" y="6" width="150" height="22" rx="4" style="fill: var(--step-a)" />
+                <rect x="300" y="6" width="190" height="22" rx="4" style="fill: var(--step-b)" />
+                <rect x="490" y="6" width="110" height="22" rx="4" style="fill: var(--step-c)" />
+                <text x="225" y="22" font-size="12" font-weight="700" text-anchor="middle">S10 클램프</text>
+                <text x="395" y="22" font-size="12" font-weight="700" text-anchor="middle">S20 가공</text>
+                <text x="545" y="22" font-size="12" font-weight="700" text-anchor="middle">S30 해제</text>
+                <g class="grid" stroke-width="1">
+                  <line x1="150" y1="34" x2="150" y2="238" stroke-dasharray="3 4" />
+                  <line x1="300" y1="34" x2="300" y2="238" stroke-dasharray="3 4" />
+                  <line x1="490" y1="34" x2="490" y2="238" stroke-dasharray="3 4" />
+                  <line x1="120" y1="238" x2="620" y2="238" />
+                </g>
+                <text x="12" y="66" font-size="13"><tspan class="t-muted mono" font-size="11">X0 </tspan>시작 버튼</text>
+                <text x="12" y="112" font-size="13"><tspan class="t-muted mono" font-size="11">Y0 </tspan>클램프 SOL</text>
+                <text x="12" y="158" font-size="13">클램프 실린더</text>
+                <text x="12" y="204" font-size="13"><tspan class="t-muted mono" font-size="11">X1 </tspan>전진단 센서</text>
+                <path class="wave" style="stroke: var(--inp)" d="M120 70 H150 V50 H190 V70 H620" />
+                <path class="wave" style="stroke: var(--out)" d="M120 116 H150 V96 H490 V116 H620" />
+                <path class="wave" style="stroke: var(--act)" d="M120 162 H150 L210 142 H490 L550 162 H620" />
+                <path class="wave" style="stroke: var(--sen)" d="M120 208 H300 V188 H490 V208 H620" />
+                <text x="180" y="138" font-size="11" class="t-muted">경사 = 움직이는 시간</text>
+                <text x="306" y="182" font-size="11" class="t-muted">도착하면 ON</text>
+                <text x="120" y="254" font-size="11" class="t-muted">0</text>
+                <text x="600" y="254" font-size="11" class="t-muted">시간 →</text>
+              </svg>
+              <figcaption>시작 버튼을 누르면 클램프 SOL 이 켜지고, 실린더가 움직여(경사) 전진단 센서가 켜지면 다음 스텝으로 넘어갑니다.</figcaption>
+            </figure>
+            <div class="explain">
+              <dl>
+                <div>
+                  <dt>출력 (솔레노이드 SOL, 모터)</dt>
+                  <dd>PLC 가 켜는 신호입니다. 켜면 실린더나 모터가 움직입니다.</dd>
+                </div>
+                <div>
+                  <dt>입력 (버튼, 센서)</dt>
+                  <dd>PLC 가 읽는 신호입니다. 실린더가 끝에 도착했는지 센서로 확인합니다.</dd>
+                </div>
+                <div>
+                  <dt>경사선</dt>
+                  <dd>실린더가 한쪽 끝에서 반대쪽 끝까지 움직이는 동안입니다. 이 시간들이 쌓여 사이클 타임이 됩니다.</dd>
+                </div>
+                <div>
+                  <dt>공정 스텝</dt>
+                  <dd>위의 색 띠. 클램프 → 가공 → 해제처럼 동작을 단계로 나눈 것입니다.</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+          <div class="order">
+            <h3>실무에서는 이런 순서로 만듭니다</h3>
+            <ol>
+              <li><b>설비 사양</b>무엇을 하는 설비이고 한 사이클을 몇 초 안에 끝내야 하는지</li>
+              <li><b>동작 기기</b>움직이는 것(실린더, 모터)과 각 동작 시간</li>
+              <li><b>I/O 목록</b>기기마다 출력(SOL)과 센서, PLC 주소</li>
+              <li><b>동작 순서</b>무엇이 먼저, 무엇이 동시에 움직이는지</li>
+              <li><b>차트 · 검토</b>사이클 타임과 인터록을 확인하고 작성·검토·승인</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section id="xg5000">
+        <div class="wrap">
+          <div class="sec-head">
+            <span class="kicker">LS XG5000 사용자라면</span>
+            <h2>니모닉을 PDF 로 인쇄해서 그대로 여세요</h2>
+            <p>XG5000 은 니모닉(IL)을 텍스트로 내보내는 기능이 없고 인쇄만 됩니다. TimeChart Studio 는 그 PDF 를 그대로 읽습니다.</p>
+          </div>
+          <div class="xg">
+            <div class="card">
+              <span class="num">01</span>
+              <h3>니모닉(IL) 보기에서 인쇄</h3>
+              <p>XG5000 에서 프로그램을 열고 니모닉 보기 상태로 인쇄합니다.</p>
+            </div>
+            <div class="card">
+              <span class="num">02</span>
+              <h3>"Microsoft Print to PDF"로 저장</h3>
+              <p>프린터를 PDF 로 골라 저장합니다. 변수·설명문 목록도 같은 방법으로 저장하면 신호 이름이 붙습니다.</p>
+            </div>
+            <div class="card">
+              <span class="num">03</span>
+              <h3>PLC 탭에서 파일 열기</h3>
+              <p>PLC 시뮬레이션 탭 → 파일 열기로 PDF 를 고르고, 시작 버튼 같은 입력을 넣어 시뮬레이션합니다.</p>
+            </div>
+          </div>
+          <p class="note">페이지 머리말, 렁 설명문, 비실행문은 자동으로 걸러냅니다. 글자를 고를 수 없는 스캔(이미지) PDF 는 읽지 못합니다. <a href="app/#plc">PLC 탭 열기</a></p>
+        </div>
+      </section>
+
+      <section id="support" class="intro">
+        <div class="wrap">
+          <div class="sec-head">
+            <span class="kicker">지원</span>
+            <h2>읽을 수 있는 PLC 와 내보낼 수 있는 형식</h2>
+          </div>
+          <div class="table-wrap">
+            <table class="support">
+              <tbody>
+                <tr>
+                  <th>LS ELECTRIC XG5000</th>
+                  <td>XGK / XGB 니모닉(IL): 인쇄한 PDF, 복사한 텍스트. 변수·설명문 목록</td>
+                </tr>
+                <tr>
+                  <th>미쓰비시 GX Works2 / 3</th>
+                  <td>니모닉, CSV 내보내기, 코멘트 CSV. STL 스텝 래더</td>
+                </tr>
+                <tr>
+                  <th>지멘스 STEP 7 / TIA Portal</th>
+                  <td>STL(AWL) 소스. 영문·독일어 니모닉</td>
+                </tr>
+                <tr>
+                  <th>IEC 61131-3 ST / SCL</th>
+                  <td>CODESYS, TwinCAT, XG5000 ST, GX Works3 ST. CASE 스텝 번호로 공정 스텝</td>
+                </tr>
+                <tr>
+                  <th>가져오기</th>
+                  <td>데이터 로거 · 트렌드 CSV(실측 차트), WaveDrom JSON, 텍스트 코드(TCT)</td>
+                </tr>
+                <tr>
+                  <th>내보내기</th>
+                  <td>표제란 있는 PDF 보고서(A4 · A3), PNG, SVG, 이미지 복사, 엑셀 CSV(변화 시점표 · 신호 목록 · 스텝표), WaveDrom JSON</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="safe">
+        <div class="wrap">
+          <div class="sec-head">
+            <span class="kicker">안심하고 쓰세요</span>
+            <h2>회사 프로그램은 내 PC 밖으로 나가지 않습니다</h2>
+          </div>
+          <div class="trio">
+            <div class="card">
+              <h3>브라우저 안에서만 계산</h3>
+              <p>여는 PLC 프로그램과 차트는 서버로 보내지 않습니다. 읽고 계산하는 일은 모두 여러분의 브라우저 안에서 합니다.</p>
+            </div>
+            <div class="card">
+              <h3>인터넷이 막힌 PC 에서도</h3>
+              <p>공장 PC, 사내망용 오프라인 파일(약 2.5MB)을 받아 더블클릭하면 설치 없이 열립니다. <a href="TimeChartStudio.html" download>오프라인 버전 받기</a></p>
+            </div>
+            <div class="card">
+              <h3>작업은 자동 백업</h3>
+              <p>고친 내용은 브라우저에 자동으로 보관되고, 파일(.tchart)로 저장해 다른 PC 로 옮길 수 있습니다.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="final">
+        <div class="wrap">
+          <h2>지금 바로 그려 보세요</h2>
+          <p>예제 차트가 열린 상태로 시작합니다. 처음이면 튜토리얼이나 연습 문제부터 해 보세요.</p>
+          <div class="cta">
+            <a class="btn primary" href="app/">바로 시작하기 →</a>
+            <a class="btn ghost" href="app/#tutorial">3분 튜토리얼</a>
+            <a class="btn ghost" href="app/#practice">연습 문제</a>
+            <a class="btn ghost" href="app/#wizard">순서대로 새로 만들기</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span>© 2026 mioon1402 · TimeChart Studio</span>
+        <span class="grow"></span>
+        <a href="https://github.com/mioon1402/TimeChartForAutomation#readme" target="_blank" rel="noreferrer">사용 설명서</a>
+        <a href="https://github.com/mioon1402/TimeChartForAutomation/issues" target="_blank" rel="noreferrer">문제 신고 · 기능 제안</a>
+        <a href="TimeChartStudio.html" download>오프라인 버전</a>
+        <a href="app/" lang="en">Open in English: EN button, top right</a>
+      </div>
+    </footer>
+
+    <script>
+      // 이 브라우저에 하던 작업이 있으면 "이어서 작업하기"
+      try {
+        var raw = localStorage.getItem('timechart-studio.autosave.v1');
+        if (raw) {
+          var title = '';
+          try {
+            title = (JSON.parse(raw).meta || {}).title || '';
+          } catch (e) {}
+          document.getElementById('continue-title').textContent = title || '저장된 차트';
+          document.getElementById('continue').hidden = false;
+        }
+      } catch (e) {}
+    </script>
+  </body>
+</html>

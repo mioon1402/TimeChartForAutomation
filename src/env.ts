@@ -13,6 +13,12 @@ export const ISSUES_URL = `${REPO_URL}/issues`;
 /** 웹 주소(GitHub Pages)에서 열었을 때 같은 곳에 있는 오프라인용 단일 HTML 파일 */
 export const OFFLINE_FILE = 'TimeChartStudio.html';
 
+/** 소개 페이지 (편집기가 /app/ 에 있을 때 한 단계 위) */
+export function introUrl(): string | null {
+  if (!servedFromWeb()) return null;
+  return /\/app\/(index\.html)?$/.test(location.pathname) ? '../' : null;
+}
+
 /** 웹 주소로 열었는가 (파일로 열었거나 체험판이면 false) */
 export function servedFromWeb(): boolean {
   return !WEB_TRIAL && typeof location !== 'undefined' && /^https?:$/.test(location.protocol);

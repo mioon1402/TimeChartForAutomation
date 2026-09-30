@@ -1,4 +1,5 @@
 # GitHub Pages 에 웹 버전 올리기: main 에 올라오면 빌드해서 https://mioon1402.github.io/TimeChartForAutomation/ 로 배포
+# (/ = 소개 페이지, /app/ = 편집기)
 # 처음 한 번: 저장소 Settings → Pages → Build and deployment → Source 를 "GitHub Actions" 로 바꿔야 합니다.
 name: GitHub Pages
 
@@ -27,14 +28,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      # 파일 버전과 같은 단일 HTML (인쇄·저장 포함 전체 기능)
-      - run: npm run build
-      # 앱의 "오프라인 버전 받기" 가 받아 가는 파일 (인터넷이 없는 PC 용)
-      - run: cp dist/index.html dist/TimeChartStudio.html
+      # 소개 페이지(/) + 편집기(/app/) + 오프라인 파일 → _site/
+      - run: npm run build:site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: _site
 
   deploy:
     needs: build
