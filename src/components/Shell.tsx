@@ -91,14 +91,16 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
           label={tr('내보내기', 'Export')}
           items={WEB_TRIAL ? [
             { label: tr('TCT 텍스트 복사 (파일 버전으로 옮기기)', 'Copy TCT text (move to file version)'), icon: 'copy', onClick: F.copyTct },
-            { label: tr('차트 이미지 복사 (클립보드)', 'Copy chart image'), icon: 'image', onClick: F.copyPng },
+            { label: tr('차트 이미지 복사 (클립보드)', 'Copy chart image'), icon: 'image', onClick: () => F.copyPng() },
             { divider: true },
             { label: tr('인쇄·PDF·파일 저장은 파일 버전에서', 'Print, PDF and files: use the file version'), icon: 'help', disabled: true },
           ] : [
             { label: tr('보고서 인쇄 / PDF', 'Print report / PDF'), icon: 'print', onClick: () => setTab('report') },
             { divider: true },
-            { label: tr('PNG 이미지', 'PNG image'), icon: 'image', onClick: F.exportPng },
-            { label: tr('이미지 복사 (클립보드)', 'Copy image to clipboard'), icon: 'copy', onClick: F.copyPng },
+            { label: tr('PNG 이미지', 'PNG image'), icon: 'image', onClick: () => F.exportPng() },
+            { label: tr('이미지 복사 (클립보드)', 'Copy image to clipboard'), icon: 'copy', onClick: () => F.copyPng() },
+            { label: tr('흑백 PNG (문서 · 흑백 인쇄용)', 'Black & white PNG'), icon: 'image', onClick: () => F.exportPng(true) },
+            { label: tr('흑백 이미지 복사', 'Copy black & white image'), icon: 'copy', onClick: () => F.copyPng(true) },
             { label: tr('SVG 벡터 (Visio, 일러스트레이터)', 'SVG vector'), icon: 'image', onClick: F.exportSvg },
             { divider: true },
             { label: tr('엑셀 CSV - 변화 시점표', 'Excel CSV - change table'), icon: 'table', onClick: () => F.exportCsv('changes') },
@@ -222,7 +224,7 @@ export function Toolbar() {
       </div>
       <span className="grow" />
       <div className="tool-group">
-        {!WEB_TRIAL && <IconButton icon="image" title={tr('PNG 내보내기', 'Export PNG')} onClick={F.exportPng} />}
+        {!WEB_TRIAL && <IconButton icon="image" title={tr('PNG 내보내기', 'Export PNG')} onClick={() => F.exportPng()} />}
         <IconButton icon="print" title={tr('보고서', 'Report')} onClick={() => useStore.getState().setTab('report')} />
         <IconButton icon="panel" title={tr('속성 패널', 'Properties panel')} active={showProps} onClick={toggleProps} />
       </div>

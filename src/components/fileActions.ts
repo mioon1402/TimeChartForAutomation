@@ -277,19 +277,19 @@ export async function saveProject(saveAs = false) {
 
 const base = () => safeFileName(g().project.meta.title);
 
-export async function exportPng() {
+export async function exportPng(grayscale = false) {
   const p = g().project;
   try {
-    await downloadPng(p, `${base()}.png`, { title: true, violations: checkRules(p).flatMap((r) => r.violations) });
+    await downloadPng(p, `${base()}${grayscale ? tr('_흑백', '_bw') : ''}.png`, { title: true, grayscale, violations: checkRules(p).flatMap((r) => r.violations) });
   } catch (e) {
     g().toast((e as Error).message, 'error');
   }
 }
 
-export async function copyPng() {
+export async function copyPng(grayscale = false) {
   const p = g().project;
   try {
-    const ok = await copyPngToClipboard(p, { title: true });
+    const ok = await copyPngToClipboard(p, { title: true, grayscale });
     g().toast(ok ? tr('차트 이미지를 클립보드에 복사했습니다 (엑셀/파워포인트에 붙여넣기)', 'Chart image copied to clipboard') : tr('이 브라우저는 이미지 복사를 지원하지 않습니다', 'Image copy not supported'), ok ? 'ok' : 'warn');
   } catch (e) {
     g().toast((e as Error).message, 'error');
