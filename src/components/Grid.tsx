@@ -121,10 +121,17 @@ export function Grid(props: GridProps) {
     td?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [act, editing]);
 
+  // 창 크기가 바뀌면 칸 폭이 바뀌므로 입력 칸 위치를 다시 잡는다
+  const [, relayout] = useState(0);
   useEffect(() => {
     const up = () => (dragging.current = false);
+    const resize = () => relayout((n) => n + 1);
     window.addEventListener('mouseup', up);
-    return () => window.removeEventListener('mouseup', up);
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('mouseup', up);
+      window.removeEventListener('resize', resize);
+    };
   }, []);
 
   const cellText = (r: number, c: number) => (r < rows && cols[c] ? text(r, cols[c].key) : '');
@@ -332,14 +339,13 @@ export function Grid(props: GridProps) {
     }
   };
 
+  // 한글 조합 중 누른 Enter/Tab: 조합이 끝난 순간 바로 반영하고 이동 (뒤따르는 Enter 는 lastCommitAt 으로 무시)
   const onCompositionEnd = () => {
     const p = pending.current;
     pending.current = null;
     if (!p) return;
-    setTimeout(() => {
-      commit();
-      move(p);
-    }, 0);
+    commit();
+    move(p);
   };
 
   const onCopy = (e: ClipboardEvent<HTMLInputElement>) => {
@@ -492,7 +498,7 @@ export function Grid(props: GridProps) {
           className={`grid-input ${cols[act.c].mono ? 'mono' : ''} ${cols[act.c].num ? 'num' : ''} ${editing ? 'editing' : ''}`}
           value={editing ? draft : cellText(act.r, act.c)}
           readOnly={cols[act.c].readOnly}
-          list={opts && editing ? `${uid}-opts` : undefined}
+          list={opts ? `${uid}-opts` : undefined}
           aria-label={`${cols[act.c].title} ${act.r + 1}`}
           spellCheck={false}
           autoComplete="off"
@@ -517,7 +523,8 @@ export function Grid(props: GridProps) {
           onPaste={onPaste}
         />
       )}
-      {opts && editing && (
+      {/* 입력 중에 list 를 붙였다 떼면 한글 조합이 끊기므로 선택한 칸에는 늘 붙여 둔다 */}
+      {opts && (
         <datalist id={`${uid}-opts`}>
           {opts.map((o) => (
             <option key={o} value={o} />
