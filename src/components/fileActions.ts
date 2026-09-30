@@ -12,6 +12,8 @@ import { templates } from '../model/templates';
 import { tr } from '../i18n';
 import { WEB_TRIAL } from '../env';
 import { askConfirm } from './ui';
+import { defaultSpec, type SeqSpec } from '../model/sequence';
+import { newSequenceProject } from '../model/seqEdit';
 
 type FileHandle = { name: string; createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> };
 let handle: FileHandle | null = null;
@@ -33,6 +35,27 @@ export async function newProject() {
   handle = null;
   g().loadProject(newEmptyProject());
   g().setTab('editor');
+}
+
+/** 동작 순서표로 새 차트 (동작 순서 탭에서 이어서 적는다) */
+export async function newSequenceChart(spec: SeqSpec = defaultSpec()): Promise<boolean> {
+  if (!(await confirmDiscard())) return false;
+  handle = null;
+  g().loadProject(newSequenceProject(spec));
+  g().setTab('sequence');
+  return true;
+}
+
+/** 글자를 클립보드로 (막힌 환경이면 알림) */
+export async function copyText(text: string, okMessage: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    g().toast(okMessage, 'ok');
+    return true;
+  } catch {
+    g().toast(tr('이 브라우저에서는 클립보드 복사가 막혀 있습니다.', 'Clipboard access is blocked in this browser.'), 'warn');
+    return false;
+  }
 }
 
 export async function loadSample() {

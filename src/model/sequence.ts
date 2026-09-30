@@ -56,6 +56,8 @@ export interface SeqSpec {
   /** I/O 목록에서 고친 주소·이름 */
   ioEdits: Record<string, { address?: string; name?: string }>;
   actions: SeqAction[];
+  /** 마지막으로 차트에 적용한 순간의 서명 (동작 순서 페이지가 "아직 적용 안 함"을 알아내는 데 씀) */
+  applied?: { spec: string; chart: string };
 }
 
 export type IoKind = 'start' | 'fwdOut' | 'retOut' | 'fwdSen' | 'retSen';

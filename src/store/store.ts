@@ -6,7 +6,7 @@ import { createProject, createSignal, createStep, migrateProject, sampleProject,
 import { deleteTime, insertTime, normalize, scaleTime, uid } from '../model/wave';
 import { setLang, type Lang } from '../i18n';
 
-export type Tab = 'editor' | 'plc' | 'text' | 'report';
+export type Tab = 'editor' | 'sequence' | 'plc' | 'text' | 'report';
 export type Tool = 'select' | 'draw' | 'arrow' | 'dimension' | 'note' | 'marker' | 'step';
 export type Selection =
   | { type: 'signals'; ids: string[] }
@@ -66,8 +66,6 @@ interface State {
   practice: PracticeState | null;
   /** 연습 문제 고르기 창 */
   practicePicker: boolean;
-  /** 작성 도우미 (new = 새로, edit = 지금 차트의 동작 순서 고치기) */
-  wizard: 'new' | 'edit' | null;
   showProps: boolean;
   toasts: Toast[];
   /** 차트 편집 영역 가로 폭 (px) - 화면 맞춤에 사용 */
@@ -115,7 +113,6 @@ interface State {
   setLang(l: Lang): void;
   setTheme(t: 'light' | 'dark'): void;
   setBottom(b: State['bottom']): void;
-  setWizard(w: State['wizard']): void;
   setTour(t: TourId | null): void;
   setPractice(p: PracticeState | null): void;
   setPracticePicker(v: boolean): void;
@@ -232,7 +229,6 @@ export const useStore = create<State>((set, get) => {
     hoverT: null,
     lang: prefs.lang,
     theme: prefs.theme,
-    wizard: null,
     tour: null,
     practice: null,
     practicePicker: false,
@@ -483,9 +479,6 @@ export const useStore = create<State>((set, get) => {
     setTheme(theme) {
       set({ theme });
       savePrefs({ lang: get().lang, theme });
-    },
-    setWizard(wizard) {
-      set({ wizard });
     },
     setTour(tour) {
       set({ tour });

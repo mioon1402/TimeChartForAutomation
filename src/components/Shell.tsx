@@ -6,6 +6,7 @@ import * as F from './fileActions';
 import { tr } from '../i18n';
 import { GUIDE_URL, introUrl, ISSUES_URL, OFFLINE_FILE, REPO_URL, servedFromWeb, WEB_TRIAL } from '../env';
 import { templates } from '../model/templates';
+import { sequenceStatus } from '../model/seqEdit';
 import { tourTitle, type TourId } from './Tour';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
@@ -17,12 +18,13 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
   const canRedo = useStore((s) => s.future.length > 0);
   const lang = useStore((s) => s.lang);
   const theme = useStore((s) => s.theme);
-  const { undo, redo, setLang, setTheme, setMeta, setWizard, setTour, setPracticePicker } = useStore.getState();
-  const hasSequence = useStore((s) => !!s.project.sequence);
+  const { undo, redo, setLang, setTheme, setMeta, setTour, setPracticePicker } = useStore.getState();
+  const seqChanged = useStore((s) => sequenceStatus(s.project) === 'changed');
   const [editing, setEditing] = useState(false);
 
   const tabs: { id: Tab; icon: string; label: string }[] = [
     { id: 'editor', icon: 'chart', label: tr('타임차트', 'Chart') },
+    { id: 'sequence', icon: 'table', label: tr('동작 순서', 'Sequence') },
     { id: 'plc', icon: 'cpu', label: tr('PLC 시뮬레이션', 'PLC simulation') },
     { id: 'text', icon: 'code', label: tr('텍스트 코드', 'Text code') },
     { id: 'report', icon: 'report', label: tr('보고서', 'Report') },
@@ -49,9 +51,8 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
           label={tr('파일', 'File')}
           tour="menu-file"
           items={[
-            { label: tr('새 차트: 순서대로 만들기…', 'New chart: step by step…'), icon: 'wand', onClick: () => setWizard('new') },
+            { label: tr('새 차트: 동작 순서표로 만들기', 'New chart: from a sequence table'), icon: 'table', onClick: () => F.newSequenceChart() },
             { label: tr('새 차트: 빈 차트', 'New chart: blank'), icon: 'plus', onClick: F.newProject },
-            ...(hasSequence ? [{ label: tr('동작 순서 고치기…', 'Edit sequence…'), icon: 'step', onClick: () => setWizard('edit') }] : []),
             { label: tr('열기…', 'Open…'), icon: 'open', shortcut: 'Ctrl+O', onClick: F.openProject },
             ...(WEB_TRIAL
               ? []
@@ -73,7 +74,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
             { label: tr('튜토리얼: PLC 프로그램으로 차트 만들기', 'Tutorial: chart from a PLC program'), icon: 'play', onClick: () => setTour('plc') },
             { divider: true },
             { label: tr('연습 문제: 직접 그리고 채점받기…', 'Practice: draw and get graded…'), icon: 'ruleCheck', onClick: () => setPracticePicker(true) },
-            { label: tr('순서대로 새 차트 만들기 (실무 작성 순서)…', 'New chart step by step…'), icon: 'wand', onClick: () => setWizard('new') },
+            { label: tr('동작 순서표로 차트 만들기 (실무 작성 순서)', 'Chart from a sequence table (practical order)'), icon: 'table', onClick: () => setTab('sequence') },
           ]}
         />
         <Menu
@@ -136,6 +137,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
           <button type="button" role="tab" aria-selected={tab === t.id} key={t.id} className={`tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)} data-tour={`tab-${t.id}`}>
             <Icon name={t.icon} size={15} />
             <span>{t.label}</span>
+            {t.id === 'sequence' && seqChanged && <i className="tab-dot" title={tr('차트에 아직 적용하지 않은 변경', 'Changes not applied to the chart yet')} />}
           </button>
         ))}
       </nav>
@@ -322,10 +324,10 @@ export function WelcomeModal({ onClose, onTour }: { onClose: () => void; onTour:
       go: () => setTab('plc'),
     },
     {
-      icon: 'wand',
-      title: tr('순서대로 새로 만들기', 'Build one step by step'),
-      desc: tr('설비 → 동작 기기 → I/O → 동작 순서를 차례로 적으면 타임차트를 그려 줍니다. 실무에서 만드는 순서 그대로입니다.', 'Enter machine, devices, I/O and sequence in order and the chart is drawn for you, the way it is done in practice.'),
-      go: () => useStore.getState().setWizard('new'),
+      icon: 'table',
+      title: tr('동작 순서표로 만들기', 'Build from a sequence table'),
+      desc: tr('설비 → 동작 기기 → I/O → 동작 순서를 엑셀처럼 표에 적으면(엑셀에서 붙여넣기도 됨) 타임차트를 그려 줍니다. 실무에서 만드는 순서 그대로입니다.', 'Fill in machine, devices, I/O and sequence in spreadsheet-like tables (or paste from Excel) and the chart is drawn for you.'),
+      go: () => void F.newSequenceChart(),
     },
   ];
   return (

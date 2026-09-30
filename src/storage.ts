@@ -15,3 +15,11 @@ export function storageSet(key: string, value: string): boolean {
     return false;
   }
 }
+
+export function storageRemove(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* 무시 */
+  }
+}

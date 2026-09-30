@@ -8,7 +8,7 @@ import { TextPanel } from './components/TextPanel';
 import { ReportPanel } from './components/ReportPanel';
 import { HelpModal, StatusBar, Toolbar, TopBar, useShortcuts, WelcomeModal } from './components/Shell';
 import { Tour } from './components/Tour';
-import { SequenceWizard } from './components/SequenceWizard';
+import { SequencePanel } from './components/SequencePanel';
 import { PracticePicker } from './components/Practice';
 import { PromptHost, Toasts } from './components/ui';
 import { loadFromText } from './components/fileActions';
@@ -24,7 +24,6 @@ export default function App() {
   const tab = useStore((s) => s.tab);
   const theme = useStore((s) => s.theme);
   const showProps = useStore((s) => s.showProps);
-  const wizard = useStore((s) => s.wizard);
   useStore((s) => s.lang); // 언어 변경 시 전체 다시 렌더링
   const [help, setHelp] = useState(false);
   // 처음 방문(이전 작업 없음)이면 시작 화면
@@ -43,14 +42,14 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  // 소개 페이지에서 바로 가기: /app/#tutorial, #tutorial-plc, #practice, #wizard
+  // 소개 페이지에서 바로 가기: /app/#tutorial, #tutorial-plc, #practice, #wizard(동작 순서 탭), #plc
   useEffect(() => {
     const h = typeof location !== 'undefined' ? location.hash.replace('#', '') : '';
     const s = useStore.getState();
     if (h === 'tutorial') s.setTour('basic');
     else if (h === 'tutorial-plc') s.setTour('plc');
     else if (h === 'practice') s.setPracticePicker(true);
-    else if (h === 'wizard') s.setWizard('new');
+    else if (h === 'wizard' || h === 'sequence') s.setTab('sequence');
     else if (h === 'plc') s.setTab('plc');
     else return;
     storageSet(WELCOME_KEY, '1');
@@ -123,13 +122,13 @@ export default function App() {
           <StatusBar />
         </>
       )}
+      {tab === 'sequence' && <SequencePanel />}
       {tab === 'plc' && <PlcPanel />}
       {tab === 'text' && <TextPanel />}
       {tab === 'report' && <ReportPanel />}
       {help && <HelpModal onClose={() => setHelp(false)} onWelcome={() => setWelcome(true)} onTour={setTour} />}
       {welcome && !help && !tour && !picker && <WelcomeModal onClose={closeWelcome} onTour={setTour} />}
       {tour && <Tour key={tour} id={tour} onClose={() => setTour(null)} />}
-      {wizard && <SequenceWizard mode={wizard} onClose={() => useStore.getState().setWizard(null)} />}
       {picker && <PracticePicker onClose={() => useStore.getState().setPracticePicker(false)} />}
       <PromptHost />
       <Toasts />
