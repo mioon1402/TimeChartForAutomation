@@ -19,7 +19,7 @@ let handle: FileHandle | null = null;
 const g = () => useStore.getState();
 
 /** 저장하지 않은 변경이 있으면 앱 안의 확인 창으로 묻는다 (브라우저 confirm 은 막힌 환경이 있음) */
-async function confirmDiscard(): Promise<boolean> {
+export async function confirmDiscard(): Promise<boolean> {
   if (!g().dirty) return true;
   return askConfirm(
     tr('저장하지 않은 변경', 'Unsaved changes'),

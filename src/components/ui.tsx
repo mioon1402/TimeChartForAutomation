@@ -63,9 +63,9 @@ export function Icon({ name, size = 16, className }: { name: keyof typeof PATHS 
 
 // ───────────────────────────── 버튼 / 메뉴 ─────────────────────────────
 
-export function IconButton({ icon, title, onClick, active, disabled, label, className }: { icon: string; title: string; onClick?: () => void; active?: boolean; disabled?: boolean; label?: string; className?: string }) {
+export function IconButton({ icon, title, onClick, active, disabled, label, className, tour }: { icon: string; title: string; onClick?: () => void; active?: boolean; disabled?: boolean; label?: string; className?: string; tour?: string }) {
   return (
-    <button type="button" className={`icon-btn ${active ? 'active' : ''} ${label ? 'with-label' : ''} ${className ?? ''}`} title={title} aria-label={title} onClick={onClick} disabled={disabled}>
+    <button type="button" className={`icon-btn ${active ? 'active' : ''} ${label ? 'with-label' : ''} ${className ?? ''}`} title={title} aria-label={title} onClick={onClick} disabled={disabled} data-tour={tour}>
       <Icon name={icon} />
       {label && <span>{label}</span>}
     </button>
@@ -82,7 +82,7 @@ export interface MenuItem {
   checked?: boolean;
 }
 
-export function Menu({ label, items, icon }: { label: string; items: MenuItem[]; icon?: string }) {
+export function Menu({ label, items, icon, tour }: { label: string; items: MenuItem[]; icon?: string; tour?: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -100,7 +100,7 @@ export function Menu({ label, items, icon }: { label: string; items: MenuItem[];
   }, [open]);
   return (
     <div className="menu" ref={ref}>
-      <button type="button" className={`menu-btn ${open ? 'open' : ''}`} onClick={() => setOpen(!open)}>
+      <button type="button" className={`menu-btn ${open ? 'open' : ''}`} onClick={() => setOpen(!open)} data-tour={tour}>
         {icon && <Icon name={icon} />}
         {label}
       </button>

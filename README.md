@@ -79,10 +79,84 @@
 
 ## 3. 5분 따라하기
 
+> **앱 안에 따라 하기 튜토리얼이 있습니다.** 처음 열면 나오는 시작 화면, 또는 오른쪽 위 `?`(도움말)에서 **차트 그리기 기초** / **PLC 프로그램으로 차트 만들기**를 누르세요. 누를 버튼을 하나씩 짚어 주고, 해 보면 저절로 다음으로 넘어갑니다. 끝나면 원래 차트로 돌아옵니다.
+
+직접 읽으며 해 보려면:
+
 1. **예제 보기**: 처음 열면 나오는 시작 화면에서 `예제 차트 둘러보기`를 누르면 "드릴 가공 유닛" 예제 차트가 나옵니다. 상단 `파일 → 템플릿`에서 로봇 핸드셰이크, 인버터 컨베이어 예제도 열 수 있습니다.
 2. **파형 고치기**: 왼쪽 위 연필(그리기, `D` 키)을 누르고 신호 줄에서 마우스로 끌면 ON/OFF가 뒤집힙니다. 화살표(선택, `V` 키) 상태에서 파형이 바뀌는 지점을 끌면 시간이 옮겨집니다. 틀리면 `Ctrl+Z`로 되돌립니다.
 3. **PLC 프로그램으로 만들기**: 상단 `PLC 시뮬레이션` 탭 → `예제 불러오기…`에서 "LS XGK - 픽앤플레이스"를 고르고 → 오른쪽 아래 `▶ 시뮬레이션 → 타임차트 생성`을 누릅니다.
 4. **보고서 뽑기**: `보고서` 탭 → `인쇄 / PDF 저장`을 누르고 → 프린터를 "PDF로 저장"으로 고릅니다.
+
+### 내 설비의 타임차트를 처음부터 만들기 (작성 도우미)
+
+실무에서 타임차트는 파형부터 그리지 않습니다. 설계 순서가 있고, 타임차트는 그 결과물입니다.
+
+| 순서 | 하는 일 | 왜 필요한가 |
+|---|---|---|
+| ① 설비 사양 | 어떤 설비인지, 한 사이클을 몇 초 안에 끝내야 하는지(목표 사이클 타임, 택트 타임) 정합니다. | 목표가 있어야 나중에 "시간 안에 들어오는가"를 판단합니다. |
+| ② 동작 기기 | 움직이는 것(실린더, 모터, 흡착·척)을 적고, 한쪽 끝에서 반대쪽 끝까지 걸리는 **동작 시간**을 적습니다. | 차트의 막대 길이와 경사선이 이 시간입니다. 모르면 0.5초로 두고 시운전 뒤 실측값으로 고칩니다. |
+| ③ I/O 목록 | 기기마다 PLC 가 켜는 **출력**(솔레노이드 SOL, 모터)과 PLC 가 읽는 **입력**(시작 버튼, 끝 위치 센서)을 정하고 주소(X0, Y0 / P00000 / I0.0)를 붙입니다. | 제어 설계(PLC 프로그램, 배선도)와 같은 이름·주소를 쓰기 위해서입니다. |
+| ④ 동작 순서 | 한 사이클 동안 무엇이 먼저 움직이고, 무엇이 동시에 움직여도 되는지 정합니다. 보통은 앞 동작이 끝났다는 센서를 확인한 뒤 다음 동작을 시작합니다. | 동시에 움직여도 부딪히지 않는 동작을 겹치면 사이클 타임이 줄어듭니다. 마지막에는 모든 기기가 원위치로 돌아와야 다음 사이클을 시작합니다. |
+| ⑤ 타임차트 · 검토 | 위 내용으로 차트를 그리고, 목표 사이클 타임 안에 들어오는지, 동시에 켜지면 안 되는 출력(전진 SOL 과 후진 SOL)이 겹치지 않는지 확인한 뒤 작성·검토·승인합니다. | 이 차트가 PLC 프로그램 작성과 시운전의 기준이 됩니다. |
+
+이 프로그램의 **작성 도우미**가 이 순서를 그대로 따라갑니다. `파일 → 새 차트: 순서대로 만들기…` 또는 시작 화면의 **순서대로 새로 만들기**를 누르세요.
+
+1. **설비**: 설비 이름, 도면 번호, 작성자, 목표 사이클 타임(초)을 적습니다.
+2. **동작 기기**: 예시로 "클램프", "프레스"가 들어 있으니 고쳐 씁니다. 종류는 네 가지입니다.
+   - 실린더 (더블 SOL): 전진 SOL 과 후진 SOL 두 개. 신호를 끊어도 그 자리에 머뭅니다. 차트에는 움직이는 동안만 SOL 이 켜집니다.
+   - 실린더 (싱글 SOL): SOL 하나. 켜 두는 동안 전진해 있고, 끄면 스프링으로 돌아옵니다.
+   - 모터: 운전 출력 하나. 기동부터 정지까지 켜져 있습니다.
+   - 흡착 · 척: SOL 하나와 흡착(잡힘) 확인 센서.
+   동작 이름은 "전진/후진", "하강/상승", "잡기/놓기"처럼 바꿀 수 있습니다(`자주 쓰는 이름…`).
+3. **I/O 목록**: 기기에서 입력·출력을 자동으로 뽑아 번호를 매깁니다. 주소 방식(미쓰비시 8진수 X0·Y0 / LS P00000·P00040 / 지멘스 I0.0·Q0.0 / 주소 없이)을 고르고, 실제 배선과 다른 주소나 이름만 고칩니다.
+4. **동작 순서**: `자동 제안`을 누르면 "기기 순서대로 가기 → 작업 대기 → 거꾸로 돌아오기"가 들어갑니다. 줄마다 동작을 고르고, 시작 조건을 **앞 동작이 끝난 뒤** 또는 **앞 동작과 동시에**로 정합니다. 가공·가압처럼 기다리는 시간은 `대기 추가`로 넣습니다. 이미 그 위치인 기기를 또 움직이거나, 사이클이 끝났는데 원위치로 돌아오지 않은 기기가 있으면 "검토할 점"으로 알려 줍니다.
+5. **확인 · 만들기**: 예상 사이클 타임, 목표 대비 OK/NG 와 여유 시간, 단계별 막대를 보고 `타임차트 만들기`를 누릅니다.
+
+만들어지는 차트에는 이런 것이 들어갑니다.
+- 기기별 그룹: 출력(SOL, 모터) 파형, 실린더 동작선(경사 = 동작 시간), 끝 위치 센서 파형(원위치 센서는 떠나는 순간 꺼지고 돌아오면 켜짐)
+- 대기 타이머 행, 공정 스텝 띠(S10, S20 …), "센서 확인 → 다음 동작" 화살표, 사이클 완료 표시
+- 검토 규칙: 목표 사이클 타임, 더블 SOL 실린더마다 "전진/후진 SOL 동시 ON 금지". 결과는 아래 `타이밍 규칙 검증` 탭과 보고서에 나옵니다.
+
+만든 뒤에도 파형을 직접 고칠 수 있고, `파일 → 동작 순서 고치기…`로 도우미를 다시 열어 순서나 시간을 바꾼 뒤 다시 만들 수 있습니다. 다시 만들면 차트에서 직접 고친 내용은 사라지므로, 순서가 확정된 뒤에 세부를 손보는 것이 좋습니다.
+
+### 연습 문제: 직접 그려 보고 채점받기
+
+타임차트는 읽을 줄 아는 것과 직접 그릴 줄 아는 것이 다릅니다. `배우기 → 연습 문제` (또는 시작 화면, 도움말 `?`)에서 문제를 골라 직접 그려 보고 채점받을 수 있습니다.
+
+**푸는 방법**
+1. 문제를 고르면 차트가 연습용으로 바뀝니다. 위쪽 **① 주어진 입력**(버튼을 누른 시각 등)은 그대로 두고, 아래쪽 **② 그려야 할 신호**를 그립니다.
+2. 아래 **연습 문제** 칸에 문제, 배우는 것, 주어진 조건, 그릴 것이 적혀 있습니다. PLC 문제에는 래더 그림과 니모닉(미쓰비시)이 함께 나옵니다.
+3. 연필(그리기) 도구로 그립니다. `Shift` 를 누르고 끌면 ON, `Alt` 를 누르고 끌면 OFF 로 칠해집니다. 눈금(0.1초)에 자동으로 붙습니다.
+4. **채점하기**를 누르면 신호마다 맞았는지 알려 줍니다. 틀렸으면 "2초에 OFF 되어야 하는데 2.5초에 OFF 되었습니다", "ON 구간이 2번 있어야 하는데 1번 그렸습니다", "시작할 때(0초) ON 이어야 합니다"처럼 어디가 다른지 구체적으로 알려 줍니다. 시각은 눈금 한 칸(0.1초) 안이면 맞은 것으로 봅니다.
+5. 막히면 **힌트**를 하나씩 열어 봅니다(문제마다 2~3개). **정답 보기**로 정답 차트를 보고 **내 답 보기**로 돌아올 수 있습니다. **해설**에는 몇 초에 무엇이 왜 일어나는지 단계별 설명과 실무 메모가 있습니다.
+6. 맞힌 문제는 문제 목록에 ✓ 와 점수가 남습니다(이 브라우저에만 저장). **연습 끝내기**를 누르면 연습 전 차트로 돌아옵니다.
+
+**PLC 읽기: 프로그램을 보고 출력 파형 그리기** (정답은 내장 PLC 시뮬레이터로 계산)
+
+| 번호 | 난이도 | 문제 | 배우는 것 |
+|---|---|---|---|
+| 1 | 기초 | 자기유지 회로 | 버튼을 떼도 출력이 유지되는 자기유지, 정지 버튼을 B접점으로 쓰는 이유 |
+| 2 | 기초 | ON 딜레이 타이머 | 입력이 계속 켜져 있는 동안만 시간을 세고, 꺼지면 처음부터 다시 센다 |
+| 3 | 중급 | 버튼 한 개로 켜고 끄기 | PLS(상승 펄스)는 누른 순간 한 스캔만 켜진다, 누를 때마다 바뀌는 토글 |
+| 4 | 중급 | 정·역회전 인터록 | 동시에 켜지면 안 되는 두 출력을 서로의 B접점으로 막기 |
+| 5 | 중급 | 카운터: 3개 모이면 알림 | 켜질 때마다 하나씩 세기, 설정값 도달, 리셋, 스캔 순서에 따른 한 스캔 지연 |
+| 6 | 중급 | 깜빡이(플리커) 회로 | 타이머 두 개가 서로 리셋하며 일정 주기의 ON/OFF 만들기 |
+| 7 | 응용 | 순차 기동 (1초 간격) | 타이머를 이어 여러 출력을 차례로 켜기, 공통 정지로 한꺼번에 끄기 |
+| 8 | 응용 | 컨베이어 정지 지연 | 입력이 꺼진 뒤 일정 시간 뒤에 끄는 OFF 딜레이를 ON 딜레이로 만들기 |
+
+**설비 동작: 설명을 보고 솔레노이드 · 센서 파형 그리기** (정답은 작성 도우미와 같은 계산)
+
+| 번호 | 난이도 | 문제 | 배우는 것 |
+|---|---|---|---|
+| 1 | 기초 | 실린더 한 개 왕복 | 출력 ON → 출발(출발한 쪽 센서 OFF) → 도착(도착한 쪽 센서 ON) → 다음 동작의 순서 |
+| 2 | 기초 | 싱글 솔레노이드 스토퍼 | 싱글 SOL 은 켜 두는 동안만 그 위치, 대기 타이머 표시 |
+| 3 | 중급 | 클램프 → 프레스 → 가압 | 앞 동작의 도착 센서가 다음 동작을 시작시키는 흐름, 사이클 타임 계산 |
+| 4 | 중급 | 두 클램프 동시 동작 | 동시 동작은 늦게 도착하는 쪽을 기다린다, 동시 동작으로 사이클 타임 줄이기 |
+| 5 | 응용 | 픽앤플레이스 | 흡착 확인 센서가 있는 8단계 이송 동작을 시간표로 풀어 그리기 |
+| 6 | 응용 | 드릴 가공 (모터 포함) | 센서 없는 모터 출력과 실린더를 함께, 동시 동작이 섞인 순서 |
+
+문제는 `src/learn/exercises.ts` 에 모여 있어서 같은 형식으로 계속 늘릴 수 있습니다. 설비 문제는 작성 도우미 입력(기기, 동작 순서)만 적으면 정답 차트와 시간표 해설이 자동으로 만들어지고, PLC 문제는 프로그램과 입력 파형만 적으면 정답이 시뮬레이터로 계산됩니다.
 
 ---
 
@@ -243,6 +317,9 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 - **Use it now:** https://mioon1402.github.io/TimeChartForAutomation/ (no install, no sign-up). For offline PCs, download [TimeChartStudio.html](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html) and double-click it.
 - **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
 - **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.
+- **Step-by-step chart wizard** following real design practice: machine spec → moving devices and motion times → I/O list with PLC addresses → sequence (after / together with previous) → chart with solenoids, sensors, cylinder motion, cause arrows, steps, and cycle-time and interlock checks.
+- **Practice mode** (Learn → Practice): 14 problems. Read a short PLC program (self-holding, timers, pulses, interlocks, counters, flicker, sequential start, off-delay) or a machine description and draw the outputs and sensors yourself; each signal is graded with a specific message, with hints, the answer and a step-by-step explanation.
+- **Built-in tutorials** (Help `?` or the start screen) point at each control and advance as you try it.
 - **Understand the process:** relays that just copy real I/O are traced back to the physical input/output, steps are built from which outputs are ON, and a sequence-of-events table lists every change in order.
 - **Check and report:** response time, interlock, pulse width and cycle-time rules; printable reports with a title block; PNG/SVG, Excel CSV, WaveDrom and a text format.
 - Files you open are processed only in your browser and never uploaded. The UI switches between Korean and English (top-right `EN` button).
@@ -264,7 +341,8 @@ npm run build:web  # 인쇄·다운로드가 막힌 내장 뷰어용 체험판 �
 구성: React 19 + TypeScript + Zustand, Vite(단일 HTML 빌드), pdf.js(PDF 텍스트, 한글 CMap 포함), Vitest
 
 ```text
-src/model       파형 데이터, 분석·규칙 검증, 템플릿
+src/model       파형 데이터, 분석·규칙 검증, 템플릿, 작성 도우미 모델(sequence.ts)
+src/learn       연습 문제(exercises.ts)와 채점(grade.ts)
 src/plc         PLC 파서(미쓰비시·LS·지멘스 STL·ST), LS PDF 텍스트 해석, 스캔 실행기, 시뮬레이터, 설비 모델, I/O 매핑 추적(alias.ts)
 src/io          PDF 텍스트 추출, WaveDrom, CSV, TCT 텍스트, 파일 입출력
 src/render      차트 그리기 (화면·보고서·이미지 공용)

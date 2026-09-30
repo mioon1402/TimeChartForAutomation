@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import type { TourId } from '../components/Tour';
+import type { GradeResult } from '../learn/grade';
 import type { Annotation, Project, ProjectMeta, ProjectSettings, Signal, Step, TimingRule } from '../model/types';
 import { createProject, createSignal, createStep, migrateProject, sampleProject, STEP_COLORS } from '../model/project';
 import { deleteTime, insertTime, normalize, scaleTime, uid } from '../model/wave';
@@ -24,6 +26,19 @@ export interface Toast {
   kind: 'info' | 'ok' | 'warn' | 'error';
 }
 
+export interface PracticeState {
+  id: string;
+  /** 그려야 할 신호 (주소 또는 이름) */
+  draw: string[];
+  answer: Project;
+  /** 정답을 보는 동안 보관한 내 답 */
+  attempt: Project | null;
+  view: 'mine' | 'answer';
+  result: GradeResult | null;
+  /** 보여 준 힌트 수 */
+  hints: number;
+}
+
 interface State {
   project: Project;
   past: Project[];
@@ -44,7 +59,15 @@ interface State {
   hoverT: number | null;
   lang: Lang;
   theme: 'light' | 'dark';
-  bottom: 'analysis' | 'rules' | 'steps' | 'events' | null;
+  bottom: 'analysis' | 'rules' | 'steps' | 'events' | 'practice' | null;
+  /** 진행 중인 튜토리얼 */
+  tour: TourId | null;
+  /** 진행 중인 연습 문제 */
+  practice: PracticeState | null;
+  /** 연습 문제 고르기 창 */
+  practicePicker: boolean;
+  /** 작성 도우미 (new = 새로, edit = 지금 차트의 동작 순서 고치기) */
+  wizard: 'new' | 'edit' | null;
   showProps: boolean;
   toasts: Toast[];
   /** 차트 편집 영역 가로 폭 (px) - 화면 맞춤에 사용 */
@@ -92,6 +115,10 @@ interface State {
   setLang(l: Lang): void;
   setTheme(t: 'light' | 'dark'): void;
   setBottom(b: State['bottom']): void;
+  setWizard(w: State['wizard']): void;
+  setTour(t: TourId | null): void;
+  setPractice(p: PracticeState | null): void;
+  setPracticePicker(v: boolean): void;
   toggleProps(): void;
   toast(msg: string, kind?: Toast['kind']): void;
   dismissToast(id: number): void;
@@ -104,6 +131,25 @@ const AUTOSAVE_KEY = 'timechart-studio.autosave.v1';
 const PREFS_KEY = 'timechart-studio.prefs.v1';
 const HISTORY_LIMIT = 200;
 
+/** 튜토리얼 동안 원래 차트를 보관 (튜토리얼 도중 창을 닫아도 다음에 열 때 되살림) */
+const TUTORIAL_BACKUP_KEY = 'timechart-studio.tutorial-backup.v1';
+
+export function saveTutorialBackup(p: Project): void {
+  try {
+    localStorage.setItem(TUTORIAL_BACKUP_KEY, JSON.stringify(p));
+  } catch {
+    /* 저장 공간 부족 등 - 메모리 보관본으로만 복원 */
+  }
+}
+
+export function clearTutorialBackup(): void {
+  try {
+    localStorage.removeItem(TUTORIAL_BACKUP_KEY);
+  } catch {
+    /* 무시 */
+  }
+}
+
 /** 이 브라우저에 이전 작업(자동 백업)이 있는가 - 처음 방문 판단용 */
 export function hasAutosave(): boolean {
   try {
@@ -114,6 +160,16 @@ export function hasAutosave(): boolean {
 }
 
 function loadInitial(): Project {
+  // 튜토리얼 도중 창을 닫았으면 튜토리얼 전 차트로
+  try {
+    const bak = localStorage.getItem(TUTORIAL_BACKUP_KEY);
+    if (bak) {
+      localStorage.removeItem(TUTORIAL_BACKUP_KEY);
+      return migrateProject(JSON.parse(bak));
+    }
+  } catch {
+    /* 무시하고 자동 백업본 사용 */
+  }
   try {
     const raw = localStorage.getItem(AUTOSAVE_KEY);
     if (raw) return migrateProject(JSON.parse(raw));
@@ -176,6 +232,10 @@ export const useStore = create<State>((set, get) => {
     hoverT: null,
     lang: prefs.lang,
     theme: prefs.theme,
+    wizard: null,
+    tour: null,
+    practice: null,
+    practicePicker: false,
     // 휴대폰 폭에서는 아래 분석 패널을 접어서 차트를 넓게
     bottom: typeof window !== 'undefined' && window.innerWidth <= 760 ? null : 'analysis',
     // 휴대폰 폭에서는 속성 패널이 차트를 가리므로 닫힌 상태로 시작
@@ -423,6 +483,18 @@ export const useStore = create<State>((set, get) => {
     setTheme(theme) {
       set({ theme });
       savePrefs({ lang: get().lang, theme });
+    },
+    setWizard(wizard) {
+      set({ wizard });
+    },
+    setTour(tour) {
+      set({ tour });
+    },
+    setPractice(practice) {
+      set({ practice });
+    },
+    setPracticePicker(practicePicker) {
+      set({ practicePicker });
     },
     setBottom(bottom) {
       set({ bottom });

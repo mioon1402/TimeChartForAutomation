@@ -169,6 +169,7 @@ export function migrateProject(raw: unknown): Project {
     annotations: Array.isArray(o.annotations) ? (o.annotations as Annotation[]) : [],
     rules: Array.isArray(o.rules) ? (o.rules as TimingRule[]) : [],
     plc: o.plc as Project['plc'],
+    sequence: o.sequence && typeof o.sequence === 'object' ? (o.sequence as Project['sequence']) : undefined,
   };
 }
 

@@ -1,4 +1,5 @@
 import type { PlcConfig } from '../plc/types';
+import type { SeqSpec } from './sequence';
 
 /** 신호 종류 */
 export type SignalKind =
@@ -205,4 +206,6 @@ export interface Project {
   annotations: Annotation[];
   rules: TimingRule[];
   plc?: PlcConfig;
+  /** 작성 도우미(설비 → 기기 → I/O → 동작 순서)로 만든 차트면 그 입력 - 순서를 고쳐 다시 만들 때 사용 */
+  sequence?: SeqSpec;
 }

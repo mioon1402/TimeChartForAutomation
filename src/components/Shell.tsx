@@ -6,6 +6,7 @@ import * as F from './fileActions';
 import { tr } from '../i18n';
 import { GUIDE_URL, ISSUES_URL, OFFLINE_FILE, REPO_URL, servedFromWeb, WEB_TRIAL } from '../env';
 import { templates } from '../model/templates';
+import { tourTitle, type TourId } from './Tour';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
   const tab = useStore((s) => s.tab);
@@ -16,7 +17,8 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
   const canRedo = useStore((s) => s.future.length > 0);
   const lang = useStore((s) => s.lang);
   const theme = useStore((s) => s.theme);
-  const { undo, redo, setLang, setTheme, setMeta } = useStore.getState();
+  const { undo, redo, setLang, setTheme, setMeta, setWizard, setTour, setPracticePicker } = useStore.getState();
+  const hasSequence = useStore((s) => !!s.project.sequence);
   const [editing, setEditing] = useState(false);
 
   const tabs: { id: Tab; icon: string; label: string }[] = [
@@ -45,8 +47,11 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
       <nav className="menus">
         <Menu
           label={tr('파일', 'File')}
+          tour="menu-file"
           items={[
-            { label: tr('새 차트', 'New chart'), icon: 'plus', onClick: F.newProject },
+            { label: tr('새 차트: 순서대로 만들기…', 'New chart: step by step…'), icon: 'wand', onClick: () => setWizard('new') },
+            { label: tr('새 차트: 빈 차트', 'New chart: blank'), icon: 'plus', onClick: F.newProject },
+            ...(hasSequence ? [{ label: tr('동작 순서 고치기…', 'Edit sequence…'), icon: 'step', onClick: () => setWizard('edit') }] : []),
             { label: tr('열기…', 'Open…'), icon: 'open', shortcut: 'Ctrl+O', onClick: F.openProject },
             ...(WEB_TRIAL
               ? []
@@ -58,6 +63,17 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
             ...templates().map((t) => ({ label: tr('템플릿: ', 'Template: ') + t.name, icon: 'chart', onClick: () => F.loadTemplate(t.id) })),
             { label: tr('예제: PLC 프로그램 → 차트', 'Example: PLC program → chart'), icon: 'cpu', onClick: () => setTab('plc') },
             ...(WEB_TRIAL ? [] : [{ divider: true }, { label: tr('보고서 인쇄 / PDF', 'Print report / PDF'), icon: 'print', shortcut: 'Ctrl+P', onClick: F.printReport }]),
+          ]}
+        />
+        <Menu
+          label={tr('배우기', 'Learn')}
+          tour="menu-learn"
+          items={[
+            { label: tr('튜토리얼: 차트 그리기 기초', 'Tutorial: chart basics'), icon: 'play', onClick: () => setTour('basic') },
+            { label: tr('튜토리얼: PLC 프로그램으로 차트 만들기', 'Tutorial: chart from a PLC program'), icon: 'play', onClick: () => setTour('plc') },
+            { divider: true },
+            { label: tr('연습 문제: 직접 그리고 채점받기…', 'Practice: draw and get graded…'), icon: 'ruleCheck', onClick: () => setPracticePicker(true) },
+            { label: tr('순서대로 새 차트 만들기 (실무 작성 순서)…', 'New chart step by step…'), icon: 'wand', onClick: () => setWizard('new') },
           ]}
         />
         <Menu
@@ -117,14 +133,14 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
       </div>
       <nav className="tabs" role="tablist">
         {tabs.map((t) => (
-          <button type="button" role="tab" aria-selected={tab === t.id} key={t.id} className={`tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)}>
+          <button type="button" role="tab" aria-selected={tab === t.id} key={t.id} className={`tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)} data-tour={`tab-${t.id}`}>
             <Icon name={t.icon} size={15} />
             <span>{t.label}</span>
           </button>
         ))}
       </nav>
       <div className="top-right">
-        <IconButton icon="undo" title={tr('실행 취소 (Ctrl+Z)', 'Undo (Ctrl+Z)')} onClick={undo} disabled={!canUndo} />
+        <IconButton icon="undo" title={tr('실행 취소 (Ctrl+Z)', 'Undo (Ctrl+Z)')} onClick={undo} disabled={!canUndo} tour="undo" />
         <IconButton icon="redo" title={tr('다시 실행 (Ctrl+Y)', 'Redo (Ctrl+Y)')} onClick={redo} disabled={!canRedo} />
         {!WEB_TRIAL && <IconButton icon="save" title={tr('저장 (Ctrl+S)', 'Save (Ctrl+S)')} onClick={() => F.saveProject()} />}
         <IconButton icon="globe" title="한국어 / English" label={lang === 'ko' ? 'EN' : '한'} onClick={() => setLang(lang === 'ko' ? 'en' : 'ko')} />
@@ -172,12 +188,12 @@ export function Toolbar() {
     <div className="toolbar">
       <div className="tool-group">
         {TOOLS.map((t) => (
-          <IconButton key={t.id} icon={t.icon} title={`${tr(t.ko, t.en)} (${t.key})`} active={tool === t.id} onClick={() => setTool(t.id)} />
+          <IconButton key={t.id} icon={t.icon} title={`${tr(t.ko, t.en)} (${t.key})`} active={tool === t.id} onClick={() => setTool(t.id)} tour={`tool-${t.id}`} />
         ))}
       </div>
       <div className="sep" />
       <div className="tool-group">
-        <IconButton icon="plus" label={tr('신호', 'Signal')} title={tr('비트 신호 추가', 'Add bit signal')} onClick={() => addKind('bit')} />
+        <IconButton icon="plus" label={tr('신호', 'Signal')} title={tr('비트 신호 추가', 'Add bit signal')} onClick={() => addKind('bit')} tour="add-signal" />
         <Menu
           label="▾"
           items={[
@@ -266,8 +282,24 @@ function PublicLinks() {
   );
 }
 
+/** 튜토리얼 시작 버튼 두 개 + 연습 문제 */
+function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primary?: boolean }) {
+  return (
+    <>
+      {(['basic', 'plc'] as TourId[]).map((id, k) => (
+        <button type="button" key={id} className={`btn small ${primary && k === 0 ? 'primary' : ''}`} onClick={() => onTour(id)}>
+          <Icon name="play" size={14} /> {tourTitle(id)}
+        </button>
+      ))}
+      <button type="button" className="btn small" onClick={() => useStore.getState().setPracticePicker(true)}>
+        <Icon name="ruleCheck" size={14} /> {tr('연습 문제', 'Practice')}
+      </button>
+    </>
+  );
+}
+
 /** 처음 방문한 사람을 위한 시작 화면 */
-export function WelcomeModal({ onClose }: { onClose: () => void }) {
+export function WelcomeModal({ onClose, onTour }: { onClose: () => void; onTour: (id: TourId) => void }) {
   const setTab = useStore((s) => s.setTab);
   const lang = useStore((s) => s.lang);
   const choices: { icon: string; title: string; desc: string; go: () => void }[] = [
@@ -284,13 +316,10 @@ export function WelcomeModal({ onClose }: { onClose: () => void }) {
       go: () => setTab('plc'),
     },
     {
-      icon: 'plus',
-      title: tr('빈 차트로 시작', 'Start a blank chart'),
-      desc: tr('신호를 추가하고 마우스로 파형을 직접 그립니다.', 'Add signals and draw waveforms yourself.'),
-      go: () => {
-        setTab('editor');
-        void F.newProject();
-      },
+      icon: 'wand',
+      title: tr('순서대로 새로 만들기', 'Build one step by step'),
+      desc: tr('설비 → 동작 기기 → I/O → 동작 순서를 차례로 적으면 타임차트를 그려 줍니다. 실무에서 만드는 순서 그대로입니다.', 'Enter machine, devices, I/O and sequence in order and the chart is drawn for you, the way it is done in practice.'),
+      go: () => useStore.getState().setWizard('new'),
     },
   ];
   return (
@@ -299,6 +328,21 @@ export function WelcomeModal({ onClose }: { onClose: () => void }) {
         <p className="welcome-lead">
           {tr('자동화 설비의 타임차트를 그리고, PLC 프로그램으로 자동 생성하고, 보고서로 출력하는 도구입니다. 설치나 회원가입 없이 바로 쓸 수 있습니다.', 'Draw timing charts for automated machines, generate them from PLC programs, and print reports. No install or sign-up.')}
         </p>
+        <div className="welcome-tour">
+          <div>
+            <b>{tr('처음이세요? 따라 하기 튜토리얼 · 연습 문제', 'New here? Tutorials and practice')}</b>
+            <span>{tr('튜토리얼은 버튼을 하나씩 짚어 알려 주고(각 3분), 연습 문제는 직접 그려 보고 채점받습니다.', 'Tutorials point at each button (3 min each); practice lets you draw and get graded.')}</span>
+          </div>
+          <div className="welcome-tour-btns">
+            <TourButtons
+              primary
+              onTour={(id) => {
+                onClose();
+                onTour(id);
+              }}
+            />
+          </div>
+        </div>
         <div className="welcome-choices">
           {choices.map((c) => (
             <button
@@ -331,7 +375,7 @@ export function WelcomeModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function HelpModal({ onClose, onWelcome }: { onClose: () => void; onWelcome: () => void }) {
+export function HelpModal({ onClose, onWelcome, onTour }: { onClose: () => void; onWelcome: () => void; onTour: (id: TourId) => void }) {
   const keys: [string, string][] = [
     ['V / D / A / M / S / N / K', tr('선택 / 그리기 / 화살표 / 치수 / 스텝 / 메모 / 마커 도구', 'Tools: select, draw, arrow, dimension, step, note, marker')],
     ['Ctrl+Z, Ctrl+Y', tr('실행 취소, 다시 실행', 'Undo, redo')],
@@ -363,6 +407,15 @@ export function HelpModal({ onClose, onWelcome }: { onClose: () => void; onWelco
           >
             <Icon name="play" size={14} /> {tr('시작 화면', 'Start screen')}
           </button>
+        </div>
+        <h4>{tr('따라 하기 튜토리얼', 'Tutorials')}</h4>
+        <div className="help-tours">
+          <TourButtons
+            onTour={(id) => {
+              onClose();
+              onTour(id);
+            }}
+          />
         </div>
         <h4>{tr('주요 기능', 'Features')}</h4>
         <ul>

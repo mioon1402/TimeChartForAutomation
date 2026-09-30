@@ -399,9 +399,11 @@ export function PlcPanel() {
             </Field>
           )}
         </div>
-        <Field label={tr('공정 스텝 디바이스', 'Step device')} wide hint={tr('값이 바뀔 때마다 공정 스텝이 자동 생성됩니다', 'Steps are generated when its value changes')}>
-          <Select value={sim.stepDevice} onChange={(v) => setSim({ stepDevice: v })} options={stepOpts} />
-        </Field>
+        <div data-tour="plc-step">
+          <Field label={tr('공정 스텝 디바이스', 'Step device')} wide hint={tr('값이 바뀔 때마다 공정 스텝이 자동 생성됩니다', 'Steps are generated when its value changes')}>
+            <Select value={sim.stepDevice} onChange={(v) => setSim({ stepDevice: v })} options={stepOpts} />
+          </Field>
+        </div>
         <Check checked={sim.autoTrim} onChange={(v) => setSim({ autoTrim: v })} label={tr('마지막 변화 이후 자동으로 잘라내기', 'Auto-trim after last change')} />
         <Check checked={keepExisting} onChange={setKeepExisting} label={tr('기존 신호 편집 내용(이름·색·주석·규칙) 유지', 'Keep existing edits (names, colors, annotations, rules)')} />
 
