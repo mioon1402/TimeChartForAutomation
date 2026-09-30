@@ -451,7 +451,7 @@ export function Grid(props: GridProps) {
                 {cols.map((col, c) => {
                   const isAct = !!act && act.r === r && act.c === c;
                   const cls = ['gc', col.mono ? 'mono' : '', col.num ? 'num' : '', col.readOnly ? 'ro' : '', inRange(r, c) && !isAct ? 'sel' : '', isAct ? 'act' : ''].filter(Boolean).join(' ');
-                  const content = append ? (c === firstEditable(cols) && !editing ? <span className="grid-hint">{appendHint}</span> : null) : props.view ? props.view(r, col.key) : cellText(r, c);
+                  const content = append ? (c === firstEditable(cols) && act?.r !== r ? <span className="grid-hint">{appendHint}</span> : null) : props.view ? props.view(r, col.key) : cellText(r, c);
                   return (
                     <td key={col.key} className={cls} onMouseDown={(e) => onCellDown(r, c, e)} onMouseEnter={() => onCellEnter(r, c)}>
                       {content}

@@ -8,12 +8,14 @@ import type { Book } from '../model/book';
 import { clearTutorialBackup, saveTutorialBackup, useStore } from '../store/store';
 import { sampleProject } from '../model/project';
 import { plcSamples } from '../plc/samples';
+import { computeTimeline, defaultSpec } from '../model/sequence';
+import { newSequenceProject, sequenceStatus } from '../model/seqEdit';
 import { tr } from '../i18n';
 import { Icon } from './ui';
 
 type S = ReturnType<typeof useStore.getState>;
 
-export type TourId = 'basic' | 'plc';
+export type TourId = 'basic' | 'plc' | 'sequence';
 
 interface TourStep {
   /** 강조할 요소 (CSS 선택자). 없거나 화면에 없으면 가운데에 설명만 */
@@ -30,7 +32,117 @@ interface TourStep {
 const st = () => useStore.getState();
 
 export function tourTitle(id: TourId): string {
+  if (id === 'sequence') return tr('동작 순서표로 차트 만들기', 'Chart from a sequence table');
   return id === 'basic' ? tr('차트 그리기 기초', 'Chart basics') : tr('PLC 프로그램으로 차트 만들기', 'Chart from a PLC program');
+}
+
+const devByName = (s: S, name: string) => s.project.sequence?.devices.find((d) => d.name === name);
+
+function sequenceSteps(): TourStep[] {
+  return [
+    {
+      title: tr('동작 순서표로 차트 만들기', 'Chart from a sequence table'),
+      body: tr(
+        '실무에서 타임차트를 만드는 순서(설비 → 동작 기기 → I/O → 동작 순서 → 확인)대로 표를 채워 차트를 만들어 봅니다. 예시(클램프 → 프레스)가 들어 있습니다. 3분쯤 걸리고, 끝나면 지금 차트로 돌아갑니다.',
+        'Fill in tables in the practical order (machine → devices → I/O → sequence → review) to build a chart. An example (clamp → press) is loaded. About 3 minutes; your chart comes back at the end.',
+      ),
+      enter: () => st().setTab('sequence'),
+    },
+    {
+      target: '#seq-machine',
+      title: tr('① 설비', '① Machine'),
+      body: tr(
+        '설비 이름과 목표 사이클 타임(한 사이클을 몇 초 안에 끝내야 하는지)을 적습니다. 설비 이름·제목·도면 번호·작성자는 보고서 표제란에 그대로 들어갑니다.',
+        'Machine name and the target cycle time. Name, title, drawing no. and author go into the report title block.',
+      ),
+    },
+    {
+      target: '#seq-devices .grid-wrap',
+      title: tr('② 동작 기기: 엑셀처럼 입력', '② Devices: type like a spreadsheet'),
+      body: tr(
+        '움직이는 것과 한쪽 끝에서 반대쪽 끝까지 가는 시간입니다. 칸을 누르고 바로 숫자를 치면 바뀝니다. Enter·Tab·방향키로 옮겨 다닙니다.',
+        'What moves and its end-to-end travel time. Click a cell and just type; Enter, Tab and arrows move around.',
+      ),
+      task: tr('프레스의 "가는 시간(초)" 칸을 누르고 1 을 친 뒤 Enter 를 누르세요.', 'Click the press "Go time" cell, type 1 and press Enter.'),
+      done: (s) => devByName(s, '프레스')?.fwdTime === 1000,
+    },
+    {
+      target: '#seq-io',
+      title: tr('③ I/O 목록', '③ I/O list'),
+      body: tr(
+        '기기에서 입력(버튼·센서)과 출력(SOL)을 자동으로 뽑았습니다. 주소 방식(미쓰비시·LS·지멘스)을 고르고 배선과 다른 곳만 고칩니다. 엑셀 I/O 리스트를 제목 줄(주소, 이름)과 함께 붙여 넣으면 이름으로 찾아 주소를 넣습니다.',
+        'Inputs and outputs are derived from the devices. Pick the address style and fix what differs from the wiring. Paste an Excel I/O list with a header row to fill addresses by name.',
+      ),
+    },
+    {
+      target: '#seq-actions .grid-wrap',
+      title: tr('④ 동작 순서: 새 기기는 이름만 적으면', '④ Sequence: new devices by name'),
+      body: tr(
+        '한 줄에 기기와 동작 하나입니다. 기기 표에 없는 이름을 적으면 기기가 새로 생기고, 처음 적은 동작(상승)과 반대 동작(하강)이 그 기기의 동작 이름이 됩니다.',
+        'One device and motion per row. A new name creates the device; the first motion you type (and its opposite) become its motion names.',
+      ),
+      task: tr('맨 아래 빈 줄의 "기기" 칸에 리프터, Tab, "동작" 칸에 상승 을 적고 Enter.', 'In the empty last row type 리프터 (device), Tab, 상승 (motion), Enter.'),
+      done: (s) => !!devByName(s, '리프터') && !!s.project.sequence?.actions.some((a) => a.device === devByName(s, '리프터')!.id),
+    },
+    {
+      target: '#seq-actions .seq-notes',
+      title: tr('검토할 점', 'Things to check'),
+      body: tr(
+        '리프터가 올라간 채로 사이클이 끝나서 다음 사이클을 시작할 수 없다고 알려 줍니다. 같은 기기 이름만 한 번 더 적으면 반대 동작(하강)이 들어갑니다.',
+        'The lifter ends the cycle up, so the next cycle cannot start. Type the same device name once more to add the opposite motion.',
+      ),
+      task: tr('빈 줄의 "기기" 칸에 리프터 만 적고 Enter.', 'Type just 리프터 in the empty row and press Enter.'),
+      done: (s) => !!s.project.sequence && computeTimeline(s.project.sequence).notes.length === 0,
+    },
+    {
+      target: '[data-tour="seq-paste"]',
+      title: tr('엑셀 동작 순서표 붙여넣기', 'Paste an Excel sequence table'),
+      body: tr(
+        '엑셀에 정리해 둔 동작 순서표가 있으면 복사해서 ④ 의 첫 칸에 Ctrl+V 하거나 이 버튼을 누릅니다. 첫 줄의 제목(기기, 동작, 시간, 시작)으로 칸을 맞추고, "클램프 전진"처럼 한 칸에 적어도 나눠 읽습니다.',
+        'Have a sequence table in Excel? Copy it and Ctrl+V into the first cell of ④, or use this button. Header words map the columns; "clamp advance" in one cell is split.',
+      ),
+    },
+    {
+      target: '#seq-review .seq-preview',
+      title: tr('⑤ 확인: 미리보기', '⑤ Review: preview'),
+      body: tr('표를 고칠 때마다 사이클 타임, 목표 대비 OK/NG, 차트 미리보기가 바로 바뀝니다.', 'Cycle time, target OK/NG and the chart preview update as you edit.'),
+    },
+    {
+      target: '[data-tour="seq-apply"]',
+      title: tr('차트에 적용', 'Apply to the chart'),
+      body: tr(
+        '고친 내용은 파일에 바로 저장되지만, 차트는 이 버튼을 눌러야 다시 만들어집니다. 적용한 뒤에도 Ctrl+Z 로 되돌릴 수 있습니다.',
+        'Edits are saved right away, but the chart is rebuilt only when you press this. Ctrl+Z undoes it.',
+      ),
+      task: tr('[차트에 적용]을 누르세요.', 'Click [Apply to chart].'),
+      done: (s) => s.tab === 'editor' && sequenceStatus(s.project) === 'applied',
+    },
+    {
+      target: '.chart-body',
+      title: tr('만들어진 타임차트', 'The chart'),
+      body: tr(
+        'SOL·센서 파형, 실린더 동작선, "센서 확인 → 다음 동작" 화살표, 공정 스텝, 인터록 규칙이 들어 있습니다. 여기서 파형을 더 다듬을 수 있습니다.',
+        'Solenoid and sensor waveforms, cylinder motion, cause arrows, steps and interlock rules. Polish it further here.',
+      ),
+      enter: () => st().setTab('editor'),
+    },
+    {
+      target: '.sheetbar',
+      title: tr('설비 하나 = 파일 하나', 'One machine, one file'),
+      body: tr(
+        '[+ 차트 추가]로 원점 복귀, 유닛별 차트를 같은 파일에 더합니다. 탭을 두 번 누르면 이름을 바꿉니다. 보고서에서 목차와 함께 한 번에 인쇄할 수 있습니다.',
+        'Use [+ Add chart] to keep homing and unit charts in the same file. Double-click a tab to rename. Print them together with a contents page.',
+      ),
+    },
+    {
+      target: '[data-tour="tab-report"]',
+      title: tr('인쇄', 'Printing'),
+      body: tr(
+        '보고서 탭에서 "한 장으로"를 고르면 요약·전체 차트·스텝 표가 한 장에 들어갑니다. 세로 용지, 흑백 프린터용 무늬도 고를 수 있습니다.',
+        'In the Report tab, "One page" fits the summary, whole chart and step table on one sheet. Portrait and black-and-white patterns are available too.',
+      ),
+    },
+  ];
 }
 
 function basicSteps(): TourStep[] {
@@ -205,6 +317,7 @@ function plcSteps(): TourStep[] {
 }
 
 export function tourSteps(id: TourId): TourStep[] {
+  if (id === 'sequence') return sequenceSteps();
   return id === 'basic' ? basicSteps() : plcSteps();
 }
 
@@ -215,7 +328,8 @@ function setupTour(id: TourId) {
   if (id === 'plc') {
     const ex = plcSamples().find((x) => x.id === 'ls-pickplace') ?? plcSamples()[0];
     s.loadProject({ ...base, plc: { dialect: ex.dialect, source: ex.source, comments: ex.comments, sim: ex.sim } });
-  } else s.loadProject(base);
+  } else if (id === 'sequence') s.loadProject(newSequenceProject(defaultSpec()));
+  else s.loadProject(base);
   s.setTool('select');
   s.select(null);
 }

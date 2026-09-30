@@ -72,6 +72,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
           items={[
             { label: tr('튜토리얼: 차트 그리기 기초', 'Tutorial: chart basics'), icon: 'play', onClick: () => setTour('basic') },
             { label: tr('튜토리얼: PLC 프로그램으로 차트 만들기', 'Tutorial: chart from a PLC program'), icon: 'play', onClick: () => setTour('plc') },
+            { label: tr('튜토리얼: 동작 순서표로 차트 만들기', 'Tutorial: chart from a sequence table'), icon: 'play', onClick: () => setTour('sequence') },
             { divider: true },
             { label: tr('연습 문제: 직접 그리고 채점받기…', 'Practice: draw and get graded…'), icon: 'ruleCheck', onClick: () => setPracticePicker(true) },
             { label: tr('동작 순서표로 차트 만들기 (실무 작성 순서)', 'Chart from a sequence table (practical order)'), icon: 'table', onClick: () => setTab('sequence') },
@@ -294,7 +295,7 @@ function PublicLinks() {
 function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primary?: boolean }) {
   return (
     <>
-      {(['basic', 'plc'] as TourId[]).map((id, k) => (
+      {(['basic', 'plc', 'sequence'] as TourId[]).map((id, k) => (
         <button type="button" key={id} className={`btn small ${primary && k === 0 ? 'primary' : ''}`} onClick={() => onTour(id)}>
           <Icon name="play" size={14} /> {tourTitle(id)}
         </button>

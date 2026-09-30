@@ -177,3 +177,19 @@ describe('apply to chart', () => {
     expect(chartEditedSinceApply(edited)).toBe(true);
   });
 });
+
+describe('sequence examples', () => {
+  it('every example builds a chart with no review notes and meets its target', async () => {
+    const { seqExamples } = await import('../src/model/seqExamples');
+    const { computeTimeline } = await import('../src/model/sequence');
+    for (const ex of seqExamples()) {
+      const s = ex.build();
+      const tl = computeTimeline(s);
+      expect(tl.notes, ex.id).toEqual([]);
+      if (s.targetCycle) expect(tl.cycleEnd - tl.cycleStart, ex.id).toBeLessThanOrEqual(s.targetCycle);
+      const p = newSequenceProject(s);
+      expect(p.signals.length, ex.id).toBeGreaterThan(2);
+      expect(sequenceStatus(p)).toBe('applied');
+    }
+  });
+});

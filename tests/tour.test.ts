@@ -3,7 +3,7 @@ import { tourSteps, type TourId } from '../src/components/Tour';
 import { useStore } from '../src/store/store';
 
 describe('tutorials', () => {
-  for (const id of ['basic', 'plc'] as TourId[]) {
+  for (const id of ['basic', 'plc', 'sequence'] as TourId[]) {
     it(`${id}: every step explains itself and every task can complete`, () => {
       const steps = tourSteps(id);
       expect(steps.length).toBeGreaterThan(5);

@@ -57,6 +57,7 @@ export default function App() {
     const s = useStore.getState();
     if (h === 'tutorial') s.setTour('basic');
     else if (h === 'tutorial-plc') s.setTour('plc');
+    else if (h === 'tutorial-sequence') s.setTour('sequence');
     else if (h === 'practice') s.setPracticePicker(true);
     else if (h === 'wizard' || h === 'sequence') s.setTab('sequence');
     else if (h === 'plc') s.setTab('plc');
@@ -120,7 +121,7 @@ export default function App() {
       }}
     >
       <TopBar onHelp={() => setHelp(true)} />
-      {!tour && !practice && <SheetBar />}
+      {!practice && <SheetBar />}
       {tab === 'editor' && (
         <>
           <Toolbar />

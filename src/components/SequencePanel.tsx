@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
-import { actionText, addrStyleName, computeTimeline, defaultSpec, ioPoints, LABEL_PAIRS, newDevice, suggestActions, type AddrStyle, type DeviceKind, type IoPoint, type SeqSpec } from '../model/sequence';
+import { actionText, addrStyleName, computeTimeline, ioPoints, LABEL_PAIRS, newDevice, suggestActions, type AddrStyle, type DeviceKind, type IoPoint, type SeqSpec } from '../model/sequence';
 import {
   applySequence,
   autoTitle,
@@ -42,6 +42,7 @@ import { Grid, type GridCol, type GridEdit } from './Grid';
 import { askConfirm, askText, Check, Field, Icon, Select, TextInput } from './ui';
 import { copyText, newSequenceChart } from './fileActions';
 import { endPractice } from './Practice';
+import { seqExamples } from '../model/seqExamples';
 
 /** 이전 버전의 작성 도우미가 남긴 작성 중 입력 */
 const OLD_DRAFT_KEY = 'timechart-studio.wizard-draft.v1';
@@ -112,10 +113,16 @@ function SequenceStart({ title }: { title: string }) {
             </li>
           ))}
         </ol>
+        <h3 className="seq-start-sub">{tr('예시로 시작하기 (고쳐서 쓰세요)', 'Start from an example (then edit it)')}</h3>
+        <div className="seq-examples">
+          {seqExamples().map((ex, i) => (
+            <button type="button" key={ex.id} className={`seq-example ${i === 0 ? 'first' : ''}`} onClick={() => newSequenceChart(ex.build())}>
+              <b>{ex.name}</b>
+              <span>{ex.note}</span>
+            </button>
+          ))}
+        </div>
         <div className="seq-start-btns">
-          <button type="button" className="btn primary" onClick={() => newSequenceChart(defaultSpec())}>
-            <Icon name="wand" size={15} /> {tr('예시로 시작하기 (클램프 → 프레스)', 'Start from an example')}
-          </button>
           <button type="button" className="btn" onClick={() => newSequenceChart(emptySpec())}>
             <Icon name="table" size={15} /> {tr('빈 표로 시작하기', 'Start with empty tables')}
           </button>
@@ -430,11 +437,11 @@ function SequenceEditor() {
           {status === 'changed' ? tr('● 차트에 아직 적용 안 함', '● Not applied yet') : edited ? tr('✓ 적용됨 · 차트를 직접 고침', '✓ Applied · chart edited') : tr('✓ 차트와 같음', '✓ Chart is up to date')}
         </span>
         {status === 'changed' ? (
-          <button type="button" className="btn small primary" onClick={apply} disabled={!tl.groups.length}>
+          <button type="button" className="btn small primary" onClick={apply} disabled={!tl.groups.length} data-tour="seq-apply">
             <Icon name="chart" size={14} /> {tr('차트에 적용', 'Apply to chart')}
           </button>
         ) : (
-          <button type="button" className="btn small" onClick={view}>
+          <button type="button" className="btn small" onClick={view} data-tour="seq-apply">
             <Icon name="chart" size={14} /> {tr('타임차트 보기', 'View chart')}
           </button>
         )}
@@ -623,6 +630,7 @@ function SequenceEditor() {
               <button
                 type="button"
                 className="btn small"
+                data-tour="seq-paste"
                 onClick={async () => {
                   const t = await askText(
                     tr('엑셀 표 붙여넣기', 'Paste an Excel table'),
