@@ -8,14 +8,17 @@ import { createStep, STEP_COLORS } from '../model/project';
 import { Field, Icon, Select, TimeInput } from './ui';
 import { tr } from '../i18n';
 import { levelText } from './ChartEditor';
+import { PracticeTab } from './Practice';
 
 export function BottomPanel() {
   const bottom = useStore((s) => s.bottom);
   const setBottom = useStore((s) => s.setBottom);
   const project = useStore((s) => s.project);
+  const practice = useStore((s) => !!s.practice);
   const results = useMemo(() => checkRules(project), [project]);
   const fails = results.filter((r) => r.status === 'fail').length;
   const tabs: { id: NonNullable<typeof bottom>; label: string; badge?: string; bad?: boolean }[] = [
+    ...(practice ? [{ id: 'practice' as const, label: tr('연습 문제', 'Practice') }] : []),
     { id: 'analysis', label: tr('측정 · 분석', 'Measure') },
     { id: 'rules', label: tr('타이밍 규칙 검증', 'Timing rules'), badge: project.rules.length ? (fails ? `NG ${fails}` : 'OK') : undefined, bad: fails > 0 },
     { id: 'steps', label: tr('공정 스텝 · 사이클 타임', 'Steps & cycle time') },
@@ -36,11 +39,12 @@ export function BottomPanel() {
         </button>
       </div>
       {bottom && (
-        <div className="bottom-body">
+        <div className={`bottom-body ${bottom === 'practice' ? 'tall' : ''}`}>
           {bottom === 'analysis' && <AnalysisTab />}
           {bottom === 'rules' && <RulesTab />}
           {bottom === 'steps' && <StepsTab />}
           {bottom === 'events' && <EventsTab />}
+          {bottom === 'practice' && <PracticeTab />}
         </div>
       )}
     </div>

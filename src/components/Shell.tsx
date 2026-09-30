@@ -17,7 +17,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
   const canRedo = useStore((s) => s.future.length > 0);
   const lang = useStore((s) => s.lang);
   const theme = useStore((s) => s.theme);
-  const { undo, redo, setLang, setTheme, setMeta, setWizard } = useStore.getState();
+  const { undo, redo, setLang, setTheme, setMeta, setWizard, setTour, setPracticePicker } = useStore.getState();
   const hasSequence = useStore((s) => !!s.project.sequence);
   const [editing, setEditing] = useState(false);
 
@@ -63,6 +63,17 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
             ...templates().map((t) => ({ label: tr('템플릿: ', 'Template: ') + t.name, icon: 'chart', onClick: () => F.loadTemplate(t.id) })),
             { label: tr('예제: PLC 프로그램 → 차트', 'Example: PLC program → chart'), icon: 'cpu', onClick: () => setTab('plc') },
             ...(WEB_TRIAL ? [] : [{ divider: true }, { label: tr('보고서 인쇄 / PDF', 'Print report / PDF'), icon: 'print', shortcut: 'Ctrl+P', onClick: F.printReport }]),
+          ]}
+        />
+        <Menu
+          label={tr('배우기', 'Learn')}
+          tour="menu-learn"
+          items={[
+            { label: tr('튜토리얼: 차트 그리기 기초', 'Tutorial: chart basics'), icon: 'play', onClick: () => setTour('basic') },
+            { label: tr('튜토리얼: PLC 프로그램으로 차트 만들기', 'Tutorial: chart from a PLC program'), icon: 'play', onClick: () => setTour('plc') },
+            { divider: true },
+            { label: tr('연습 문제: 직접 그리고 채점받기…', 'Practice: draw and get graded…'), icon: 'ruleCheck', onClick: () => setPracticePicker(true) },
+            { label: tr('순서대로 새 차트 만들기 (실무 작성 순서)…', 'New chart step by step…'), icon: 'wand', onClick: () => setWizard('new') },
           ]}
         />
         <Menu
@@ -271,7 +282,7 @@ function PublicLinks() {
   );
 }
 
-/** 튜토리얼 시작 버튼 두 개 */
+/** 튜토리얼 시작 버튼 두 개 + 연습 문제 */
 function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primary?: boolean }) {
   return (
     <>
@@ -280,6 +291,9 @@ function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primar
           <Icon name="play" size={14} /> {tourTitle(id)}
         </button>
       ))}
+      <button type="button" className="btn small" onClick={() => useStore.getState().setPracticePicker(true)}>
+        <Icon name="ruleCheck" size={14} /> {tr('연습 문제', 'Practice')}
+      </button>
     </>
   );
 }
@@ -316,8 +330,8 @@ export function WelcomeModal({ onClose, onTour }: { onClose: () => void; onTour:
         </p>
         <div className="welcome-tour">
           <div>
-            <b>{tr('처음이세요? 따라 하기 튜토리얼', 'New here? Follow a short tutorial')}</b>
-            <span>{tr('버튼을 하나씩 짚어 가며 알려 줍니다. 각 3분.', 'It points at each button in turn. About 3 minutes each.')}</span>
+            <b>{tr('처음이세요? 따라 하기 튜토리얼 · 연습 문제', 'New here? Tutorials and practice')}</b>
+            <span>{tr('튜토리얼은 버튼을 하나씩 짚어 알려 주고(각 3분), 연습 문제는 직접 그려 보고 채점받습니다.', 'Tutorials point at each button (3 min each); practice lets you draw and get graded.')}</span>
           </div>
           <div className="welcome-tour-btns">
             <TourButtons

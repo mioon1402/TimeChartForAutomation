@@ -7,8 +7,9 @@ import { PlcPanel } from './components/PlcPanel';
 import { TextPanel } from './components/TextPanel';
 import { ReportPanel } from './components/ReportPanel';
 import { HelpModal, StatusBar, Toolbar, TopBar, useShortcuts, WelcomeModal } from './components/Shell';
-import { Tour, type TourId } from './components/Tour';
+import { Tour } from './components/Tour';
 import { SequenceWizard } from './components/SequenceWizard';
+import { PracticePicker } from './components/Practice';
 import { PromptHost, Toasts } from './components/ui';
 import { loadFromText } from './components/fileActions';
 import { readTextSmart } from './io/files';
@@ -28,7 +29,9 @@ export default function App() {
   const [help, setHelp] = useState(false);
   // 처음 방문(이전 작업 없음)이면 시작 화면
   const [welcome, setWelcome] = useState(() => !storageGet(WELCOME_KEY) && !hasAutosave());
-  const [tour, setTour] = useState<TourId | null>(null);
+  const tour = useStore((s) => s.tour);
+  const picker = useStore((s) => s.practicePicker);
+  const { setTour } = useStore.getState();
   const closeWelcome = () => {
     storageSet(WELCOME_KEY, '1');
     setWelcome(false);
@@ -109,9 +112,10 @@ export default function App() {
       {tab === 'text' && <TextPanel />}
       {tab === 'report' && <ReportPanel />}
       {help && <HelpModal onClose={() => setHelp(false)} onWelcome={() => setWelcome(true)} onTour={setTour} />}
-      {welcome && !help && !tour && <WelcomeModal onClose={closeWelcome} onTour={setTour} />}
+      {welcome && !help && !tour && !picker && <WelcomeModal onClose={closeWelcome} onTour={setTour} />}
       {tour && <Tour key={tour} id={tour} onClose={() => setTour(null)} />}
       {wizard && <SequenceWizard mode={wizard} onClose={() => useStore.getState().setWizard(null)} />}
+      {picker && <PracticePicker onClose={() => useStore.getState().setPracticePicker(false)} />}
       <PromptHost />
       <Toasts />
       {dropping && <div className="drop-overlay">{tr('파일을 놓으면 불러옵니다 (.tchart, .csv, .json, PLC 소스, IL 인쇄 PDF)', 'Drop to open (.tchart, .csv, .json, PLC source, IL PDF)')}</div>}

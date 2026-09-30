@@ -2275,6 +2275,262 @@ table.tbl tr.fail td {
   }
 }
 
+/* 연습 문제 */
+.bottom-body.tall {
+  height: 340px;
+}
+
+.chip.lv1 {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+
+.chip.lv2 {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.chip.lv3 {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+}
+
+.practice-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.practice-group h4 {
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+
+.practice-group > p {
+  margin: 0 0 8px;
+  line-height: 1.6;
+  max-width: 80ch;
+}
+
+.practice-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
+}
+
+.practice-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.practice-card:hover,
+.practice-card:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.practice-card.done {
+  border-color: color-mix(in srgb, var(--ok) 50%, var(--border));
+}
+
+.practice-card > span:last-child {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.practice-card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.practice-no {
+  font-weight: 700;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.practice-score {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.practice-score.ok {
+  color: var(--ok);
+}
+
+.practice {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 100%;
+}
+
+.practice-problem,
+.practice-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.practice-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.practice-title b {
+  font-size: 15px;
+}
+
+.practice-goal {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.practice-goal b {
+  color: var(--text);
+  margin-right: 4px;
+}
+
+.practice-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.practice-code {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.practice-code pre {
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.practice-banner {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
+}
+
+.practice-btns,
+.practice-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.practice-hints {
+  margin: 0;
+  padding: 8px 10px 8px 28px;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--accent-soft);
+  border-radius: 6px;
+}
+
+.practice-result {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.practice-result.ok {
+  border-left-color: var(--ok);
+}
+
+.practice-result ul {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.5;
+}
+
+.practice-result li > span {
+  display: inline-block;
+  width: 16px;
+  font-weight: 700;
+}
+
+.practice-result li.ok > span {
+  color: var(--ok);
+}
+
+.practice-result li.ng > span {
+  color: var(--danger);
+}
+
+.practice-result li b {
+  margin-right: 4px;
+}
+
+.practice-result p {
+  margin: 0;
+}
+
+.practice-explain summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.practice-explain .practice-text {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+@media (max-width: 760px) {
+  .practice {
+    grid-template-columns: 1fr;
+  }
+
+  .bottom-body.tall {
+    height: 52vh;
+  }
+}
+
 /* 따라 하기 튜토리얼 */
 .tour {
   position: fixed;

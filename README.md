@@ -120,6 +120,44 @@
 
 만든 뒤에도 파형을 직접 고칠 수 있고, `파일 → 동작 순서 고치기…`로 도우미를 다시 열어 순서나 시간을 바꾼 뒤 다시 만들 수 있습니다. 다시 만들면 차트에서 직접 고친 내용은 사라지므로, 순서가 확정된 뒤에 세부를 손보는 것이 좋습니다.
 
+### 연습 문제: 직접 그려 보고 채점받기
+
+타임차트는 읽을 줄 아는 것과 직접 그릴 줄 아는 것이 다릅니다. `배우기 → 연습 문제` (또는 시작 화면, 도움말 `?`)에서 문제를 골라 직접 그려 보고 채점받을 수 있습니다.
+
+**푸는 방법**
+1. 문제를 고르면 차트가 연습용으로 바뀝니다. 위쪽 **① 주어진 입력**(버튼을 누른 시각 등)은 그대로 두고, 아래쪽 **② 그려야 할 신호**를 그립니다.
+2. 아래 **연습 문제** 칸에 문제, 배우는 것, 주어진 조건, 그릴 것이 적혀 있습니다. PLC 문제에는 래더 그림과 니모닉(미쓰비시)이 함께 나옵니다.
+3. 연필(그리기) 도구로 그립니다. `Shift` 를 누르고 끌면 ON, `Alt` 를 누르고 끌면 OFF 로 칠해집니다. 눈금(0.1초)에 자동으로 붙습니다.
+4. **채점하기**를 누르면 신호마다 맞았는지 알려 줍니다. 틀렸으면 "2초에 OFF 되어야 하는데 2.5초에 OFF 되었습니다", "ON 구간이 2번 있어야 하는데 1번 그렸습니다", "시작할 때(0초) ON 이어야 합니다"처럼 어디가 다른지 구체적으로 알려 줍니다. 시각은 눈금 한 칸(0.1초) 안이면 맞은 것으로 봅니다.
+5. 막히면 **힌트**를 하나씩 열어 봅니다(문제마다 2~3개). **정답 보기**로 정답 차트를 보고 **내 답 보기**로 돌아올 수 있습니다. **해설**에는 몇 초에 무엇이 왜 일어나는지 단계별 설명과 실무 메모가 있습니다.
+6. 맞힌 문제는 문제 목록에 ✓ 와 점수가 남습니다(이 브라우저에만 저장). **연습 끝내기**를 누르면 연습 전 차트로 돌아옵니다.
+
+**PLC 읽기: 프로그램을 보고 출력 파형 그리기** (정답은 내장 PLC 시뮬레이터로 계산)
+
+| 번호 | 난이도 | 문제 | 배우는 것 |
+|---|---|---|---|
+| 1 | 기초 | 자기유지 회로 | 버튼을 떼도 출력이 유지되는 자기유지, 정지 버튼을 B접점으로 쓰는 이유 |
+| 2 | 기초 | ON 딜레이 타이머 | 입력이 계속 켜져 있는 동안만 시간을 세고, 꺼지면 처음부터 다시 센다 |
+| 3 | 중급 | 버튼 한 개로 켜고 끄기 | PLS(상승 펄스)는 누른 순간 한 스캔만 켜진다, 누를 때마다 바뀌는 토글 |
+| 4 | 중급 | 정·역회전 인터록 | 동시에 켜지면 안 되는 두 출력을 서로의 B접점으로 막기 |
+| 5 | 중급 | 카운터: 3개 모이면 알림 | 켜질 때마다 하나씩 세기, 설정값 도달, 리셋, 스캔 순서에 따른 한 스캔 지연 |
+| 6 | 중급 | 깜빡이(플리커) 회로 | 타이머 두 개가 서로 리셋하며 일정 주기의 ON/OFF 만들기 |
+| 7 | 응용 | 순차 기동 (1초 간격) | 타이머를 이어 여러 출력을 차례로 켜기, 공통 정지로 한꺼번에 끄기 |
+| 8 | 응용 | 컨베이어 정지 지연 | 입력이 꺼진 뒤 일정 시간 뒤에 끄는 OFF 딜레이를 ON 딜레이로 만들기 |
+
+**설비 동작: 설명을 보고 솔레노이드 · 센서 파형 그리기** (정답은 작성 도우미와 같은 계산)
+
+| 번호 | 난이도 | 문제 | 배우는 것 |
+|---|---|---|---|
+| 1 | 기초 | 실린더 한 개 왕복 | 출력 ON → 출발(출발한 쪽 센서 OFF) → 도착(도착한 쪽 센서 ON) → 다음 동작의 순서 |
+| 2 | 기초 | 싱글 솔레노이드 스토퍼 | 싱글 SOL 은 켜 두는 동안만 그 위치, 대기 타이머 표시 |
+| 3 | 중급 | 클램프 → 프레스 → 가압 | 앞 동작의 도착 센서가 다음 동작을 시작시키는 흐름, 사이클 타임 계산 |
+| 4 | 중급 | 두 클램프 동시 동작 | 동시 동작은 늦게 도착하는 쪽을 기다린다, 동시 동작으로 사이클 타임 줄이기 |
+| 5 | 응용 | 픽앤플레이스 | 흡착 확인 센서가 있는 8단계 이송 동작을 시간표로 풀어 그리기 |
+| 6 | 응용 | 드릴 가공 (모터 포함) | 센서 없는 모터 출력과 실린더를 함께, 동시 동작이 섞인 순서 |
+
+문제는 `src/learn/exercises.ts` 에 모여 있어서 같은 형식으로 계속 늘릴 수 있습니다. 설비 문제는 작성 도우미 입력(기기, 동작 순서)만 적으면 정답 차트와 시간표 해설이 자동으로 만들어지고, PLC 문제는 프로그램과 입력 파형만 적으면 정답이 시뮬레이터로 계산됩니다.
+
 ---
 
 ## 4. LS XG5000 사용자: 니모닉(IL) PDF로 차트 만들기
@@ -280,6 +318,7 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 - **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
 - **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.
 - **Step-by-step chart wizard** following real design practice: machine spec → moving devices and motion times → I/O list with PLC addresses → sequence (after / together with previous) → chart with solenoids, sensors, cylinder motion, cause arrows, steps, and cycle-time and interlock checks.
+- **Practice mode** (Learn → Practice): 14 problems. Read a short PLC program (self-holding, timers, pulses, interlocks, counters, flicker, sequential start, off-delay) or a machine description and draw the outputs and sensors yourself; each signal is graded with a specific message, with hints, the answer and a step-by-step explanation.
 - **Built-in tutorials** (Help `?` or the start screen) point at each control and advance as you try it.
 - **Understand the process:** relays that just copy real I/O are traced back to the physical input/output, steps are built from which outputs are ON, and a sequence-of-events table lists every change in order.
 - **Check and report:** response time, interlock, pulse width and cycle-time rules; printable reports with a title block; PNG/SVG, Excel CSV, WaveDrom and a text format.
@@ -302,7 +341,8 @@ npm run build:web  # 인쇄·다운로드가 막힌 내장 뷰어용 체험판 �
 구성: React 19 + TypeScript + Zustand, Vite(단일 HTML 빌드), pdf.js(PDF 텍스트, 한글 CMap 포함), Vitest
 
 ```text
-src/model       파형 데이터, 분석·규칙 검증, 템플릿
+src/model       파형 데이터, 분석·규칙 검증, 템플릿, 작성 도우미 모델(sequence.ts)
+src/learn       연습 문제(exercises.ts)와 채점(grade.ts)
 src/plc         PLC 파서(미쓰비시·LS·지멘스 STL·ST), LS PDF 텍스트 해석, 스캔 실행기, 시뮬레이터, 설비 모델, I/O 매핑 추적(alias.ts)
 src/io          PDF 텍스트 추출, WaveDrom, CSV, TCT 텍스트, 파일 입출력
 src/render      차트 그리기 (화면·보고서·이미지 공용)

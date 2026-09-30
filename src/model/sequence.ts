@@ -213,6 +213,9 @@ export interface Timeline {
 /** 시작 버튼이 눌리는 시각 */
 export const START_AT = 100;
 
+/** 도착 즉시 되돌아갈 때 끝 위치 센서가 켜져 있는 최소 시간 (ms) */
+const MIN_SENSOR_ON = 20;
+
 export function actionDuration(a: SeqAction, devices: SeqDevice[]): number {
   if (!a.device) return Math.max(0, a.wait);
   const d = devices.find((x) => x.id === a.device);
@@ -332,6 +335,8 @@ export function buildProject(spec: SeqSpec): Project {
       }
     }
     if (arr !== null) arrived.push([arr, endOfChart]);
+    // 도착하자마자 되돌아가도 센서는 잠깐 켜진다 (출력이 바뀌고 실린더가 떠나기까지 걸리는 시간)
+    for (const iv of arrived) if (iv[1] - iv[0] < MIN_SENSOR_ON) iv[1] = iv[0] + MIN_SENSOR_ON;
     const g = d.name || '기기';
     const fo = ioOf(d.id, 'fwdOut');
     const ro = ioOf(d.id, 'retOut');
