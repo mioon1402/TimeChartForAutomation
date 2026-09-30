@@ -206,34 +206,12 @@ function makeKoreanPdf(pages: string[][]): Uint8Array {
 }
 
 /**
- * 앱에 들어가는 pdf.js(최신 브라우저용 빌드)를 Node 에서 그대로 돌리기 위해, Node 에 아직 없는 기능만 채운다.
- * DOMMatrix 는 캔버스 그리기용이라 글자 추출에는 쓰이지 않는다.
+ * 앱에 들어가는 pdf.js(legacy 빌드, 새 JS 기능은 스스로 채움)를 Node 에서 그대로 돌린다.
+ * DOMMatrix 는 캔버스 그리기용이라 글자 추출에는 쓰이지 않지만 불러올 때 만들어지므로 빈 것을 넣는다.
  */
 function nodePolyfillsForPdfjs() {
   const g = globalThis as { DOMMatrix?: unknown };
   g.DOMMatrix ??= class {};
-  // Node 22 (GitHub Actions) 에는 Promise.try 가 없다
-  const P = Promise as { try?: unknown };
-  P.try ??= <T>(fn: (...a: unknown[]) => T, ...args: unknown[]) => new Promise<Awaited<T>>((ok) => ok(fn(...args) as Awaited<T>));
-  const u8 = Uint8Array.prototype as { toHex?: () => string };
-  u8.toHex ??= function (this: Uint8Array) {
-    return Array.from(this, (b) => b.toString(16).padStart(2, '0')).join('');
-  };
-  const map = Map.prototype as { getOrInsertComputed?: unknown; getOrInsert?: unknown };
-  map.getOrInsertComputed ??= function <K, V>(this: Map<K, V>, key: K, make: (k: K) => V) {
-    if (!this.has(key)) this.set(key, make(key));
-    return this.get(key)!;
-  };
-  map.getOrInsert ??= function <K, V>(this: Map<K, V>, key: K, value: V) {
-    if (!this.has(key)) this.set(key, value);
-    return this.get(key)!;
-  };
-  const math = Math as { sumPrecise?: (xs: Iterable<number>) => number };
-  math.sumPrecise ??= (xs) => {
-    let s = 0;
-    for (const x of xs) s += x;
-    return s;
-  };
 }
 
 describe('XG5000 PDF → pdf.js 글자 추출', () => {

@@ -36,15 +36,17 @@ export interface PdfText {
   chars: number;
 }
 
-let loaded: Promise<typeof import('pdfjs-dist')> | null = null;
+let loaded: Promise<typeof import('pdfjs-dist/legacy/build/pdf.mjs')> | null = null;
 
 async function loadPdfjs() {
   if (!loaded) {
     loaded = (async () => {
-      // 별도 워커 파일 없이 메인 스레드에서 실행 (단일 HTML 파일 배포용)
-      const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs');
+      // 별도 워커 파일 없이 메인 스레드에서 실행 (단일 HTML 파일 배포용).
+      // legacy 빌드: 최신 빌드는 아주 새로운 JS 기능(Map.getOrInsertComputed, Uint8Array.toHex …)을 그대로 써서
+      // 업데이트가 안 된 공장 PC 브라우저에서는 PDF 를 못 읽는다. legacy 는 그런 기능을 채워 넣은 판이다.
+      const worker = await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs');
       (globalThis as unknown as { pdfjsWorker: unknown }).pdfjsWorker = worker;
-      return import('pdfjs-dist');
+      return import('pdfjs-dist/legacy/build/pdf.mjs');
     })();
   }
   return loaded;
