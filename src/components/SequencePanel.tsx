@@ -25,6 +25,7 @@ import {
   pasteIoTable,
   removeActions,
   removeDevices,
+  sensorOptions,
   sequenceStatus,
   startText,
   unusedDevices,
@@ -204,7 +205,7 @@ const DEV_GRID: { key: DevCol; ko: string; en: string; width: number; num?: bool
   { key: 'ret', ko: '돌아오는 동작', en: 'Return motion', width: 108 },
   { key: 'fwdT', ko: '가는 시간(초)', en: 'Go time (s)', width: 104, num: true, tip: ['한쪽 끝에서 반대쪽 끝까지 가는 시간. 예: 0.5, 500ms', 'End-to-end travel time, e.g. 0.5 or 500ms'] },
   { key: 'retT', ko: '돌아오는 시간(초)', en: 'Return time (s)', width: 122, num: true },
-  { key: 'sen', ko: '끝 센서', en: 'Sensors', width: 74, tip: ['양쪽 끝(흡착은 흡착 확인) 센서가 있는지: 있음/없음, O/X', 'End-position sensors: yes/no'] },
+  { key: 'sen', ko: '끝 센서', en: 'Sensors', width: 96, tip: ['끝 위치 센서: 있음(양쪽 끝, 흡착은 흡착 확인) / 없음 / 전진단만 / 후진단만', 'End sensors: both / none / go end only / return end only'] },
 ];
 
 function SequenceEditor() {
@@ -508,6 +509,7 @@ function SequenceEditor() {
             cols={devCols}
             rows={spec.devices.length}
             text={(r, c) => (spec.devices[r] ? deviceText(spec.devices[r], c as DevCol) : '')}
+            optionsFor={(r, c) => (c === 'sen' && spec.devices[r] ? sensorOptions(spec.devices[r]) : undefined)}
             view={(r, c) => {
               const d = spec.devices[r];
               if (!d) return '';

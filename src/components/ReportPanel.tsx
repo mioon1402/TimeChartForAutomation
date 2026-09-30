@@ -8,7 +8,7 @@ import { labelWidths, GrayPatternDefs } from '../render/ChartParts';
 import { chartGeometry, ChartSvg } from '../render/ChartSvg';
 import { roleLabelKo } from '../io/csv';
 import { computeTimeline, ioPoints, type SeqSpec } from '../model/sequence';
-import { fmtSec, KIND_LABEL, sequenceStatus, startText } from '../model/seqEdit';
+import { fmtSec, KIND_LABEL, sensorText, sequenceStatus, startText } from '../model/seqEdit';
 import { sheetName } from '../model/book';
 import { Check, Field, Icon, TextInput, TimeInput } from './ui';
 import { tr } from '../i18n';
@@ -1234,7 +1234,7 @@ function sequenceBlocks(spec: SeqSpec): Block[] {
       <td className="mono">{fmtSec(d.fwdTime)} s</td>
       <td>{d.kind === 'motor' ? '' : d.retLabel}</td>
       <td className="mono">{d.kind === 'motor' ? '' : `${fmtSec(d.retTime)} s`}</td>
-      <td>{d.kind === 'motor' ? '' : d.sensors ? tr('있음', 'yes') : tr('없음', 'no')}</td>
+      <td>{sensorText(d)}</td>
     </tr>
   ));
   let timer = 0;

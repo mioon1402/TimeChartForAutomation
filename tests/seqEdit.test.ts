@@ -223,3 +223,30 @@ describe('start delay', () => {
     expect(arrows.some((a) => a.type === 'arrow' && a.to.t - a.from.t === 200)).toBe(true);
   });
 });
+
+describe('one-end sensors', () => {
+  it('a cylinder with only the forward-end sensor gets one input and a chart without the return sensor', async () => {
+    const { ioPoints } = await import('../src/model/sequence');
+    let s = editDevices(emptySpec(), [
+      { row: 0, col: 'name', text: '스토퍼' },
+      { row: 0, col: 'sen', text: '전진단만' },
+      { row: 1, col: 'name', text: '리프트' },
+      { row: 1, col: 'fwd', text: '상승' },
+      { row: 1, col: 'ret', text: '하강' },
+      { row: 1, col: 'sen', text: '하강단만' },
+    ]).spec;
+    expect(s.devices.map((d) => d.sensors)).toEqual(['fwd', 'ret']);
+    const io = ioPoints(s).filter((p) => p.dir === 'in').map((p) => p.name);
+    expect(io).toEqual(['시작 버튼', '스토퍼 전진단', '리프트 하강단']);
+    s = editActions(s, [
+      { row: 0, col: 'dev', text: '스토퍼' },
+      { row: 1, col: 'dev', text: '스토퍼' },
+    ]).spec;
+    const p = newSequenceProject(s);
+    expect(p.signals.some((x) => x.name === '스토퍼 후진단')).toBe(false);
+    expect(p.signals.some((x) => x.name === '스토퍼 전진단')).toBe(true);
+    // 다시 양쪽으로
+    s = editDevices(s, [{ row: 0, col: 'sen', text: '있음' }]).spec;
+    expect(s.devices[0].sensors).toBe(true);
+  });
+});

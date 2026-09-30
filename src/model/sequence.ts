@@ -24,8 +24,8 @@ export interface SeqDevice {
   fwdTime: number;
   /** 돌아오는 데 걸리는 시간 (ms) */
   retTime: number;
-  /** 끝 위치 센서 (실린더: 양쪽 끝, 흡착: 흡착 확인) */
-  sensors: boolean;
+  /** 끝 위치 센서: true = 양쪽 끝(흡착은 흡착 확인), 'fwd' = 가는 쪽 끝만, 'ret' = 돌아오는 쪽 끝만, false = 없음 */
+  sensors: boolean | 'fwd' | 'ret';
 }
 
 export interface SeqAction {
@@ -181,8 +181,8 @@ export function ioPoints(spec: SeqSpec): IoPoint[] {
     if (d.sensors && d.kind !== 'motor') {
       if (d.kind === 'vacuum') raw.push({ key: `${d.id}:fwdSen`, dir: 'in', kind: 'fwdSen', device: d.id, name: `${n} ${d.fwdLabel} 확인` });
       else {
-        raw.push({ key: `${d.id}:fwdSen`, dir: 'in', kind: 'fwdSen', device: d.id, name: `${n} ${d.fwdLabel}단` });
-        raw.push({ key: `${d.id}:retSen`, dir: 'in', kind: 'retSen', device: d.id, name: `${n} ${d.retLabel}단` });
+        if (d.sensors !== 'ret') raw.push({ key: `${d.id}:fwdSen`, dir: 'in', kind: 'fwdSen', device: d.id, name: `${n} ${d.fwdLabel}단` });
+        if (d.sensors !== 'fwd') raw.push({ key: `${d.id}:retSen`, dir: 'in', kind: 'retSen', device: d.id, name: `${n} ${d.retLabel}단` });
       }
     }
   }

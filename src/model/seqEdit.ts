@@ -223,8 +223,34 @@ export function deviceText(d: SeqDevice, col: DevCol): string {
     case 'retT':
       return d.kind === 'motor' ? '' : fmtSec(d.retTime);
     case 'sen':
-      return d.kind === 'motor' ? '' : d.sensors ? '있음' : '없음';
+      return sensorText(d);
   }
+}
+
+/** 끝 센서 칸 글자 */
+export function sensorText(d: SeqDevice): string {
+  if (d.kind === 'motor') return '';
+  if (d.sensors === 'fwd') return `${d.fwdLabel}단만`;
+  if (d.sensors === 'ret') return `${d.retLabel}단만`;
+  return d.sensors ? '있음' : '없음';
+}
+
+/** 끝 센서 칸 후보 */
+export function sensorOptions(d: SeqDevice): string[] {
+  if (d.kind === 'motor') return [];
+  if (d.kind === 'vacuum') return ['있음', '없음'];
+  return ['있음', '없음', `${d.fwdLabel}단만`, `${d.retLabel}단만`];
+}
+
+function parseSensor(t: string, d: SeqDevice): SeqDevice['sensors'] | null {
+  const yn = parseYesNo(t);
+  if (yn !== null) return yn;
+  if (d.kind === 'vacuum') return null;
+  const s = t.replace(/\s+/g, '');
+  if (s.includes(d.fwdLabel) || /가는|fwd|전진|앞|출/i.test(s)) return 'fwd';
+  if (s.includes(d.retLabel) || /돌아|ret|후진|원위치|복귀|뒤/i.test(s)) return 'ret';
+  if (/양쪽|둘다|both|2개|두개/i.test(s)) return true;
+  return null;
 }
 
 function changeKind(d: SeqDevice, kind: DeviceKind): SeqDevice {
@@ -268,9 +294,9 @@ function setDeviceCell(d: SeqDevice, col: string, text: string, warnings: string
       return col === 'fwdT' ? { ...d, fwdTime: ms } : { ...d, retTime: ms };
     }
     case 'sen': {
-      const v = parseYesNo(t);
+      const v = parseSensor(t, d);
       if (v === null) {
-        if (t) warnings.push(`"${t}": 끝 센서는 있음/없음 (O/X)으로 적어 주세요.`);
+        if (t) warnings.push(`"${t}": 끝 센서는 있음/없음(O/X) 또는 "${d.fwdLabel}단만"/"${d.retLabel}단만"으로 적어 주세요.`);
         return d;
       }
       return d.kind === 'motor' ? d : { ...d, sensors: v };
