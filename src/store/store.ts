@@ -45,6 +45,8 @@ interface State {
   lang: Lang;
   theme: 'light' | 'dark';
   bottom: 'analysis' | 'rules' | 'steps' | 'events' | null;
+  /** 작성 도우미 (new = 새로, edit = 지금 차트의 동작 순서 고치기) */
+  wizard: 'new' | 'edit' | null;
   showProps: boolean;
   toasts: Toast[];
   /** 차트 편집 영역 가로 폭 (px) - 화면 맞춤에 사용 */
@@ -92,6 +94,7 @@ interface State {
   setLang(l: Lang): void;
   setTheme(t: 'light' | 'dark'): void;
   setBottom(b: State['bottom']): void;
+  setWizard(w: State['wizard']): void;
   toggleProps(): void;
   toast(msg: string, kind?: Toast['kind']): void;
   dismissToast(id: number): void;
@@ -205,6 +208,7 @@ export const useStore = create<State>((set, get) => {
     hoverT: null,
     lang: prefs.lang,
     theme: prefs.theme,
+    wizard: null,
     // 휴대폰 폭에서는 아래 분석 패널을 접어서 차트를 넓게
     bottom: typeof window !== 'undefined' && window.innerWidth <= 760 ? null : 'analysis',
     // 휴대폰 폭에서는 속성 패널이 차트를 가리므로 닫힌 상태로 시작
@@ -452,6 +456,9 @@ export const useStore = create<State>((set, get) => {
     setTheme(theme) {
       set({ theme });
       savePrefs({ lang: get().lang, theme });
+    },
+    setWizard(wizard) {
+      set({ wizard });
     },
     setBottom(bottom) {
       set({ bottom });

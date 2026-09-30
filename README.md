@@ -88,6 +88,38 @@
 3. **PLC 프로그램으로 만들기**: 상단 `PLC 시뮬레이션` 탭 → `예제 불러오기…`에서 "LS XGK - 픽앤플레이스"를 고르고 → 오른쪽 아래 `▶ 시뮬레이션 → 타임차트 생성`을 누릅니다.
 4. **보고서 뽑기**: `보고서` 탭 → `인쇄 / PDF 저장`을 누르고 → 프린터를 "PDF로 저장"으로 고릅니다.
 
+### 내 설비의 타임차트를 처음부터 만들기 (작성 도우미)
+
+실무에서 타임차트는 파형부터 그리지 않습니다. 설계 순서가 있고, 타임차트는 그 결과물입니다.
+
+| 순서 | 하는 일 | 왜 필요한가 |
+|---|---|---|
+| ① 설비 사양 | 어떤 설비인지, 한 사이클을 몇 초 안에 끝내야 하는지(목표 사이클 타임, 택트 타임) 정합니다. | 목표가 있어야 나중에 "시간 안에 들어오는가"를 판단합니다. |
+| ② 동작 기기 | 움직이는 것(실린더, 모터, 흡착·척)을 적고, 한쪽 끝에서 반대쪽 끝까지 걸리는 **동작 시간**을 적습니다. | 차트의 막대 길이와 경사선이 이 시간입니다. 모르면 0.5초로 두고 시운전 뒤 실측값으로 고칩니다. |
+| ③ I/O 목록 | 기기마다 PLC 가 켜는 **출력**(솔레노이드 SOL, 모터)과 PLC 가 읽는 **입력**(시작 버튼, 끝 위치 센서)을 정하고 주소(X0, Y0 / P00000 / I0.0)를 붙입니다. | 제어 설계(PLC 프로그램, 배선도)와 같은 이름·주소를 쓰기 위해서입니다. |
+| ④ 동작 순서 | 한 사이클 동안 무엇이 먼저 움직이고, 무엇이 동시에 움직여도 되는지 정합니다. 보통은 앞 동작이 끝났다는 센서를 확인한 뒤 다음 동작을 시작합니다. | 동시에 움직여도 부딪히지 않는 동작을 겹치면 사이클 타임이 줄어듭니다. 마지막에는 모든 기기가 원위치로 돌아와야 다음 사이클을 시작합니다. |
+| ⑤ 타임차트 · 검토 | 위 내용으로 차트를 그리고, 목표 사이클 타임 안에 들어오는지, 동시에 켜지면 안 되는 출력(전진 SOL 과 후진 SOL)이 겹치지 않는지 확인한 뒤 작성·검토·승인합니다. | 이 차트가 PLC 프로그램 작성과 시운전의 기준이 됩니다. |
+
+이 프로그램의 **작성 도우미**가 이 순서를 그대로 따라갑니다. `파일 → 새 차트: 순서대로 만들기…` 또는 시작 화면의 **순서대로 새로 만들기**를 누르세요.
+
+1. **설비**: 설비 이름, 도면 번호, 작성자, 목표 사이클 타임(초)을 적습니다.
+2. **동작 기기**: 예시로 "클램프", "프레스"가 들어 있으니 고쳐 씁니다. 종류는 네 가지입니다.
+   - 실린더 (더블 SOL): 전진 SOL 과 후진 SOL 두 개. 신호를 끊어도 그 자리에 머뭅니다. 차트에는 움직이는 동안만 SOL 이 켜집니다.
+   - 실린더 (싱글 SOL): SOL 하나. 켜 두는 동안 전진해 있고, 끄면 스프링으로 돌아옵니다.
+   - 모터: 운전 출력 하나. 기동부터 정지까지 켜져 있습니다.
+   - 흡착 · 척: SOL 하나와 흡착(잡힘) 확인 센서.
+   동작 이름은 "전진/후진", "하강/상승", "잡기/놓기"처럼 바꿀 수 있습니다(`자주 쓰는 이름…`).
+3. **I/O 목록**: 기기에서 입력·출력을 자동으로 뽑아 번호를 매깁니다. 주소 방식(미쓰비시 8진수 X0·Y0 / LS P00000·P00040 / 지멘스 I0.0·Q0.0 / 주소 없이)을 고르고, 실제 배선과 다른 주소나 이름만 고칩니다.
+4. **동작 순서**: `자동 제안`을 누르면 "기기 순서대로 가기 → 작업 대기 → 거꾸로 돌아오기"가 들어갑니다. 줄마다 동작을 고르고, 시작 조건을 **앞 동작이 끝난 뒤** 또는 **앞 동작과 동시에**로 정합니다. 가공·가압처럼 기다리는 시간은 `대기 추가`로 넣습니다. 이미 그 위치인 기기를 또 움직이거나, 사이클이 끝났는데 원위치로 돌아오지 않은 기기가 있으면 "검토할 점"으로 알려 줍니다.
+5. **확인 · 만들기**: 예상 사이클 타임, 목표 대비 OK/NG 와 여유 시간, 단계별 막대를 보고 `타임차트 만들기`를 누릅니다.
+
+만들어지는 차트에는 이런 것이 들어갑니다.
+- 기기별 그룹: 출력(SOL, 모터) 파형, 실린더 동작선(경사 = 동작 시간), 끝 위치 센서 파형(원위치 센서는 떠나는 순간 꺼지고 돌아오면 켜짐)
+- 대기 타이머 행, 공정 스텝 띠(S10, S20 …), "센서 확인 → 다음 동작" 화살표, 사이클 완료 표시
+- 검토 규칙: 목표 사이클 타임, 더블 SOL 실린더마다 "전진/후진 SOL 동시 ON 금지". 결과는 아래 `타이밍 규칙 검증` 탭과 보고서에 나옵니다.
+
+만든 뒤에도 파형을 직접 고칠 수 있고, `파일 → 동작 순서 고치기…`로 도우미를 다시 열어 순서나 시간을 바꾼 뒤 다시 만들 수 있습니다. 다시 만들면 차트에서 직접 고친 내용은 사라지므로, 순서가 확정된 뒤에 세부를 손보는 것이 좋습니다.
+
 ---
 
 ## 4. LS XG5000 사용자: 니모닉(IL) PDF로 차트 만들기
@@ -247,6 +279,7 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 - **Use it now:** https://mioon1402.github.io/TimeChartForAutomation/ (no install, no sign-up). For offline PCs, download [TimeChartStudio.html](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html) and double-click it.
 - **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
 - **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.
+- **Step-by-step chart wizard** following real design practice: machine spec → moving devices and motion times → I/O list with PLC addresses → sequence (after / together with previous) → chart with solenoids, sensors, cylinder motion, cause arrows, steps, and cycle-time and interlock checks.
 - **Built-in tutorials** (Help `?` or the start screen) point at each control and advance as you try it.
 - **Understand the process:** relays that just copy real I/O are traced back to the physical input/output, steps are built from which outputs are ON, and a sequence-of-events table lists every change in order.
 - **Check and report:** response time, interlock, pulse width and cycle-time rules; printable reports with a title block; PNG/SVG, Excel CSV, WaveDrom and a text format.

@@ -17,7 +17,8 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
   const canRedo = useStore((s) => s.future.length > 0);
   const lang = useStore((s) => s.lang);
   const theme = useStore((s) => s.theme);
-  const { undo, redo, setLang, setTheme, setMeta } = useStore.getState();
+  const { undo, redo, setLang, setTheme, setMeta, setWizard } = useStore.getState();
+  const hasSequence = useStore((s) => !!s.project.sequence);
   const [editing, setEditing] = useState(false);
 
   const tabs: { id: Tab; icon: string; label: string }[] = [
@@ -48,7 +49,9 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
           label={tr('파일', 'File')}
           tour="menu-file"
           items={[
-            { label: tr('새 차트', 'New chart'), icon: 'plus', onClick: F.newProject },
+            { label: tr('새 차트: 순서대로 만들기…', 'New chart: step by step…'), icon: 'wand', onClick: () => setWizard('new') },
+            { label: tr('새 차트: 빈 차트', 'New chart: blank'), icon: 'plus', onClick: F.newProject },
+            ...(hasSequence ? [{ label: tr('동작 순서 고치기…', 'Edit sequence…'), icon: 'step', onClick: () => setWizard('edit') }] : []),
             { label: tr('열기…', 'Open…'), icon: 'open', shortcut: 'Ctrl+O', onClick: F.openProject },
             ...(WEB_TRIAL
               ? []
@@ -299,13 +302,10 @@ export function WelcomeModal({ onClose, onTour }: { onClose: () => void; onTour:
       go: () => setTab('plc'),
     },
     {
-      icon: 'plus',
-      title: tr('빈 차트로 시작', 'Start a blank chart'),
-      desc: tr('신호를 추가하고 마우스로 파형을 직접 그립니다.', 'Add signals and draw waveforms yourself.'),
-      go: () => {
-        setTab('editor');
-        void F.newProject();
-      },
+      icon: 'wand',
+      title: tr('순서대로 새로 만들기', 'Build one step by step'),
+      desc: tr('설비 → 동작 기기 → I/O → 동작 순서를 차례로 적으면 타임차트를 그려 줍니다. 실무에서 만드는 순서 그대로입니다.', 'Enter machine, devices, I/O and sequence in order and the chart is drawn for you, the way it is done in practice.'),
+      go: () => useStore.getState().setWizard('new'),
     },
   ];
   return (

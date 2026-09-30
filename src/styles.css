@@ -1970,6 +1970,311 @@ table.tbl tr.fail td {
   gap: 6px;
 }
 
+/* 작성 도우미 (순서대로 새 차트 만들기) */
+.wiz {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 420px;
+}
+
+.wiz-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wiz-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wiz-nav-btn:hover {
+  background: var(--panel-2);
+}
+
+.wiz-nav-btn.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.wiz-num {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+
+.wiz-nav-btn.on .wiz-num {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.wiz-nav-btn.done .wiz-num {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+
+.wiz-body {
+  min-width: 0;
+}
+
+.wiz-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wiz-why {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.65;
+  border-left: 3px solid var(--accent);
+  background: var(--panel-2);
+  border-radius: 4px;
+  max-width: 78ch;
+}
+
+.wiz-table-wrap {
+  overflow-x: auto;
+}
+
+.wiz-table td {
+  vertical-align: middle;
+}
+
+.wiz-table th,
+.wiz-time {
+  white-space: nowrap;
+}
+
+.wiz-table td select {
+  min-width: 150px;
+}
+
+.wiz-table .input {
+  min-width: 0;
+}
+
+.wiz-labels {
+  display: grid;
+  grid-template-columns: 70px 70px 120px;
+  gap: 4px;
+}
+
+.wiz-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.wiz-action select {
+  min-width: 150px;
+}
+
+.wiz-par td:first-child {
+  border-left: 3px solid var(--accent);
+}
+
+.wiz-row-tools {
+  white-space: nowrap;
+}
+
+.sec-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sec-input input {
+  width: 72px;
+}
+
+.sec-input span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.wiz-row-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wiz-legend {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.wiz-legend b {
+  color: var(--text);
+}
+
+.wiz-io-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.wiz-io-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.wiz-io-cols h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.wiz-addr {
+  width: 110px;
+}
+
+.wiz-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.wiz-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.wiz-kpi span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.wiz-kpi b {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wiz-kpi.ok b {
+  color: var(--ok);
+}
+
+.wiz-kpi.ng b {
+  color: var(--danger);
+}
+
+.wiz-gantt {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wiz-gantt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr) 60px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.wiz-gantt-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiz-gantt-track {
+  position: relative;
+  height: 12px;
+  background: var(--panel-2);
+  border-radius: 3px;
+}
+
+.wiz-gantt-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+.wiz-gantt-time {
+  text-align: right;
+  font-size: 12px;
+}
+
+.wiz-notes {
+  padding: 8px 12px;
+  border-left: 3px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.wiz-notes ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .wiz {
+    grid-template-columns: 1fr;
+  }
+
+  .wiz-nav {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .wiz-nav-btn {
+    white-space: nowrap;
+  }
+
+  .wiz-io-cols {
+    grid-template-columns: 1fr;
+  }
+
+  .wiz-gantt-row {
+    grid-template-columns: minmax(0, 1fr) 60px;
+  }
+
+  .wiz-gantt-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 /* 따라 하기 튜토리얼 */
 .tour {
   position: fixed;

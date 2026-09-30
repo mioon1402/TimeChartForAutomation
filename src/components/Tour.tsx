@@ -122,8 +122,8 @@ function basicSteps(): TourStep[] {
       target: '[data-tour="menu-file"]',
       title: tr('저장', 'Saving'),
       body: tr(
-        '작업은 이 브라우저에 자동 백업됩니다. 파일로 보관하거나 다른 PC 로 옮기려면 파일 → 저장(Ctrl+S)으로 .tchart 파일을 만드세요. 다음 튜토리얼에서는 PLC 프로그램으로 차트를 자동으로 만듭니다.',
-        'Work is auto-saved in this browser. To keep a file or move it to another PC, use File → Save (Ctrl+S). The next tutorial generates a chart from a PLC program.',
+        '작업은 이 브라우저에 자동 백업됩니다. 파일로 보관하거나 다른 PC 로 옮기려면 파일 → 저장(Ctrl+S)으로 .tchart 파일을 만드세요. 내 설비의 차트는 파일 → "새 차트: 순서대로 만들기"로 시작하면 설비 → 동작 기기 → I/O → 동작 순서를 차례로 적어 만들 수 있습니다.',
+        'Work is auto-saved in this browser. To keep a file or move it to another PC, use File → Save (Ctrl+S). For your own machine, start with File → "New chart: step by step" and enter machine, devices, I/O and sequence in order.',
       ),
     },
   ];
