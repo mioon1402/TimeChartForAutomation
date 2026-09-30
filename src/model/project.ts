@@ -170,6 +170,7 @@ export function migrateProject(raw: unknown): Project {
     rules: Array.isArray(o.rules) ? (o.rules as TimingRule[]) : [],
     plc: o.plc as Project['plc'],
     sequence: o.sequence && typeof o.sequence === 'object' ? (o.sequence as Project['sequence']) : undefined,
+    sheet: typeof o.sheet === 'string' && o.sheet ? o.sheet : undefined,
   };
 }
 

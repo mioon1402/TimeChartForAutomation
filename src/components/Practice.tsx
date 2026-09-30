@@ -3,10 +3,10 @@
  * 시작할 때 지금 차트를 보관해 두고, 연습을 끝내면 되돌린다.
  */
 import { useEffect, useMemo, useState } from 'react';
+import type { Book } from '../model/book';
 import { clearTutorialBackup, saveTutorialBackup, useStore } from '../store/store';
 import { EXERCISES, exerciseById, levelName, practiceProject, type Exercise } from '../learn/exercises';
 import { gradeChart } from '../learn/grade';
-import type { Project } from '../model/types';
 import { storageGet, storageSet } from '../storage';
 import { tr } from '../i18n';
 import { Icon, Modal } from './ui';
@@ -30,15 +30,16 @@ function saveProgress(id: string, correct: number, total: number) {
 }
 
 /** 연습 전 차트 (연습을 끝내면 되돌림) */
-let backup: { project: Project; fileName: string; dirty: boolean; tab: ReturnType<typeof useStore.getState>['tab']; showProps: boolean } | null = null;
+let backup: { doc: Book; fileName: string; dirty: boolean; tab: ReturnType<typeof useStore.getState>['tab']; showProps: boolean } | null = null;
 
 export function startPractice(id: string) {
   const ex = exerciseById(id);
   if (!ex) return;
   const s = useStore.getState();
   if (!s.practice) {
-    backup = { project: s.project, fileName: s.fileName, dirty: s.dirty, tab: s.tab, showProps: s.showProps };
-    saveTutorialBackup(s.project);
+    const doc = s.getDocument();
+    backup = { doc, fileName: s.fileName, dirty: s.dirty, tab: s.tab, showProps: s.showProps };
+    saveTutorialBackup(doc);
   }
   const built = ex.build();
   s.loadProject(practiceProject(built, ex));
@@ -56,7 +57,7 @@ export function endPractice() {
   const s = useStore.getState();
   clearTutorialBackup();
   if (backup) {
-    s.loadProject(backup.project, backup.fileName);
+    s.loadDocument(backup.doc, backup.fileName);
     useStore.setState({ dirty: backup.dirty, showProps: backup.showProps });
     s.setTab(backup.tab);
   }

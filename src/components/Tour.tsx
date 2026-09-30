@@ -4,6 +4,7 @@
  * 시작할 때 지금 차트를 보관해 두고, 끝나면 되돌린다 (원하면 튜토리얼 차트를 계속 쓸 수 있음).
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { Book } from '../model/book';
 import { clearTutorialBackup, saveTutorialBackup, useStore } from '../store/store';
 import { sampleProject } from '../model/project';
 import { plcSamples } from '../plc/samples';
@@ -237,15 +238,16 @@ export function Tour({ id, onClose }: { id: TourId; onClose: () => void }) {
   const [doneFlash, setDoneFlash] = useState(false);
   const popRef = useRef<HTMLDivElement>(null);
   const startRef = useRef<S>(st());
-  const backup = useRef<{ project: S['project']; tab: S['tab']; bottom: S['bottom']; fileName: string; dirty: boolean } | null>(null);
+  const backup = useRef<{ doc: Book; tab: S['tab']; bottom: S['bottom']; fileName: string; dirty: boolean } | null>(null);
   const step = steps[Math.min(i, steps.length - 1)];
   const last = i >= steps.length - 1;
 
   // 시작: 지금 차트 보관 → 튜토리얼 차트
   useEffect(() => {
     const s = st();
-    backup.current = { project: s.project, tab: s.tab, bottom: s.bottom, fileName: s.fileName, dirty: s.dirty };
-    saveTutorialBackup(s.project);
+    const doc = s.getDocument();
+    backup.current = { doc, tab: s.tab, bottom: s.bottom, fileName: s.fileName, dirty: s.dirty };
+    saveTutorialBackup(doc);
     setupTour(id);
   }, [id]);
 
@@ -253,7 +255,7 @@ export function Tour({ id, onClose }: { id: TourId; onClose: () => void }) {
     const b = backup.current;
     clearTutorialBackup();
     if (!keep && b) {
-      st().loadProject(b.project, b.fileName);
+      st().loadDocument(b.doc, b.fileName);
       useStore.setState({ dirty: b.dirty });
       st().setTab(b.tab);
       st().setBottom(b.bottom);

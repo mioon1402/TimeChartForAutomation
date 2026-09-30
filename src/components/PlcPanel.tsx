@@ -39,7 +39,7 @@ export function pulsesText(p: PulseDef[]): string {
 
 export function PlcPanel() {
   const project = useStore((s) => s.project);
-  const { commit, setTab, toast, loadProject } = useStore.getState();
+  const { commit, setTab, toast } = useStore.getState();
   const cfg: PlcConfig = project.plc ?? defaultConfig();
   const setCfg = (patch: Partial<PlcConfig>, key?: string) => commit({ ...useStore.getState().project, plc: { ...cfg, ...patch } }, key);
   const setSim = (patch: Partial<SimSettings>, key?: string) => setCfg({ sim: { ...cfg.sim, ...patch } }, key);
@@ -451,7 +451,7 @@ export function PlcPanel() {
             ))}
           </div>
         )}
-        <button type="button" className="btn small" onClick={() => loadProject({ ...project, plc: undefined })} title={tr('저장된 PLC 설정을 프로젝트에서 제거', 'Remove PLC config from project')}>
+        <button type="button" className="btn small" onClick={() => commit({ ...project, plc: undefined })} title={tr('저장된 PLC 설정을 프로젝트에서 제거', 'Remove PLC config from project')}>
           {tr('PLC 설정 초기화', 'Reset PLC config')}
         </button>
       </div>

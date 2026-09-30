@@ -1,5 +1,5 @@
 import { useStore, newEmptyProject } from '../store/store';
-import { migrateProject, sampleProject } from '../model/project';
+import { sampleProject } from '../model/project';
 import { downloadText, openTextFile, readTextSmart, safeFileName } from '../io/files';
 import { importWaveDrom, exportWaveDrom } from '../io/wavedrom';
 import { exportChangeTable, exportSignalList, exportStepTable, importCsvLog } from '../io/csv';
@@ -13,7 +13,9 @@ import { tr } from '../i18n';
 import { WEB_TRIAL } from '../env';
 import { askConfirm } from './ui';
 import { defaultSpec, type SeqSpec } from '../model/sequence';
-import { newSequenceProject } from '../model/seqEdit';
+import { autoTitle, emptySpec, newSequenceProject } from '../model/seqEdit';
+import { documentTitle, isBookJson, migrateDocument, serializeDocument, sheetName } from '../model/book';
+import { uid } from '../model/wave';
 
 type FileHandle = { name: string; createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> };
 let handle: FileHandle | null = null;
@@ -35,6 +37,73 @@ export async function newProject() {
   handle = null;
   g().loadProject(newEmptyProject());
   g().setTab('editor');
+}
+
+// ───────────────────────── 설비 파일의 차트(시트) ─────────────────────────
+
+/** 같은 설비의 표제란(회사·설비·작성·검토·승인)을 새 차트에 이어 받는다 */
+function inheritMeta(p: Project): Project {
+  const m = g().project.meta;
+  return { ...p, meta: { ...p.meta, company: m.company, machine: m.machine, drawingNo: m.drawingNo, author: m.author, checker: m.checker, approver: m.approver, revision: m.revision || p.meta.revision } };
+}
+
+export function addBlankSheet() {
+  const p = inheritMeta(newEmptyProject());
+  p.meta.title = tr('새 타임차트', 'New timing chart');
+  p.sheet = tr('새 차트', 'New chart');
+  g().addSheet(p);
+  g().setTab('editor');
+}
+
+export function addSequenceSheet() {
+  const p = inheritMeta(newSequenceProject(emptySpec()));
+  p.sheet = tr('새 동작 순서', 'New sequence');
+  p.meta.title = chartTitle(p.meta.machine, p.sheet);
+  g().addSheet(p);
+  g().setTab('sequence');
+}
+
+export function duplicateSheet() {
+  const cur = g().project;
+  const copy: Project = { ...structuredClone(cur), id: uid('prj'), sheet: `${sheetName(cur)} ${tr('복사', 'copy')}` };
+  g().addSheet(copy);
+}
+
+export function addTemplateSheet(id: string) {
+  const t = templates().find((x) => x.id === id);
+  if (!t) return;
+  g().addSheet(inheritMeta(t.build()));
+  g().setTab('editor');
+}
+
+/** 차트 이름으로 만든 제목 */
+function chartTitle(machine: string, sheet: string): string {
+  return `${machine ? `${machine} ` : ''}${sheet} 타임차트`;
+}
+
+/** 차트 이름 바꾸기: 제목이 자동으로 붙인 것이면 제목도 함께 */
+export function renameSheet(i: number, name: string) {
+  const s = g();
+  const p = s.getDocument().sheets[i];
+  if (!p) return;
+  const old = sheetName(p);
+  const m = p.meta;
+  const auto = [autoTitle(m.machine), autoTitle(''), chartTitle(m.machine, old), chartTitle('', old), old, tr('새 타임차트', 'New timing chart')];
+  s.renameSheet(i, name);
+  if (auto.includes(m.title) && name.trim()) {
+    const title = chartTitle(m.machine, name.trim());
+    if (i === g().activeSheet) g().setMeta({ title });
+    else useStore.setState((st) => ({ sheets: st.sheets.map((x, k) => (k === i ? { ...x, meta: { ...x.meta, title } } : x)), dirty: true }));
+  }
+}
+
+export async function deleteSheet(i: number) {
+  const s = g();
+  const doc = s.getDocument();
+  const p = doc.sheets[i];
+  if (!p || doc.sheets.length <= 1) return;
+  const ok = await askConfirm(tr('차트 삭제', 'Delete chart'), tr(`"${sheetName(p)}" 차트를 설비 파일에서 지울까요? 이 삭제는 실행 취소(Ctrl+Z)로 되돌릴 수 없습니다.`, `Delete "${sheetName(p)}" from this file? This cannot be undone with Ctrl+Z.`), tr('삭제', 'Delete'));
+  if (ok) s.removeSheet(i);
 }
 
 /** 동작 순서표로 새 차트 (동작 순서 탭에서 이어서 적는다) */
@@ -87,6 +156,15 @@ export function printReport() {
   } else window.print();
 }
 
+/** 가져온 차트: 설비 파일(차트 여러 장)을 쓰는 중이면 새 차트로 추가, 아니면 지금 차트 대신 */
+function placeImported(p: Project, fileName = '') {
+  const s = g();
+  if (s.sheets.length > 1) {
+    s.addSheet(p);
+    s.toast(tr(`"${sheetName(p)}" 을(를) 새 차트로 추가했습니다`, `Added "${sheetName(p)}" as a new chart`), 'info');
+  } else s.loadProject(p, fileName);
+}
+
 /** 파일 내용으로 형식을 판별하여 불러오기 */
 export function loadFromText(name: string, text: string): boolean {
   const s = g();
@@ -94,13 +172,13 @@ export function loadFromText(name: string, text: string): boolean {
     if (/\.tct$/i.test(name)) {
       const r = parseDsl(text);
       if (r.errors.length) s.toast(tr(`텍스트 오류 ${r.errors.length}건 (줄 ${r.errors[0].line}: ${r.errors[0].message})`, `${r.errors.length} text errors`), 'warn');
-      s.loadProject(r.project, name);
+      placeImported(r.project, name);
       return true;
     }
     if (/\.csv$|\.tsv$/i.test(name)) {
       const r = importCsvLog(text);
       r.project.meta.title = name.replace(/\.[^.]+$/, '');
-      s.loadProject(r.project);
+      placeImported(r.project);
       r.warnings.forEach((w) => s.toast(w, 'warn'));
       s.toast(tr(`CSV 로그 ${r.project.signals.length}개 신호를 가져왔습니다`, `Imported ${r.project.signals.length} signals from CSV`), 'ok');
       return true;
@@ -112,14 +190,15 @@ export function loadFromText(name: string, text: string): boolean {
       data = parseLooseJson(text);
     }
     const o = data as Record<string, unknown>;
-    if (o && o.format === 'timechart-studio') {
-      s.loadProject(migrateProject(o), name);
-      s.toast(tr(`${name} 을(를) 열었습니다`, `Opened ${name}`), 'ok');
+    if (o && (o.format === 'timechart-studio' || isBookJson(o))) {
+      const doc = migrateDocument(o);
+      s.loadDocument(doc, name);
+      s.toast(doc.sheets.length > 1 ? tr(`${name} 을(를) 열었습니다 (차트 ${doc.sheets.length}장)`, `Opened ${name} (${doc.sheets.length} charts)`) : tr(`${name} 을(를) 열었습니다`, `Opened ${name}`), 'ok');
       return true;
     }
     if (o && Array.isArray(o.signal)) {
       const r = importWaveDrom(text, s.project.settings.grid || 100);
-      s.loadProject(r.project);
+      placeImported(r.project);
       r.warnings.forEach((w) => s.toast(w, 'warn'));
       s.toast(tr('WaveDrom 파형을 가져왔습니다', 'Imported WaveDrom'), 'ok');
       return true;
@@ -158,9 +237,6 @@ export async function importFile(accept: string) {
   if (f) loadFromText(f.name, f.text);
 }
 
-function projectJson(p: Project): string {
-  return JSON.stringify(p, null, 1);
-}
 
 export async function saveProject(saveAs = false) {
   const s = g();
@@ -168,13 +244,14 @@ export async function saveProject(saveAs = false) {
     s.toast(tr('온라인 체험판에서는 파일 저장이 막혀 있습니다. 작업 내용은 이 브라우저에 자동 백업됩니다. [내보내기 → TCT 텍스트 복사]로 내용을 옮길 수 있습니다.', 'Saving files is blocked in the online trial. Work is auto-backed up in this browser; use Export → Copy TCT text.'), 'warn');
     return;
   }
-  const p = s.project;
-  const name = `${safeFileName(p.meta.title)}.tchart`;
+  const doc = s.getDocument();
+  const json = serializeDocument(doc);
+  const name = `${safeFileName(documentTitle(doc))}.tchart`;
   const w = window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FileHandle> };
   try {
     if (handle && !saveAs) {
       const wr = await handle.createWritable();
-      await wr.write(projectJson(p));
+      await wr.write(json);
       await wr.close();
       s.markSaved(handle.name);
       s.toast(tr(`저장됨: ${handle.name}`, `Saved: ${handle.name}`), 'ok');
@@ -183,7 +260,7 @@ export async function saveProject(saveAs = false) {
     if (w.showSaveFilePicker) {
       const h = await w.showSaveFilePicker({ suggestedName: name, types: [{ description: 'TimeChart Studio', accept: { 'application/json': ['.tchart'] } }] });
       const wr = await h.createWritable();
-      await wr.write(projectJson(p));
+      await wr.write(json);
       await wr.close();
       handle = h;
       s.markSaved(h.name);
@@ -193,7 +270,7 @@ export async function saveProject(saveAs = false) {
   } catch (e) {
     if ((e as Error).name === 'AbortError') return;
   }
-  downloadText(name, projectJson(p), 'application/json');
+  downloadText(name, json, 'application/json');
   s.markSaved(name);
   s.toast(tr(`다운로드 폴더에 ${name} 저장`, `Downloaded ${name}`), 'ok');
 }

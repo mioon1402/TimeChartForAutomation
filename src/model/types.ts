@@ -206,6 +206,8 @@ export interface Project {
   annotations: Annotation[];
   rules: TimingRule[];
   plc?: PlcConfig;
+  /** 설비 파일의 시트 탭에 보일 짧은 이름 (없으면 제목) */
+  sheet?: string;
   /** 작성 도우미(설비 → 기기 → I/O → 동작 순서)로 만든 차트면 그 입력 - 순서를 고쳐 다시 만들 때 사용 */
   sequence?: SeqSpec;
 }

@@ -387,6 +387,7 @@ export function HelpModal({ onClose, onWelcome, onTour }: { onClose: () => void;
   const keys: [string, string][] = [
     ['V / D / A / M / S / N / K', tr('선택 / 그리기 / 화살표 / 치수 / 스텝 / 메모 / 마커 도구', 'Tools: select, draw, arrow, dimension, step, note, marker')],
     ['Ctrl+Z, Ctrl+Y', tr('실행 취소, 다시 실행', 'Undo, redo')],
+    ['Ctrl+PgUp / Ctrl+PgDn', tr('설비 파일의 이전 / 다음 차트', 'Previous / next chart in the file')],
     ['Ctrl+S, Ctrl+O', tr('저장, 열기', 'Save, open')],
     ['Ctrl+P', tr('보고서 인쇄 / PDF', 'Print report / PDF')],
     ['Ctrl+D', tr('선택 신호 복제', 'Duplicate signals')],
@@ -477,6 +478,12 @@ export function useShortcuts() {
         return;
       }
       if (typing) return;
+      // 설비 파일의 차트 넘기기 (엑셀과 같은 키)
+      if (mod && (e.key === 'PageUp' || e.key === 'PageDown')) {
+        e.preventDefault();
+        s.switchSheet(s.activeSheet + (e.key === 'PageUp' ? -1 : 1));
+        return;
+      }
       if (mod && k === 'z' && !e.shiftKey) {
         e.preventDefault();
         s.undo();

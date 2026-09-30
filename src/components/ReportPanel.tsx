@@ -9,6 +9,7 @@ import { chartGeometry, ChartSvg } from '../render/ChartSvg';
 import { roleLabelKo } from '../io/csv';
 import { computeTimeline, ioPoints, type SeqSpec } from '../model/sequence';
 import { fmtSec, KIND_LABEL, sequenceStatus } from '../model/seqEdit';
+import { sheetName } from '../model/book';
 import { Check, Field, Icon, TextInput, TimeInput } from './ui';
 import { tr } from '../i18n';
 import { storageGet, storageSet } from '../storage';
@@ -19,6 +20,8 @@ export interface ReportOpts {
   orientation: 'landscape' | 'portrait';
   /** one = 한 장에 요약 + 전체 차트 (+ 스텝 표), full = 여러 장 보고서 */
   layout: 'one' | 'full';
+  /** current = 지금 차트, all = 설비 파일의 차트 전부 (목차 포함) */
+  scope: 'current' | 'all';
   cover: boolean;
   chart: boolean;
   signals: boolean;
@@ -49,6 +52,7 @@ export const DEFAULT_REPORT_OPTS: ReportOpts = {
   paper: 'A4',
   orientation: 'landscape',
   layout: 'full',
+  scope: 'current',
   cover: true,
   chart: true,
   signals: true,
@@ -80,6 +84,8 @@ interface PageDef {
   kind: string;
   title: string;
   body: ReactNode;
+  /** 쪽 머리·표제란에 쓸 차트 (설비 전체를 인쇄할 때 페이지마다 다름) */
+  project?: Project;
 }
 
 /** 여러 페이지에 이어 싣는 표 */
@@ -131,8 +137,14 @@ export function ReportPanel() {
     return () => el.remove();
   }, [o.paper, o.orientation]);
 
-  const rules = useMemo(() => checkRules(project), [project]);
-  const blocks = useMemo(() => (o.layout === 'full' ? tableBlocks(project, o, rules) : []), [project, o, rules]);
+  // 인쇄할 차트: 지금 차트, 또는 설비 파일의 차트 전부
+  const sheets = useStore((s) => s.sheets);
+  const activeSheet = useStore((s) => s.activeSheet);
+  const bookName = useStore((s) => s.bookName);
+  const all = useMemo(() => sheets.map((p, i) => (i === activeSheet ? project : p)), [sheets, activeSheet, project]);
+  const targets = useMemo(() => (o.scope === 'all' && all.length > 1 ? all : [project]), [o.scope, all, project]);
+  const rulesAll = useMemo(() => targets.map((p) => checkRules(p)), [targets]);
+  const blocks = useMemo(() => (o.layout === 'full' ? targets.flatMap((p, si) => tableBlocks(p, o, rulesAll[si]).map((b) => ({ ...b, id: `${si}:${b.id}` }))) : []), [targets, o, rulesAll]);
 
   // 표의 실제 줄 높이를 재서 페이지를 나눈다 (글이 길어 두 줄이 되는 칸도 정확히)
   const measRef = useRef<HTMLDivElement>(null);
@@ -158,7 +170,19 @@ export function ReportPanel() {
     if (JSON.stringify(next) !== JSON.stringify(meas)) setMeas(next);
   });
 
-  const pages = useMemo(() => buildPages(project, o, size, rules, blocks, meas), [project, o, size.w, size.h, rules, blocks, meas]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pages = useMemo(() => {
+    if (targets.length === 1) return buildPages(targets[0], o, size, rulesAll[0], blocks, meas).map((pg) => ({ ...pg, project: targets[0] }));
+    const parts = targets.map((p, si) => buildPages(p, o, size, rulesAll[si], blocks.filter((b) => b.id.startsWith(`${si}:`)), meas).map((pg) => ({ ...pg, project: p })));
+    const indexProject: Project = { ...project, meta: { ...project.meta, title: tr(`${bookName || project.meta.machine || '설비'} 타임차트 모음`, `${bookName || project.meta.machine || 'Machine'} timing charts`) } };
+    let at = 2;
+    const rows = targets.map((p, si) => {
+      const from = at;
+      at += parts[si].length;
+      return { p, from, to: at - 1, rules: rulesAll[si] };
+    });
+    const index: PageDef = { kind: 'index', title: tr('목차', 'Contents'), project: indexProject, body: <IndexPage rows={rows} bookName={bookName || project.meta.machine} /> };
+    return [index, ...parts.flat()];
+  }, [targets, o, size.w, size.h, rulesAll, blocks, meas, project, bookName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const m = project.meta;
   const addRevision = () => {
@@ -209,6 +233,20 @@ export function ReportPanel() {
             { value: 'full', label: tr('여러 장 보고서', 'Full report'), icon: 'report' },
           ],
           (v) => set({ layout: v }),
+        )}
+        {all.length > 1 && (
+          <>
+            <h4>{tr('인쇄 범위', 'Print')}</h4>
+            {seg(
+              o.scope,
+              [
+                { value: 'current', label: tr('이 차트', 'This chart') },
+                { value: 'all', label: tr(`설비 전체 (${all.length}장)`, `Whole machine (${all.length})`) },
+              ],
+              (v) => set({ scope: v }),
+            )}
+            {o.scope === 'all' && <p className="muted small">{tr('맨 앞에 목차가 붙고, 차트마다 차례로 싣습니다. "한 장으로"와 함께 쓰면 차트마다 한 장씩입니다.', 'A contents page first, then each chart in turn. With "One page", each chart gets one sheet.')}</p>}
+          </>
         )}
         <p className="muted small">
           {o.layout === 'one'
@@ -330,11 +368,11 @@ export function ReportPanel() {
             <div key={i} className="page" style={{ width: `${size.w}mm`, height: `${size.h}mm` }}>
               <div className="page-inner" style={{ padding: `${MARGIN}mm` }}>
                 <div className="page-head" style={{ height: `${HEAD_MM}mm` }}>
-                  <span className="ph-title">{project.meta.title}</span>
+                  <span className="ph-title">{(p.project ?? project).meta.title}</span>
                   <span className="ph-sec">{p.title}</span>
                 </div>
                 <div className="page-content">{p.body}</div>
-                <TitleBlock project={project} page={i + 1} total={pages.length} portrait={o.orientation === 'portrait'} />
+                <TitleBlock project={p.project ?? project} page={i + 1} total={pages.length} portrait={o.orientation === 'portrait'} />
               </div>
             </div>
           ))}
@@ -352,6 +390,51 @@ export function ReportPanel() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** 설비 전체 인쇄의 목차 */
+function IndexPage({ rows, bookName }: { rows: { p: Project; from: number; to: number; rules: RuleResult[] }[]; bookName: string }) {
+  return (
+    <div className="index-page">
+      <h1>{bookName || tr('설비', 'Machine')}</h1>
+      <p className="muted">{tr(`타임차트 ${rows.length}장`, `${rows.length} timing charts`)}</p>
+      <table className="rtable">
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>{tr('차트', 'Chart')}</th>
+            <th>{tr('제목', 'Title')}</th>
+            <th>{tr('사이클 타임', 'Cycle time')}</th>
+            <th>{tr('스텝', 'Steps')}</th>
+            <th>{tr('규칙 검증', 'Checks')}</th>
+            <th>Rev.</th>
+            <th>{tr('페이지', 'Pages')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const c = cycleSummary(r.p);
+            const ng = r.rules.filter((x) => x.status === 'fail').length;
+            const ok = r.rules.filter((x) => x.status === 'ok').length;
+            return (
+              <tr key={r.p.id}>
+                <td>{i + 1}</td>
+                <td>
+                  <b>{sheetName(r.p)}</b>
+                </td>
+                <td>{r.p.meta.title}</td>
+                <td className="mono">{r.p.steps.length ? formatTime(c.total, r.p.settings.timeUnit) : '-'}</td>
+                <td>{r.p.steps.length}</td>
+                <td>{r.rules.length ? <span className={`status ${ng ? 'fail' : 'ok'}`}>{ng ? `NG ${ng}` : `OK ${ok}`}</span> : '-'}</td>
+                <td>{r.p.meta.revision}</td>
+                <td className="mono">{r.from === r.to ? r.from : `${r.from} – ${r.to}`}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

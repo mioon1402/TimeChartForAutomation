@@ -9,6 +9,7 @@ import { ReportPanel } from './components/ReportPanel';
 import { HelpModal, StatusBar, Toolbar, TopBar, useShortcuts, WelcomeModal } from './components/Shell';
 import { Tour } from './components/Tour';
 import { SequencePanel } from './components/SequencePanel';
+import { SheetBar } from './components/SheetBar';
 import { PracticePicker } from './components/Practice';
 import { PromptHost, Toasts } from './components/ui';
 import { loadFromText } from './components/fileActions';
@@ -30,6 +31,7 @@ export default function App() {
   const [welcome, setWelcome] = useState(() => !storageGet(WELCOME_KEY) && !hasAutosave());
   const tour = useStore((s) => s.tour);
   const picker = useStore((s) => s.practicePicker);
+  const practice = useStore((s) => !!s.practice);
   const { setTour } = useStore.getState();
   const closeWelcome = () => {
     storageSet(WELCOME_KEY, '1');
@@ -109,6 +111,7 @@ export default function App() {
       }}
     >
       <TopBar onHelp={() => setHelp(true)} />
+      {!tour && !practice && <SheetBar />}
       {tab === 'editor' && (
         <>
           <Toolbar />

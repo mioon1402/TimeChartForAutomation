@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import type { TourId } from '../components/Tour';
 import type { GradeResult } from '../learn/grade';
 import type { Annotation, Project, ProjectMeta, ProjectSettings, Signal, Step, TimingRule } from '../model/types';
-import { createProject, createSignal, createStep, migrateProject, sampleProject, STEP_COLORS } from '../model/project';
+import { createProject, createSignal, createStep, sampleProject, STEP_COLORS } from '../model/project';
 import { deleteTime, insertTime, normalize, scaleTime, uid } from '../model/wave';
+import { bookFromProject, mergeAutosave, migrateDocument, uniqueSheetName, sheetName, type Book } from '../model/book';
 import { setLang, type Lang } from '../i18n';
 
 export type Tab = 'editor' | 'sequence' | 'plc' | 'text' | 'report';
@@ -40,7 +41,14 @@ export interface PracticeState {
 }
 
 interface State {
+  /** 지금 보고 있는 차트 */
   project: Project;
+  /** 설비 파일의 차트들 (지금 차트 자리는 project 가 최신) */
+  sheets: Project[];
+  activeSheet: number;
+  bookId: string;
+  /** 설비 이름 */
+  bookName: string;
   past: Project[];
   future: Project[];
   lastMergeKey: string | null;
@@ -77,7 +85,18 @@ interface State {
   endMerge(): void;
   undo(): void;
   redo(): void;
+  /** 차트 한 장을 새 문서로 연다 (다른 차트들은 닫힘) */
   loadProject(p: Project, fileName?: string): void;
+  /** 설비 파일(차트 여러 장)을 연다 */
+  loadDocument(b: Book, fileName?: string): void;
+  /** 지금 문서 전체 (저장·백업용) */
+  getDocument(): Book;
+  switchSheet(i: number): void;
+  addSheet(p: Project, activate?: boolean): void;
+  removeSheet(i: number): void;
+  renameSheet(i: number, name: string): void;
+  moveSheet(i: number, dir: -1 | 1): void;
+  setBookName(name: string): void;
   markSaved(fileName?: string): void;
 
   setMeta(patch: Partial<ProjectMeta>, mergeKey?: string): void;
@@ -125,15 +144,17 @@ interface State {
 }
 
 const AUTOSAVE_KEY = 'timechart-studio.autosave.v1';
+/** 차트가 여러 장일 때 설비 전체 (예전 키에는 지금 차트만 계속 저장해서 이전 버전과도 호환) */
+const BOOK_KEY = 'timechart-studio.autosave-book.v1';
 const PREFS_KEY = 'timechart-studio.prefs.v1';
 const HISTORY_LIMIT = 200;
 
 /** 튜토리얼 동안 원래 차트를 보관 (튜토리얼 도중 창을 닫아도 다음에 열 때 되살림) */
 const TUTORIAL_BACKUP_KEY = 'timechart-studio.tutorial-backup.v1';
 
-export function saveTutorialBackup(p: Project): void {
+export function saveTutorialBackup(doc: Book): void {
   try {
-    localStorage.setItem(TUTORIAL_BACKUP_KEY, JSON.stringify(p));
+    localStorage.setItem(TUTORIAL_BACKUP_KEY, JSON.stringify(doc));
   } catch {
     /* 저장 공간 부족 등 - 메모리 보관본으로만 복원 */
   }
@@ -156,24 +177,27 @@ export function hasAutosave(): boolean {
   }
 }
 
-function loadInitial(): Project {
-  // 튜토리얼 도중 창을 닫았으면 튜토리얼 전 차트로
+function readJson(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadInitial(): Book {
+  // 튜토리얼 도중 창을 닫았으면 튜토리얼 전 문서로
   try {
     const bak = localStorage.getItem(TUTORIAL_BACKUP_KEY);
     if (bak) {
       localStorage.removeItem(TUTORIAL_BACKUP_KEY);
-      return migrateProject(JSON.parse(bak));
+      return migrateDocument(JSON.parse(bak));
     }
   } catch {
     /* 무시하고 자동 백업본 사용 */
   }
-  try {
-    const raw = localStorage.getItem(AUTOSAVE_KEY);
-    if (raw) return migrateProject(JSON.parse(raw));
-  } catch {
-    /* 자동 저장본이 없거나 손상 */
-  }
-  return sampleProject();
+  return mergeAutosave(readJson(BOOK_KEY), readJson(AUTOSAVE_KEY)) ?? bookFromProject(sampleProject());
 }
 
 function loadPrefs(): { lang: Lang; theme: 'light' | 'dark' } {
@@ -206,12 +230,34 @@ setLang(prefs.lang);
 
 let toastSeq = 0;
 
+/** 차트(시트)마다 실행 취소 기록 */
+const sheetHistory = new Map<string, { past: Project[]; future: Project[] }>();
+const initialDoc = loadInitial();
+
 export const useStore = create<State>((set, get) => {
   const mutate = (fn: (p: Project) => Project, mergeKey?: string) => get().commit(fn(get().project), mergeKey);
   const mapSignals = (p: Project, fn: (s: Signal) => Signal): Project => ({ ...p, signals: p.signals.map(fn) });
 
+  /** 지금 차트의 실행 취소 기록을 보관하고 i 번째 차트로 */
+  const activate = (sheets: Project[], i: number) => {
+    const { project, past, future } = get();
+    sheetHistory.set(project.id, { past, future });
+    const next = sheets[i];
+    const h = sheetHistory.get(next.id) ?? { past: [], future: [] };
+    set({ sheets, activeSheet: i, project: next, past: h.past, future: h.future, lastMergeKey: null, selection: null, range: null, cursorA: null, cursorB: null });
+    setTimeout(() => get().fitZoom(), 0);
+  };
+  const withActive = () => {
+    const { sheets, activeSheet, project } = get();
+    return sheets.map((s, i) => (i === activeSheet ? project : s));
+  };
+
   return {
-    project: loadInitial(),
+    project: initialDoc.sheets[initialDoc.active],
+    sheets: initialDoc.sheets,
+    activeSheet: initialDoc.active,
+    bookId: initialDoc.id,
+    bookName: initialDoc.name,
     past: [],
     future: [],
     lastMergeKey: null,
@@ -266,8 +312,68 @@ export const useStore = create<State>((set, get) => {
       set({ project: future[0], future: future.slice(1), past: [...past, project], lastMergeKey: null, dirty: true });
     },
     loadProject(p, fileName = '') {
-      set({ project: p, past: [], future: [], lastMergeKey: null, selection: null, range: null, cursorA: null, cursorB: null, dirty: false, fileName });
+      get().loadDocument(bookFromProject(p), fileName);
+    },
+    loadDocument(b, fileName = '') {
+      sheetHistory.clear();
+      const p = b.sheets[b.active] ?? b.sheets[0];
+      set({ project: p, sheets: b.sheets, activeSheet: b.sheets.indexOf(p), bookId: b.id, bookName: b.name, past: [], future: [], lastMergeKey: null, selection: null, range: null, cursorA: null, cursorB: null, dirty: false, fileName });
       setTimeout(() => get().fitZoom(), 0);
+    },
+    getDocument() {
+      const { bookId, bookName, activeSheet } = get();
+      return { format: 'timechart-studio-book', version: 1, id: bookId, name: bookName, sheets: withActive(), active: activeSheet };
+    },
+    switchSheet(i) {
+      const sheets = withActive();
+      if (i < 0 || i >= sheets.length || i === get().activeSheet) return;
+      activate(sheets, i);
+    },
+    addSheet(p, activateIt = true) {
+      const sheets = withActive();
+      const name = uniqueSheetName(sheets, sheetName(p));
+      const q = name !== sheetName(p) ? { ...p, sheet: name } : p;
+      const at = get().activeSheet + 1;
+      const next = [...sheets.slice(0, at), q, ...sheets.slice(at)];
+      set({ dirty: true });
+      if (activateIt) activate(next, at);
+      else set({ sheets: next });
+    },
+    removeSheet(i) {
+      const sheets = withActive();
+      if (sheets.length <= 1 || i < 0 || i >= sheets.length) return;
+      const removed = sheets[i];
+      const next = sheets.filter((_, k) => k !== i);
+      sheetHistory.delete(removed.id);
+      const cur = get().activeSheet;
+      set({ dirty: true });
+      if (i === cur) {
+        const to = Math.min(i, next.length - 1);
+        const p = next[to];
+        const h = sheetHistory.get(p.id) ?? { past: [], future: [] };
+        set({ sheets: next, activeSheet: to, project: p, past: h.past, future: h.future, lastMergeKey: null, selection: null });
+        setTimeout(() => get().fitZoom(), 0);
+      } else set({ sheets: next, activeSheet: cur > i ? cur - 1 : cur });
+    },
+    renameSheet(i, name) {
+      const sheets = withActive();
+      const p = sheets[i];
+      if (!p) return;
+      const q = { ...p, sheet: name.trim() || undefined };
+      if (i === get().activeSheet) get().commit(q);
+      else set({ sheets: sheets.map((s, k) => (k === i ? q : s)), dirty: true });
+    },
+    moveSheet(i, dir) {
+      const sheets = withActive();
+      const j = i + dir;
+      if (j < 0 || j >= sheets.length) return;
+      const next = [...sheets];
+      [next[i], next[j]] = [next[j], next[i]];
+      const cur = get().activeSheet;
+      set({ sheets: next, activeSheet: cur === i ? j : cur === j ? i : cur, dirty: true });
+    },
+    setBookName(bookName) {
+      set({ bookName, dirty: true });
     },
     markSaved(fileName) {
       set({ dirty: false, ...(fileName ? { fileName } : {}) });
@@ -530,15 +636,18 @@ function shiftAnnotation(a: Annotation, f: (t: number) => number): Annotation {
   }
 }
 
-// 자동 저장 (0.8초 디바운스)
+// 자동 저장 (0.8초 디바운스): 예전 키에는 지금 차트, 설비 키에는 차트 전부
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let warnedQuota = false;
 useStore.subscribe((s, prev) => {
-  if (s.project === prev.project) return;
+  if (s.project === prev.project && s.sheets === prev.sheets && s.bookName === prev.bookName && s.activeSheet === prev.activeSheet) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(s.project));
+      const st = useStore.getState();
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(st.project));
+      if (st.sheets.length > 1) localStorage.setItem(BOOK_KEY, JSON.stringify(st.getDocument()));
+      else localStorage.removeItem(BOOK_KEY);
     } catch {
       // 브라우저 저장 공간 부족 (대용량 CSV 로그 등) - 한 번만 알림
       if (!warnedQuota) {
