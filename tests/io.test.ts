@@ -176,3 +176,22 @@ describe('templates', () => {
     }
   });
 });
+
+describe('text code apply keeps what the text does not carry', () => {
+  it('keeps display settings, sequence table, chart tab name and logo', async () => {
+    const { parseDsl, serializeDsl } = await import('../src/io/dsl');
+    const { newSequenceProject } = await import('../src/model/seqEdit');
+    const { defaultSpec } = await import('../src/model/sequence');
+    const p = newSequenceProject(defaultSpec());
+    p.sheet = '자동 사이클';
+    p.settings = { ...p.settings, rowHeight: 48, showAddress: false, fillHigh: false };
+    p.meta = { ...p.meta, logo: 'data:image/png;base64,AAAA', signLabels: ['설계', '검토', '확인'] };
+    const r = parseDsl(serializeDsl(p), p);
+    expect(r.errors).toEqual([]);
+    expect(r.project.sequence).toEqual(p.sequence);
+    expect(r.project.sheet).toBe('자동 사이클');
+    expect(r.project.settings).toMatchObject({ rowHeight: 48, showAddress: false, fillHigh: false, duration: p.settings.duration });
+    expect(r.project.meta.logo).toBe(p.meta.logo);
+    expect(r.project.meta.signLabels).toEqual(['설계', '검토', '확인']);
+  });
+});

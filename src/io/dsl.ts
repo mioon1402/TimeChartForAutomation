@@ -221,10 +221,14 @@ export function parseDsl(text: string, base?: Project): DslResult {
   const errors: DslMessage[] = [];
   const p = createProject();
   if (base) {
+    // 텍스트에 없는 것은 지금 차트에서 이어 받는다 (표시 설정, 동작 순서표, 차트 탭 이름, 로고 …)
     p.id = base.id;
     p.revisions = base.revisions;
     p.plc = base.plc;
-    p.meta = { ...p.meta, date: base.meta.date };
+    p.sequence = base.sequence;
+    p.sheet = base.sheet;
+    p.settings = { ...p.settings, ...base.settings };
+    p.meta = { ...p.meta, date: base.meta.date, logo: base.meta.logo, signLabels: base.meta.signLabels };
   }
   let group: string | undefined;
   const refs = new Map<string, Signal>();
