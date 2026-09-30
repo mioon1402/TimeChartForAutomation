@@ -8,7 +8,7 @@ import { labelWidths, GrayPatternDefs } from '../render/ChartParts';
 import { chartGeometry, ChartSvg } from '../render/ChartSvg';
 import { roleLabelKo } from '../io/csv';
 import { computeTimeline, ioPoints, type SeqSpec } from '../model/sequence';
-import { fmtSec, KIND_LABEL, sequenceStatus } from '../model/seqEdit';
+import { fmtSec, KIND_LABEL, sequenceStatus, startText } from '../model/seqEdit';
 import { sheetName } from '../model/book';
 import { Check, Field, Icon, TextInput, TimeInput } from './ui';
 import { tr } from '../i18n';
@@ -1261,7 +1261,7 @@ function sequenceBlocks(spec: SeqSpec): Block[] {
         <td>{d ? d.name : tr('대기', 'Wait')}</td>
         <td>{d ? (a.dir === 'fwd' ? d.fwdLabel : d.retLabel) : a.label}</td>
         <td className="mono">{fmtSec(it.end - it.start)} s</td>
-        <td>{i === 0 ? (spec.startButton ? tr('시작 버튼', 'Start button') : '') : a.withPrev ? tr('앞 동작과 동시에', 'With previous') : tr('앞 동작 완료 후', 'After previous')}</td>
+        <td>{startText(a, i === 0, spec.startButton)}</td>
         <td className="mono">
           {fmtSec(it.start)} ~ {fmtSec(it.end)}
         </td>

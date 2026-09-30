@@ -349,7 +349,23 @@ export function isWaitText(t: string): boolean {
 }
 
 export function parseWith(t: string): boolean {
-  return /동시|같이|함께|병렬|with|parallel|together|^[=&+]/i.test(t.trim());
+  return /동시|같이|함께|병렬|with|parallel|together|^[=&]/i.test(t.trim());
+}
+
+/** 시작 칸의 지연: "+0.2", "뒤 0.5초", "동시 +300ms" → ms (없으면 0) */
+export function parseDelay(t: string): number {
+  const m = t.replace(',', '.').match(/(\d*\.?\d+)\s*(ms|msec|밀리초|s|sec|초)?/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const ms = /^(ms|msec|밀리초)$/i.test(m[2] ?? '') ? n : n * 1000;
+  return Math.round(ms);
+}
+
+/** 시작 칸 글자 */
+export function startText(a: SeqAction, first: boolean, startButton: boolean): string {
+  const base = first ? (startButton ? '시작 버튼' : '처음') : a.withPrev ? '앞 동작과 동시에' : '앞 동작이 끝난 뒤';
+  return a.delay ? `${base} +${fmtSec(a.delay)}초` : base;
 }
 
 export type ActCol = 'step' | 'dev' | 'mot' | 'time' | 'start' | 'span';
@@ -447,8 +463,9 @@ export function actionFromRecord(spec: SeqSpec, rec: ActionRecord, row: number, 
   }
   if (!dev && !mot && !rec.time?.trim()) return null;
   const withPrev = row > 0 && parseWith(rec.start ?? '');
+  const delay = parseDelay(rec.start ?? '') || undefined;
   if (!dev || isWaitText(dev)) {
-    let a = newAction({ device: '', wait: 1000, label: mot.replace(/^[:：]\s*/, ''), withPrev });
+    let a = newAction({ device: '', wait: 1000, label: mot.replace(/^[:：]\s*/, ''), withPrev, delay });
     const r = setTime(spec, a, rec.time ?? '', rec.ms, warnings);
     a = r.a;
     return { spec: r.spec, action: a };
@@ -457,7 +474,7 @@ export function actionFromRecord(spec: SeqSpec, rec: ActionRecord, row: number, 
   let s = e.spec;
   const m = resolveMotion({ ...s, actions: [...s.actions.slice(0, row), newAction({ device: e.id })] }, e.id, mot, row, warnings);
   s = { ...m.spec, actions: s.actions };
-  const a = newAction({ device: e.id, dir: m.dir, withPrev });
+  const a = newAction({ device: e.id, dir: m.dir, withPrev, delay });
   const r = setTime(s, a, rec.time ?? '', rec.ms, warnings);
   return { spec: r.spec, action: r.a };
 }
@@ -497,7 +514,10 @@ export function editActions(spec: SeqSpec, edits: CellEdit[]): EditResult {
       s = r.spec;
       a = r.a;
     }
-    if (cells.has('start')) a = { ...a, withPrev: row > 0 && parseWith(cells.get('start')!) };
+    if (cells.has('start')) {
+      const t = cells.get('start')!;
+      a = { ...a, withPrev: row > 0 && parseWith(t), delay: parseDelay(t) || undefined };
+    }
     s = { ...s, actions: s.actions.map((x, k) => (k === row ? a : x)) };
   }
   return { spec: { ...s, actions: fixFirst(s.actions) }, notes, warnings };

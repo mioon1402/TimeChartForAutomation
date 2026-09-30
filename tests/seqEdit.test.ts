@@ -193,3 +193,33 @@ describe('sequence examples', () => {
     }
   });
 });
+
+describe('start delay', () => {
+  it('reads "+0.2" in the start cell and shifts the motion', async () => {
+    const { computeTimeline } = await import('../src/model/sequence');
+    const { parseDelay, startText } = await import('../src/model/seqEdit');
+    expect(parseDelay('앞 동작이 끝난 뒤 +0.2초')).toBe(200);
+    expect(parseDelay('동시 300ms')).toBe(300);
+    expect(parseDelay('앞 동작이 끝난 뒤')).toBe(0);
+    let s = editActions(emptySpec(), [
+      { row: 0, col: 'mot', text: '클램프 전진' },
+      { row: 1, col: 'mot', text: '블로우 기동' },
+      { row: 1, col: 'start', text: '동시 +0.3' },
+      { row: 2, col: 'mot', text: '프레스 하강' },
+      { row: 2, col: 'start', text: '+0.2' },
+    ]).spec;
+    const tl = computeTimeline(s);
+    const [clamp, blow, press] = tl.items;
+    expect(blow.start - clamp.start).toBe(300);
+    expect(blow.group).toBe(clamp.group);
+    expect(press.start - Math.max(clamp.end, blow.end)).toBe(200);
+    expect(startText(s.actions[1], false, true)).toBe('앞 동작과 동시에 +0.3초');
+    // 지연을 지우면 원래대로
+    s = editActions(s, [{ row: 2, col: 'start', text: '앞 동작이 끝난 뒤' }]).spec;
+    expect(s.actions[2].delay).toBeUndefined();
+    // 차트 화살표는 센서 확인 시각에서 지연된 출력으로
+    const p = newSequenceProject({ ...s, actions: s.actions.map((a, i) => (i === 2 ? { ...a, delay: 200 } : a)) });
+    const arrows = p.annotations.filter((a) => a.type === 'arrow');
+    expect(arrows.some((a) => a.type === 'arrow' && a.to.t - a.from.t === 200)).toBe(true);
+  });
+});

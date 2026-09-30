@@ -39,6 +39,8 @@ export interface SeqAction {
   label: string;
   /** 앞 동작과 동시에 시작 (아니면 앞 동작이 끝난 뒤) */
   withPrev: boolean;
+  /** 시작 지연 (ms): 기준 시각(앞 동작 끝, 동시면 앞 동작 시작)보다 이만큼 늦게 시작 */
+  delay?: number;
 }
 
 export type AddrStyle = 'mitsubishi' | 'ls' | 'siemens' | 'none';
@@ -238,7 +240,7 @@ export function computeTimeline(spec: SeqSpec): Timeline {
     if (a.device && !d) return;
     const cur = groups[groups.length - 1];
     const joins = a.withPrev && cur;
-    const start = joins ? cur.start : prevEnd;
+    const start = (joins ? cur.start : prevEnd) + Math.max(0, a.delay ?? 0);
     const end = start + actionDuration(a, devices);
     if (!joins) groups.push({ start, end, items: [] });
     const g = groups[groups.length - 1];

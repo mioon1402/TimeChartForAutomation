@@ -26,6 +26,7 @@ import {
   removeActions,
   removeDevices,
   sequenceStatus,
+  startText,
   unusedDevices,
   withSequence,
   type DevCol,
@@ -305,7 +306,7 @@ function SequenceEditor() {
     { key: 'dev', title: tr('기기', 'Device'), width: 130, options: [...devNames, '대기'], tip: tr('② 에 없는 이름을 적으면 새 기기가 생깁니다. 기다리기만 할 때는 "대기"', 'A new name adds a device; use "대기" (wait) for a timer') },
     { key: 'mot', title: tr('동작', 'Motion'), width: 110 },
     { key: 'time', title: tr('시간(초)', 'Time (s)'), width: 82, num: true, tip: tr('기기 동작 시간은 ② 기기 표와 같은 값입니다 (같은 동작이 여러 번 나오면 함께 바뀜)', 'Device motion time is shared with the device table') },
-    { key: 'start', title: tr('시작', 'Starts'), width: 150, options: ['앞 동작이 끝난 뒤', '앞 동작과 동시에'] },
+    { key: 'start', title: tr('시작', 'Starts'), width: 170, options: ['앞 동작이 끝난 뒤', '앞 동작과 동시에', '앞 동작이 끝난 뒤 +0.2초', '앞 동작과 동시에 +0.3초'], tip: tr('끝에 +0.2 처럼 초를 붙이면 그만큼 늦게 시작합니다 (센서 확인 후 안정화, 출발하고 0.3초 뒤 블로우 등)', 'Add +0.2 to start that many seconds later') },
     { key: 'span', title: tr('시각(초)', 'At (s)'), width: 96, readOnly: true, mono: true, num: true, tip: tr('차트에서의 시작 ~ 끝 시각 (시작 버튼 0.1초)', 'Start ~ end on the chart') },
   ];
   const actText = (r: number, col: string): string => {
@@ -323,7 +324,7 @@ function SequenceEditor() {
       case 'time':
         return a.device ? (d ? fmtSec(a.dir === 'fwd' ? d.fwdTime : d.retTime) : '') : fmtSec(a.wait);
       case 'start':
-        return r === 0 ? (spec.startButton ? '시작 버튼' : '처음') : a.withPrev ? '앞 동작과 동시에' : '앞 동작이 끝난 뒤';
+        return startText(a, r === 0, spec.startButton);
       case 'span':
         return it ? `${fmtSec(it.start)} – ${fmtSec(it.end)}` : '';
     }
@@ -333,7 +334,7 @@ function SequenceEditor() {
     const a = spec.actions[r];
     const t = actText(r, col);
     if (col === 'dev' && a && !a.device) return <span className="seq-wait">{t}</span>;
-    if (col === 'start' && r === 0) return <span className="muted">{t}</span>;
+    if (col === 'start' && r === 0 && !a?.delay) return <span className="muted">{t}</span>;
     if (col === 'start' && a?.withPrev) return <span className="seq-with">↳ {t}</span>;
     if (col === 'step' && r > 0 && a?.withPrev) return <span className="muted">{t}</span>;
     return t;
