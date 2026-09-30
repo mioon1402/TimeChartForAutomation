@@ -113,3 +113,31 @@ describe('sequence wizard model', () => {
     expect(START_AT).toBe(100);
   });
 });
+
+describe('reading sequence tables from files', () => {
+  it('drops or repairs malformed data instead of crashing', () => {
+    const raw = {
+      format: 'timechart-studio',
+      signals: [],
+      sequence: {
+        devices: [{ id: 'd1', name: '클램프', kind: 'weird', fwdTime: -5 }, 'junk', { name: 'no id' }],
+        actions: [{ device: 'd1', dir: 'ret', withPrev: 'yes' }, { device: 'missing' }, null, { device: '', wait: 'x', label: '가공' }],
+        addrStyle: 'nope',
+        startButton: false,
+      },
+    };
+    const p = migrateProject(raw);
+    const s = p.sequence!;
+    expect(s.devices).toHaveLength(1);
+    expect(s.devices[0]).toMatchObject({ kind: 'cyl2', fwdTime: 500, fwdLabel: '전진', sensors: true });
+    expect(s.actions.map((a) => [a.device, a.dir, a.withPrev])).toEqual([
+      ['d1', 'ret', false],
+      ['', 'fwd', false],
+    ]);
+    expect(s.actions[1].wait).toBe(1000);
+    expect(s.addrStyle).toBe('mitsubishi');
+    expect(s.startButton).toBe(false);
+    expect(computeTimeline(s).items).toHaveLength(2);
+    expect(migrateProject({ format: 'timechart-studio', sequence: { devices: 'bad' } }).sequence).toBeUndefined();
+  });
+});

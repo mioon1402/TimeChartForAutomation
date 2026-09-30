@@ -476,3 +476,53 @@ export function buildProject(spec: SeqSpec): Project {
   p.sequence = JSON.parse(JSON.stringify(spec)) as SeqSpec;
   return p;
 }
+
+// ───────────────────────── 파일에서 읽을 때 ─────────────────────────
+
+const KINDS: DeviceKind[] = ['cyl2', 'cyl1', 'motor', 'vacuum'];
+const STYLES: AddrStyle[] = ['mitsubishi', 'ls', 'siemens', 'none'];
+
+/** 파일·백업에서 읽은 동작 순서표를 검사: 모양이 틀린 값은 기본값으로, 읽을 수 없는 줄은 뺀다 */
+export function sanitizeSequence(v: unknown): SeqSpec | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.devices) || !Array.isArray(o.actions)) return undefined;
+  const str = (x: unknown, d = '') => (typeof x === 'string' ? x : d);
+  const num = (x: unknown, d: number) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : d);
+  const devices: SeqDevice[] = (o.devices as unknown[])
+    .filter((d): d is Record<string, unknown> => !!d && typeof d === 'object' && typeof (d as { id?: unknown }).id === 'string')
+    .map((d) => {
+      const kind = KINDS.includes(d.kind as DeviceKind) ? (d.kind as DeviceKind) : 'cyl2';
+      const def = kindDefaults(kind);
+      const sensors = d.sensors === 'fwd' || d.sensors === 'ret' || typeof d.sensors === 'boolean' ? (d.sensors as SeqDevice['sensors']) : def.sensors;
+      return { id: d.id as string, name: str(d.name), kind, fwdLabel: str(d.fwdLabel, def.fwdLabel), retLabel: str(d.retLabel, def.retLabel), fwdTime: num(d.fwdTime, def.fwdTime), retTime: num(d.retTime, def.retTime), sensors };
+    });
+  const ids = new Set(devices.map((d) => d.id));
+  const actions: SeqAction[] = (o.actions as unknown[])
+    .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+    .filter((a) => !a.device || ids.has(a.device as string))
+    .map((a) => ({
+      id: str(a.id) || uid('act'),
+      device: str(a.device),
+      dir: a.dir === 'ret' ? 'ret' : 'fwd',
+      wait: num(a.wait, 1000),
+      label: str(a.label),
+      withPrev: a.withPrev === true,
+      ...(num(a.delay, 0) > 0 ? { delay: num(a.delay, 0) } : {}),
+    }));
+  const ioEdits = o.ioEdits && typeof o.ioEdits === 'object' ? (o.ioEdits as SeqSpec['ioEdits']) : {};
+  const applied = o.applied && typeof o.applied === 'object' && typeof (o.applied as { spec?: unknown }).spec === 'string' ? (o.applied as SeqSpec['applied']) : undefined;
+  return {
+    title: str(o.title),
+    machine: str(o.machine),
+    drawingNo: str(o.drawingNo),
+    author: str(o.author),
+    targetCycle: num(o.targetCycle, 0),
+    startButton: o.startButton !== false,
+    devices,
+    addrStyle: STYLES.includes(o.addrStyle as AddrStyle) ? (o.addrStyle as AddrStyle) : 'mitsubishi',
+    ioEdits,
+    actions,
+    ...(applied ? { applied } : {}),
+  };
+}

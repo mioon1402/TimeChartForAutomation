@@ -1982,6 +1982,61 @@ table.tbl tr.fail td {
   gap: 6px;
 }
 
+/* 화면 오류 안내 */
+.crash {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  background: var(--bg);
+}
+
+.crash-card {
+  max-width: 620px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warn);
+  border-radius: 10px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text);
+}
+
+.crash-card h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.crash-card p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.crash-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.crash-detail {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.crash-detail pre {
+  white-space: pre-wrap;
+  font-size: 11.5px;
+  background: var(--panel-2);
+  padding: 8px;
+  border-radius: 6px;
+  overflow: auto;
+}
+
 /* 새 기능 안내 */
 .whats-new {
   display: flex;

@@ -11,6 +11,7 @@ import { HelpModal, markWhatsNewSeen, StatusBar, Toolbar, TopBar, useShortcuts, 
 import { Tour } from './components/Tour';
 import { SequencePanel } from './components/SequencePanel';
 import { SheetBar } from './components/SheetBar';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { PracticePicker } from './components/Practice';
 import { PromptHost, Toasts } from './components/ui';
 import { loadFromText } from './components/fileActions';
@@ -165,23 +166,25 @@ export default function App() {
     >
       <TopBar onHelp={() => setHelp(true)} />
       {!practice && <SheetBar />}
-      {tab === 'editor' && (
-        <>
-          <Toolbar />
-          <div className="workspace">
-            <div className="main-col">
-              <ChartEditor />
-              <BottomPanel />
+      <ErrorBoundary key={tab} area={{ editor: tr('타임차트', 'Chart'), sequence: tr('동작 순서', 'Sequence'), plc: 'PLC', text: tr('텍스트 코드', 'Text'), report: tr('보고서', 'Report') }[tab]}>
+        {tab === 'editor' && (
+          <>
+            <Toolbar />
+            <div className="workspace">
+              <div className="main-col">
+                <ChartEditor />
+                <BottomPanel />
+              </div>
+              {showProps && <PropertiesPanel />}
             </div>
-            {showProps && <PropertiesPanel />}
-          </div>
-          <StatusBar />
-        </>
-      )}
-      {tab === 'sequence' && <SequencePanel />}
-      {tab === 'plc' && <PlcPanel />}
-      {tab === 'text' && <TextPanel />}
-      {tab === 'report' && <ReportPanel />}
+            <StatusBar />
+          </>
+        )}
+        {tab === 'sequence' && <SequencePanel />}
+        {tab === 'plc' && <PlcPanel />}
+        {tab === 'text' && <TextPanel />}
+        {tab === 'report' && <ReportPanel />}
+      </ErrorBoundary>
       {help && <HelpModal onClose={() => setHelp(false)} onWelcome={() => setWelcome(true)} onTour={setTour} />}
       {welcome && !help && !tour && !picker && <WelcomeModal onClose={closeWelcome} onTour={setTour} />}
       {whatsNew && !welcome && !help && !tour && !picker && <WhatsNew onClose={closeWhatsNew} />}
