@@ -3861,6 +3861,47 @@ button.seq-kpi {
   overflow-wrap: anywhere;
 }
 
+.tb-logo {
+  display: block;
+  max-width: 100%;
+  max-height: 11mm;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.tb-company-name.small {
+  display: block;
+  font-size: 7pt;
+  margin-top: 0.5mm;
+}
+
+.ph-page {
+  font-weight: 700;
+}
+
+.logo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.logo-thumb {
+  max-height: 34px;
+  max-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  padding: 2px;
+}
+
+.sign-labels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .titleblock.portrait {
   font-size: 7pt;
 }

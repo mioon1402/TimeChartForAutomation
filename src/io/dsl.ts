@@ -25,7 +25,7 @@ import { parseTime } from '../model/format';
 
 const KINDS: SignalKind[] = ['bit', 'bus', 'analog', 'clock'];
 const ROLES: SignalRole[] = ['input', 'output', 'internal', 'actuator', 'sensor', 'timer', 'counter', 'data', 'other'];
-const META_KEYS: (keyof ProjectMeta)[] = ['title', 'machine', 'drawingNo', 'company', 'author', 'checker', 'approver', 'revision', 'date', 'description'];
+const META_KEYS: Exclude<keyof ProjectMeta, 'logo' | 'signLabels'>[] = ['title', 'machine', 'drawingNo', 'company', 'author', 'checker', 'approver', 'revision', 'date', 'description'];
 
 function q(s: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;

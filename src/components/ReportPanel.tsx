@@ -38,6 +38,8 @@ export interface ReportOpts {
   violations: boolean;
   /** 차트가 남는 공간이 많으면 행 높이를 늘려 채움 */
   stretch: boolean;
+  /** 표제란 (빼면 차트를 더 크게) */
+  titleBlock: boolean;
 }
 
 const OPTS_KEY = 'timechart-studio.report.v1';
@@ -46,7 +48,30 @@ const MARGIN = 10;
 const HEAD_MM = 9;
 const TITLEBLOCK_MM = 21;
 /** 쪽 머리·표제란·위아래 여백을 뺀 본문 높이 (mm) */
-const bodyHeight = (size: { h: number }) => size.h - 2 * MARGIN - HEAD_MM - TITLEBLOCK_MM - 7;
+const bodyHeight = (size: { h: number }, o: Pick<ReportOpts, 'titleBlock'>) => size.h - 2 * MARGIN - HEAD_MM - (o.titleBlock ? TITLEBLOCK_MM : 0) - 7;
+
+export const DEFAULT_SIGN_LABELS = ['작성', '검토', '승인'];
+
+/** 로고 그림 → 표제란에 맞게 줄인 PNG (파일이 커지지 않게) */
+async function logoDataUrl(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, bad) => {
+      const im = new Image();
+      im.onload = () => ok(im);
+      im.onerror = () => bad(new Error(tr('그림을 읽지 못했습니다', 'Could not read the image')));
+      im.src = url;
+    });
+    const k = Math.min(1, 480 / img.width, 160 / img.height);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.width * k));
+    c.height = Math.max(1, Math.round(img.height * k));
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 export const DEFAULT_REPORT_OPTS: ReportOpts = {
   paper: 'A4',
@@ -65,6 +90,7 @@ export const DEFAULT_REPORT_OPTS: ReportOpts = {
   grayscale: false,
   violations: true,
   stretch: true,
+  titleBlock: true,
 };
 
 function loadOpts(): ReportOpts {
@@ -326,6 +352,51 @@ export function ReportPanel() {
           </ul>
         </details>
         <h4>{tr('표제란', 'Title block')}</h4>
+        <div className="checks">
+          <Check checked={o.titleBlock} onChange={(v) => set({ titleBlock: v })} label={tr('표제란 넣기 (빼면 차트가 더 커짐)', 'Include title block')} />
+        </div>
+        <div className="logo-row">
+          {m.logo ? <img src={m.logo} alt={tr('회사 로고', 'Company logo')} className="logo-thumb" /> : <span className="muted small">{tr('회사 로고 없음', 'No logo')}</span>}
+          <label className="btn small">
+            <Icon name="image" size={13} /> {m.logo ? tr('로고 바꾸기', 'Change logo') : tr('로고 넣기', 'Add logo')}
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (!f) return;
+                try {
+                  setMeta({ logo: await logoDataUrl(f) });
+                } catch (err) {
+                  useStore.getState().toast((err as Error).message, 'error');
+                }
+              }}
+            />
+          </label>
+          {m.logo && (
+            <button type="button" className="btn small" onClick={() => setMeta({ logo: undefined })}>
+              {tr('빼기', 'Remove')}
+            </button>
+          )}
+        </div>
+        <Field label={tr('서명 칸 이름 (회사 양식에 맞게)', 'Sign-off labels')} wide>
+          <div className="sign-labels">
+            {[0, 1, 2].map((k) => (
+              <TextInput
+                key={k}
+                value={(m.signLabels ?? DEFAULT_SIGN_LABELS)[k] ?? ''}
+                placeholder={DEFAULT_SIGN_LABELS[k]}
+                onChange={(v) => {
+                  const next = [...(m.signLabels ?? DEFAULT_SIGN_LABELS)];
+                  next[k] = v || DEFAULT_SIGN_LABELS[k];
+                  setMeta({ signLabels: next.join() === DEFAULT_SIGN_LABELS.join() ? undefined : next });
+                }}
+              />
+            ))}
+          </div>
+        </Field>
         <Field label={tr('제목', 'Title')} wide>
           <TextInput value={m.title} onChange={(v) => setMeta({ title: v })} />
         </Field>
@@ -396,10 +467,13 @@ export function ReportPanel() {
               <div className="page-inner" style={{ padding: `${MARGIN}mm` }}>
                 <div className="page-head" style={{ height: `${HEAD_MM}mm` }}>
                   <span className="ph-title">{(p.project ?? project).meta.title}</span>
-                  <span className="ph-sec">{p.title}</span>
+                  <span className="ph-sec">
+                    {p.title}
+                    {!o.titleBlock && <span className="ph-page"> · {i + 1} / {pages.length}</span>}
+                  </span>
                 </div>
                 <div className="page-content">{p.body}</div>
-                <TitleBlock project={p.project ?? project} page={i + 1} total={pages.length} portrait={o.orientation === 'portrait'} />
+                {o.titleBlock && <TitleBlock project={p.project ?? project} page={i + 1} total={pages.length} portrait={o.orientation === 'portrait'} />}
               </div>
             </div>
           ))}
@@ -488,15 +562,16 @@ function TitleBlock({ project, page, total, portrait }: { project: Project; page
       <tbody>
         <tr>
           <td rowSpan={2} className="tb-company">
-            {m.company || ' '}
+            {m.logo && <img src={m.logo} alt="" className="tb-logo" />}
+            {m.company ? <span className={m.logo ? 'tb-company-name small' : 'tb-company-name'}>{m.company}</span> : m.logo ? null : ' '}
           </td>
           <th>{tr('제목', 'TITLE')}</th>
           <td colSpan={3} className="tb-title">
             {m.title}
           </td>
-          <th>{tr('작성', 'DRAWN')}</th>
-          <th>{tr('검토', 'CHECKED')}</th>
-          <th>{tr('승인', 'APPROVED')}</th>
+          {(m.signLabels ?? [tr('작성', 'DRAWN'), tr('검토', 'CHECKED'), tr('승인', 'APPROVED')]).slice(0, 3).map((l, k) => (
+            <th key={k}>{l}</th>
+          ))}
           <th>{tr('페이지', 'PAGE')}</th>
         </tr>
         <tr>
@@ -658,7 +733,7 @@ function buildPages(project: Project, o: ReportOpts, size: { w: number; h: numbe
   const pages: PageDef[] = [];
   const u = project.settings.timeUnit;
   const contentW = (size.w - 2 * MARGIN) * MM;
-  const contentHmm = bodyHeight(size);
+  const contentHmm = bodyHeight(size, o);
   const contentH = contentHmm * MM;
   const visible = project.signals.filter((s) => !s.hidden);
   const d = project.settings.duration;

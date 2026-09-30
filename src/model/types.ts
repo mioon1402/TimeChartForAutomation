@@ -165,6 +165,10 @@ export interface ProjectMeta {
   revision: string;
   date: string;
   description: string;
+  /** 표제란 회사 칸에 넣는 로고 (작게 줄인 PNG data URL) */
+  logo?: string;
+  /** 표제란 서명 칸 이름 (기본: 작성 · 검토 · 승인) */
+  signLabels?: string[];
 }
 
 export interface Revision {

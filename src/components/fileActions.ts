@@ -44,7 +44,7 @@ export async function newProject() {
 /** 같은 설비의 표제란(회사·설비·작성·검토·승인)을 새 차트에 이어 받는다 */
 function inheritMeta(p: Project): Project {
   const m = g().project.meta;
-  return { ...p, meta: { ...p.meta, company: m.company, machine: m.machine, drawingNo: m.drawingNo, author: m.author, checker: m.checker, approver: m.approver, revision: m.revision || p.meta.revision } };
+  return { ...p, meta: { ...p.meta, company: m.company, machine: m.machine, drawingNo: m.drawingNo, author: m.author, checker: m.checker, approver: m.approver, revision: m.revision || p.meta.revision, logo: m.logo, signLabels: m.signLabels } };
 }
 
 export function addBlankSheet() {
