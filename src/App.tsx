@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { hasAutosave, useStore } from './store/store';
+import { hasAutosave, selectedSignalIds, useStore } from './store/store';
+import { copySignalsText, pasteSignals } from './model/signalClipboard';
 import { ChartEditor } from './components/ChartEditor';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { BottomPanel } from './components/BottomPanel';
@@ -67,6 +68,48 @@ export default function App() {
     setWhatsNew(false);
     markWhatsNewSeen();
     history.replaceState(null, '', location.pathname + location.search);
+  }, []);
+
+  // 차트 편집기: 고른 신호 복사·잘라내기·붙여넣기 (다른 차트 탭, 다른 창, 텍스트 탭과 주고받기)
+  useEffect(() => {
+    const typing = () => {
+      const t = document.activeElement as HTMLElement | null;
+      return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    };
+    const copy = (e: ClipboardEvent, cut: boolean) => {
+      const s = useStore.getState();
+      if (s.tab !== 'editor' || typing() || document.querySelector('.modal-back')) return;
+      const ids = selectedSignalIds(s.selection);
+      if (!ids.length) return;
+      e.preventDefault();
+      e.clipboardData?.setData('text/plain', copySignalsText(s.project, ids));
+      if (cut) s.removeSignals(ids);
+      s.toast(
+        cut ? tr(`신호 ${ids.length}개를 잘라 냈습니다. 붙여 넣을 곳에서 Ctrl+V`, `Cut ${ids.length} signals`) : tr(`신호 ${ids.length}개를 복사했습니다. 다른 차트 탭에서도 Ctrl+V 로 붙여 넣을 수 있습니다`, `Copied ${ids.length} signals; paste with Ctrl+V in any chart`),
+        'info',
+      );
+    };
+    const onCopy = (e: ClipboardEvent) => copy(e, false);
+    const onCut = (e: ClipboardEvent) => copy(e, true);
+    const onPaste = (e: ClipboardEvent) => {
+      const s = useStore.getState();
+      if (s.tab !== 'editor' || typing() || document.querySelector('.modal-back')) return;
+      const ids = selectedSignalIds(s.selection);
+      const r = pasteSignals(s.project, e.clipboardData?.getData('text/plain') ?? '', ids[ids.length - 1]);
+      if (!r) return;
+      e.preventDefault();
+      s.commit(r.project);
+      s.select({ type: 'signals', ids: r.ids });
+      s.toast(tr(`신호 ${r.ids.length}개를 붙여 넣었습니다`, `Pasted ${r.ids.length} signals`), 'ok');
+    };
+    document.addEventListener('copy', onCopy);
+    document.addEventListener('cut', onCut);
+    document.addEventListener('paste', onPaste);
+    return () => {
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCut);
+      document.removeEventListener('paste', onPaste);
+    };
   }, []);
 
   // 첫 화면: 차트를 화면 폭에 맞춤

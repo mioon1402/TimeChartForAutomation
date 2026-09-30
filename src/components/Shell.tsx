@@ -468,6 +468,7 @@ export function HelpModal({ onClose, onWelcome, onTour }: { onClose: () => void;
     ['Ctrl+S, Ctrl+O', tr('저장, 열기', 'Save, open')],
     ['Ctrl+P', tr('보고서 인쇄 / PDF', 'Print report / PDF')],
     ['Ctrl+D', tr('선택 신호 복제', 'Duplicate signals')],
+    ['Ctrl+C / Ctrl+X / Ctrl+V', tr('선택 신호 복사 · 잘라내기 · 붙여넣기 (다른 차트 탭으로도)', 'Copy, cut, paste signals (also into other charts)')],
     ['Delete', tr('선택 항목 삭제', 'Delete selection')],
     ['Alt+↑ / Alt+↓', tr('선택 신호 위/아래로 이동', 'Move signal up/down')],
     ['Ctrl+A', tr('모든 신호 선택', 'Select all signals')],
