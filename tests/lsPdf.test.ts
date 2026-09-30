@@ -224,5 +224,6 @@ describe('XG5000 PDF → pdf.js 글자 추출', () => {
     expect(r.chars).toBeGreaterThan(0);
     expect(r.text.trimEnd()).toBe(printout);
     expect(lsStreamLines(r.text).lines.map((l) => l.tokens.join(' '))).toEqual(printoutTokens);
-  });
+    // pdf.js(legacy, 약 2MB)를 처음 불러와 변환하는 데 느린 PC·CI 에서는 5초가 넘게 걸린다
+  }, 60_000);
 });
