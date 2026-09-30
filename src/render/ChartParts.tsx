@@ -31,10 +31,28 @@ export interface EditorOverlayProps {
   interactive?: boolean;
 }
 
-const GRAY = '#374151';
+const GRAY = '#111827';
 
 export function sigColor(s: Signal, gray?: boolean): string {
   return gray ? GRAY : s.color;
+}
+
+/** 흑백 인쇄: 색 대신 칠 무늬로 구분 (출력 = 진한 칠, 입력·센서 = 빗금, 그 밖 = 옅은 칠) */
+export function grayFill(s: Signal, idp: string): { fill: string; opacity: number } {
+  if (s.role === 'output') return { fill: '#374151', opacity: 0.32 };
+  if (s.role === 'actuator') return { fill: '#4b5563', opacity: 0.22 };
+  if (s.role === 'input' || s.role === 'sensor') return { fill: `url(#${idp}-ghatch)`, opacity: 1 };
+  return { fill: '#6b7280', opacity: 0.16 };
+}
+
+/** 흑백 인쇄 범례에 쓰는 무늬 정의 */
+export function GrayPatternDefs({ idp }: { idp: string }) {
+  return (
+    <pattern id={`${idp}-ghatch`} patternUnits="userSpaceOnUse" width={5} height={5} patternTransform="rotate(45)">
+      <rect width={5} height={5} fill="#ffffff" fillOpacity={0} />
+      <line x1={0} y1={0} x2={0} y2={5} stroke="#374151" strokeWidth={1.1} />
+    </pattern>
+  );
 }
 
 /** 대략적인 글자 폭 (한글은 넓게) */
@@ -199,11 +217,12 @@ function BitWave({ s, row, x, tEnd, colors, fill, gray, showTimes, project, idp 
       );
     }
   }
+  const gf = gray ? grayFill(s, idp) : null;
   return (
     <g opacity={s.hidden ? 0.45 : 1}>
-      {fill && <path d={fillD} fill={col} opacity={s.role === 'actuator' ? 0.2 : 0.13} />}
+      {fill && <path d={fillD} fill={gf ? gf.fill : col} opacity={gf ? gf.opacity : s.role === 'actuator' ? 0.2 : 0.13} />}
       {unknown}
-      <path d={pathOf(V)} fill="none" stroke={col} strokeWidth={s.role === 'actuator' ? 2.2 : 1.7} strokeLinejoin="round" />
+      <path d={pathOf(V)} fill="none" stroke={col} strokeWidth={gray ? (s.role === 'actuator' ? 2.6 : 1.9) : s.role === 'actuator' ? 2.2 : 1.7} strokeLinejoin="round" />
       {times}
     </g>
   );
@@ -372,6 +391,7 @@ export function BodyLayer(props: ViewProps & EditorOverlayProps & { width: numbe
         <pattern id={`${idp}-hatch`} patternUnits="userSpaceOnUse" width={6} height={6} patternTransform="rotate(45)">
           <line x1={0} y1={0} x2={0} y2={6} stroke={colors.muted} strokeWidth={1} />
         </pattern>
+        {props.grayscale && <GrayPatternDefs idp={idp} />}
       </defs>
       <rect x={0} y={0} width={width} height={H} fill={colors.bg} />
       {project.steps.map((s, i) =>

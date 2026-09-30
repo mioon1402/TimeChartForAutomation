@@ -3170,11 +3170,9 @@ button.seq-kpi {
 .titleblock th {
   background: #f3f4f6;
   font-weight: 600;
-  width: 12%;
 }
 
 .titleblock .tb-company {
-  width: 16%;
   font-weight: 800;
   font-size: 9pt;
   white-space: normal;
@@ -3357,6 +3355,263 @@ button.seq-kpi {
   filter: grayscale(1);
 }
 
+/* 보고서 설정: 나란히 고르는 버튼 */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.seg button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 0;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seg button + button {
+  border-left: 1px solid var(--border-strong);
+}
+
+.seg button.on {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.report-warn {
+  margin: 8px 0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+.linkish {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.print-tips {
+  margin: 10px 0 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.print-tips summary {
+  cursor: pointer;
+}
+
+.print-tips ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+
+/* 페이지 나누기용 측정 상자 (화면 밖) */
+.page-measure {
+  position: absolute;
+  left: -20000px;
+  top: 0;
+  height: auto !important;
+  visibility: hidden;
+  pointer-events: none;
+  box-shadow: none;
+}
+
+.report-preview {
+  position: relative;
+}
+
+/* 여러 표를 한 페이지에 이어서 */
+.tables-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.rblock {
+  margin-bottom: 3mm;
+}
+
+.rblock-title {
+  margin: 0 0 1.5mm;
+  font-size: 10.5pt;
+  font-weight: 800;
+  padding-left: 2mm;
+  border-left: 1.2mm solid #111827;
+  line-height: 1.3;
+}
+
+.rblock-cont {
+  font-weight: 500;
+  color: #6b7280;
+  font-size: 9pt;
+}
+
+.rblock-pre {
+  margin-bottom: 2mm;
+}
+
+.rtable.compact {
+  font-size: 7.5pt;
+}
+
+.rtable.compact th,
+.rtable.compact td {
+  padding: 0.6mm 1.5mm;
+}
+
+.rtable.compact .bar {
+  height: 3.2mm;
+}
+
+.rtable.compact .bar span {
+  font-size: 6.5pt;
+  line-height: 3.1mm;
+}
+
+.rtable td.ellipsis {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rtable tr.longest td {
+  font-weight: 700;
+}
+
+/* 한 장 */
+.one-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5mm;
+  height: 100%;
+}
+
+.one-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 5mm;
+  flex: none;
+}
+
+.one-title {
+  min-width: 0;
+}
+
+.one-title h1 {
+  margin: 0;
+  font-size: 15pt;
+  letter-spacing: -0.3px;
+  line-height: 1.25;
+}
+
+.one-title p {
+  margin: 0.8mm 0 0;
+  font-size: 8.5pt;
+  color: #4b5563;
+  line-height: 1.35;
+}
+
+.one-ng {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.kpis.compact {
+  display: flex;
+  gap: 1.8mm;
+}
+
+.kpis.compact .kpi {
+  padding: 1.2mm 2.2mm;
+  min-width: 20mm;
+}
+
+.kpis.compact .kpi b {
+  font-size: 10.5pt;
+  white-space: nowrap;
+}
+
+.one-chart {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.one-chart svg {
+  display: block;
+}
+
+.one-steps {
+  display: grid;
+  gap: 3mm;
+  overflow: hidden;
+  flex: none;
+}
+
+.one-steps table {
+  align-self: start;
+}
+
+.gray-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5mm;
+  font-size: 7.5pt;
+  color: #111827;
+  padding: 1mm 0;
+  flex: none;
+}
+
+.gl-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.5mm;
+}
+
+.titleblock td.tb-wrap,
+.titleblock td.tb-title {
+  white-space: normal;
+  line-height: 1.2;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.titleblock.portrait {
+  font-size: 7pt;
+}
+
+.titleblock.portrait .tb-title {
+  font-size: 8.5pt;
+}
+
+.titleblock.portrait .tb-company {
+  font-size: 8pt;
+}
+
 /* ───────────────────────── 온라인 체험판 / 확인 창 ───────────────────────── */
 .trial-badge {
   font-size: 11px;
@@ -3413,6 +3668,10 @@ button.seq-kpi {
 
   .report-pages {
     display: block !important;
+  }
+
+  .page-measure {
+    display: none !important;
   }
 
   .page {
