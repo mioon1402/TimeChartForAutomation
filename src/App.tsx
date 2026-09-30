@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
-import { useStore } from './store/store';
+import { hasAutosave, useStore } from './store/store';
 import { ChartEditor } from './components/ChartEditor';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { BottomPanel } from './components/BottomPanel';
 import { PlcPanel } from './components/PlcPanel';
 import { TextPanel } from './components/TextPanel';
 import { ReportPanel } from './components/ReportPanel';
-import { HelpModal, StatusBar, Toolbar, TopBar, useShortcuts } from './components/Shell';
+import { HelpModal, StatusBar, Toolbar, TopBar, useShortcuts, WelcomeModal } from './components/Shell';
 import { PromptHost, Toasts } from './components/ui';
 import { loadFromText } from './components/fileActions';
 import { readTextSmart } from './io/files';
 import { readProgramFile } from './components/programFile';
 import { tr } from './i18n';
 import { WEB_TRIAL } from './env';
+import { storageGet, storageSet } from './storage';
+
+const WELCOME_KEY = 'timechart-studio.welcomed.v1';
 
 export default function App() {
   const tab = useStore((s) => s.tab);
@@ -20,6 +23,12 @@ export default function App() {
   const showProps = useStore((s) => s.showProps);
   useStore((s) => s.lang); // 언어 변경 시 전체 다시 렌더링
   const [help, setHelp] = useState(false);
+  // 처음 방문(이전 작업 없음)이면 시작 화면
+  const [welcome, setWelcome] = useState(() => !storageGet(WELCOME_KEY) && !hasAutosave());
+  const closeWelcome = () => {
+    storageSet(WELCOME_KEY, '1');
+    setWelcome(false);
+  };
   const [dropping, setDropping] = useState(false);
   useShortcuts();
 
@@ -95,7 +104,8 @@ export default function App() {
       {tab === 'plc' && <PlcPanel />}
       {tab === 'text' && <TextPanel />}
       {tab === 'report' && <ReportPanel />}
-      {help && <HelpModal onClose={() => setHelp(false)} />}
+      {help && <HelpModal onClose={() => setHelp(false)} onWelcome={() => setWelcome(true)} />}
+      {welcome && !help && <WelcomeModal onClose={closeWelcome} />}
       <PromptHost />
       <Toasts />
       {dropping && <div className="drop-overlay">{tr('파일을 놓으면 불러옵니다 (.tchart, .csv, .json, PLC 소스, IL 인쇄 PDF)', 'Drop to open (.tchart, .csv, .json, PLC source, IL PDF)')}</div>}

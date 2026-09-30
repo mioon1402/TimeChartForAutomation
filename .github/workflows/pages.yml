@@ -29,6 +29,8 @@ jobs:
       - run: npm test
       # 파일 버전과 같은 단일 HTML (인쇄·저장 포함 전체 기능)
       - run: npm run build
+      # 앱의 "오프라인 버전 받기" 가 받아 가는 파일 (인터넷이 없는 PC 용)
+      - run: cp dist/index.html dist/TimeChartStudio.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

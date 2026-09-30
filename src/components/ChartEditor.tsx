@@ -46,7 +46,7 @@ export function ChartEditor() {
   const [labelW, setLabelW] = useState(() => {
     const v = Number(storageGet(LABEL_W_KEY));
     if (v >= 110 && v <= 520) return v;
-    return typeof window !== 'undefined' && window.innerWidth <= 760 ? 130 : 250;
+    return typeof window !== 'undefined' && window.innerWidth <= 760 ? 120 : 250;
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<SVGSVGElement>(null);
@@ -732,7 +732,7 @@ function LabelColumn({ layout, width, selIds }: { layout: ChartLayout; width: nu
                 }}
               />
             ) : (
-              <span className="lname" title={s.comment ? `${s.name}\n${s.comment}` : s.name}>
+              <span className="lname" title={[s.address ? `${s.address} ${s.name}` : s.name, s.comment].filter(Boolean).join('\n')}>
                 {s.name}
               </span>
             )}

@@ -1845,6 +1845,118 @@ table.tbl tr.fail td {
   line-height: 1.7;
 }
 
+.help-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.public-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.public-links a.btn {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* 처음 방문 시작 화면 */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.welcome-lead {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 62ch;
+}
+
+.welcome-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.welcome-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.welcome-choice svg {
+  color: var(--accent);
+}
+
+.welcome-choice b {
+  font-size: 14px;
+}
+
+.welcome-choice span {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.welcome-choice:hover,
+.welcome-choice:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.welcome-privacy {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  border-left: 3px solid var(--ok);
+  background: var(--panel-2);
+  border-radius: 4px;
+}
+
+.welcome-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.welcome-phone {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .welcome-choices {
+    grid-template-columns: 1fr;
+  }
+
+  .welcome-phone {
+    display: block;
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--warn);
+  }
+}
+
 .help h4 {
   margin: 4px 0 6px;
 }
@@ -2334,6 +2446,18 @@ table.tbl tr.fail td {
 
   .toolbar {
     overflow-x: auto;
+  }
+
+  .toolbar button {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  /* 좁은 신호 이름 칸: 주소와 끌기 손잡이를 숨기고 이름을 보여 줌 (주소는 이름에 마우스를 올리면 표시) */
+  .lrow .lhandle,
+  .lrow .laddr,
+  .lrow .llevels {
+    display: none;
   }
 
   .props {

@@ -1,7 +1,16 @@
 # TimeChart Studio
 
-**자동화 설비의 타임차트를 그리고, PLC 프로그램으로 자동으로 만들고, 보고서(PDF)로 뽑는 프로그램**입니다.
-설치 없이 파일 하나(`TimeChartStudio.html`)를 더블클릭하면 크롬이나 엣지에서 바로 실행됩니다.
+**자동화 설비의 타임차트를 그리고, PLC 프로그램으로 자동으로 만들고, 보고서(PDF)로 뽑는 무료 도구**입니다.
+
+### ▶ 바로 쓰기: https://mioon1402.github.io/TimeChartForAutomation/
+
+설치나 회원가입 없이 크롬·엣지에서 바로 열립니다. 인터넷이 막힌 PC에서는 [오프라인 파일(TimeChartStudio.html)](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html)을 받아 더블클릭하세요.
+
+![TimeChart Studio 화면: 드릴 가공 유닛 사이클 타임차트](public/og.png)
+
+- 여는 PLC 프로그램과 차트는 **서버로 보내지 않습니다.** 모든 계산은 각자의 브라우저 안에서만 합니다.
+- 문제 신고와 기능 제안은 [Issues](https://github.com/mioon1402/TimeChartForAutomation/issues)에 남겨 주세요.
+- [English summary](#english)
 
 ---
 
@@ -42,31 +51,25 @@
 
 ## 2. 실행하기 (어디서 여나요?)
 
-이 프로그램은 **HTML 파일 하나**입니다. 파일을 받아서 PC에서 열거나, GitHub Pages 에 올려서 인터넷 주소로 열 수 있습니다.
+두 가지 방법이 있고, 기능은 똑같습니다.
 
-### 웹 주소로 열기 (GitHub Pages)
-- 주소: **https://mioon1402.github.io/TimeChartForAutomation/** (아래 준비가 끝난 뒤부터 열립니다)
-- `main` 브랜치에 올라올 때마다 자동으로 빌드해서 이 주소에 올립니다 (`.github/workflows/pages.yml`).
-- 처음 한 번 준비할 것
-  1. GitHub Pages 는 **공개 저장소**이거나 **GitHub Pro 이상 요금제**여야 쓸 수 있습니다. 지금 저장소는 비공개입니다.
-  2. 저장소 **Settings → Pages → Build and deployment → Source** 를 **GitHub Actions** 로 바꿉니다.
-  3. 작업 브랜치를 `main` 에 합칩니다. 몇 분 뒤 위 주소가 열립니다. (Actions 탭에서 `GitHub Pages` → `Run workflow` 로 다시 올릴 수도 있습니다.)
-- 알아 두세요: Pages 주소는 **저장소가 비공개여도 주소를 아는 누구나 열 수 있습니다.** 주소에는 프로그램과 기본 예제만 있고, 여러분이 여는 PLC 프로그램이나 차트는 올라가지 않고 각자의 브라우저 안에서만 처리됩니다.
-- 웹 주소로 열어도 인쇄·PDF 저장·파일 저장 등 모든 기능이 됩니다.
+| 방법 | 이럴 때 | 여는 법 |
+|---|---|---|
+| **웹 주소** | 인터넷이 되는 PC, 태블릿, 휴대폰 | https://mioon1402.github.io/TimeChartForAutomation/ 에 접속 |
+| **오프라인 파일** | 공장 PC, 사내망처럼 인터넷이 막힌 곳 | 파일 1개(약 2.5MB)를 받아서 더블클릭 |
 
-### 파일 받기
-- 저장소의 `release/TimeChartStudio.html` 파일이 프로그램 전체입니다. 크기는 약 2.5MB입니다.
-- GitHub에서 받는 방법 (저장소가 비공개라서 GitHub 로그인이 필요합니다):
-  1. https://github.com/mioon1402/TimeChartForAutomation 에 들어갑니다.
-  2. 왼쪽 위 브랜치 선택에서 작업 브랜치를 고릅니다. `main`에 합친 뒤에는 `main`을 고르면 됩니다.
-  3. `release` 폴더 → `TimeChartStudio.html`을 누릅니다.
-  4. 오른쪽 위 **다운로드 버튼(Download raw file, ⬇ 모양)**을 누릅니다.
-- 받은 파일은 USB나 사내 공유 폴더로 다른 PC에 복사해서 써도 됩니다.
+### 웹 주소로 열기
+- 크롬 또는 엣지를 권장합니다. 처음 열면 시작 화면에서 **예제 차트 둘러보기 / PLC 프로그램으로 만들기 / 빈 차트로 시작** 중 하나를 고릅니다.
+- 휴대폰에서도 열리지만, 편집과 보고서 출력은 마우스가 있는 PC가 편합니다.
+- 새 기능이 나오면 같은 주소에서 바로 반영됩니다.
 
-### 열기
-- 파일을 **더블클릭**하면 기본 브라우저로 열립니다. **크롬** 또는 **엣지**를 권장합니다.
-- 설치할 것도, 인터넷 연결도 필요 없습니다. 공장 PC처럼 인터넷이 막힌 곳에서도 동작합니다.
-- 열어 둔 PLC 프로그램이나 차트는 **어디로도 전송되지 않습니다.** 모든 계산은 내 PC의 브라우저 안에서만 합니다.
+### 오프라인 파일 받기
+- 웹 주소에서 오른쪽 위 `?`(도움말) → **오프라인 버전 받기**를 누르거나, [TimeChartStudio.html](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html)을 바로 받습니다.
+- 저장소의 `release/TimeChartStudio.html`과 같은 파일입니다.
+- 받은 파일을 **더블클릭**하면 기본 브라우저로 열립니다. 인터넷 연결이 필요 없고, USB나 사내 공유 폴더로 다른 PC에 복사해서 써도 됩니다.
+
+### 내 파일은 안전한가요?
+- 여는 PLC 프로그램이나 차트는 **어디로도 전송되지 않습니다.** 웹 주소로 열어도 파일을 읽고 계산하는 일은 모두 내 브라우저 안에서만 합니다.
 
 ### 작업 내용은 어디에 저장되나요?
 - **자동 백업**: 고친 내용은 브라우저에 자동으로 보관돼서, 창을 닫았다 다시 열어도 이어서 할 수 있습니다. 다만 같은 PC, 같은 브라우저에서만 남아 있습니다.
@@ -76,7 +79,7 @@
 
 ## 3. 5분 따라하기
 
-1. **예제 보기**: 처음 열면 "드릴 가공 유닛" 예제 차트가 나옵니다. 상단 `파일 → 템플릿`에서 로봇 핸드셰이크, 인버터 컨베이어 예제도 열 수 있습니다.
+1. **예제 보기**: 처음 열면 나오는 시작 화면에서 `예제 차트 둘러보기`를 누르면 "드릴 가공 유닛" 예제 차트가 나옵니다. 상단 `파일 → 템플릿`에서 로봇 핸드셰이크, 인버터 컨베이어 예제도 열 수 있습니다.
 2. **파형 고치기**: 왼쪽 위 연필(그리기, `D` 키)을 누르고 신호 줄에서 마우스로 끌면 ON/OFF가 뒤집힙니다. 화살표(선택, `V` 키) 상태에서 파형이 바뀌는 지점을 끌면 시간이 옮겨집니다. 틀리면 `Ctrl+Z`로 되돌립니다.
 3. **PLC 프로그램으로 만들기**: 상단 `PLC 시뮬레이션` 탭 → `예제 불러오기…`에서 "LS XGK - 픽앤플레이스"를 고르고 → 오른쪽 아래 `▶ 시뮬레이션 → 타임차트 생성`을 누릅니다.
 4. **보고서 뽑기**: `보고서` 탭 → `인쇄 / PDF 저장`을 누르고 → 프린터를 "PDF로 저장"으로 고릅니다.
@@ -164,11 +167,13 @@ XG5000은 니모닉을 텍스트나 CSV로 내보내는 기능이 없고 **인�
 
 ## 8. 자주 묻는 질문
 
-- **인터넷이 없어도 되나요?** 네. 파일 하나에 모든 기능이 들어 있습니다.
+- **인터넷이 없어도 되나요?** 오프라인 파일로 받으면 됩니다. 파일 하나에 모든 기능이 들어 있습니다.
+- **무료인가요? 회원가입이 필요한가요?** 무료이고, 가입이나 로그인 없이 씁니다.
 - **회사 PLC 프로그램이 외부로 나가지 않나요?** 나가지 않습니다. 파일을 여는 것도, 계산도 모두 내 PC 브라우저 안에서만 합니다.
 - **엑셀로 옮길 수 있나요?** `내보내기 → 엑셀 CSV`(변화 시점표, 신호 목록, 스텝표)를 쓰거나, `이미지 복사` 후 엑셀·파워포인트·한글에 붙여넣으세요.
 - **시뮬레이션 결과를 그대로 믿어도 되나요?** 설계 검토용입니다. 실제 설비의 응답 시간은 설비 모델에 넣은 값에 따라 달라집니다. 실측 로그(CSV)를 가져와 비교할 수 있습니다.
-- **맥이나 태블릿에서도 되나요?** 크롬·엣지에서 확인했습니다. 맥에서도 크롬으로 열면 됩니다. 편집은 마우스가 있는 PC가 편합니다.
+- **맥이나 태블릿, 휴대폰에서도 되나요?** 크롬·엣지에서 확인했습니다. 맥에서도 크롬으로 열면 됩니다. 휴대폰은 보기와 간단한 수정용이고, 편집은 마우스가 있는 PC가 편합니다.
+- **안 되는 게 있거나 원하는 기능이 있어요.** [Issues](https://github.com/mioon1402/TimeChartForAutomation/issues)에 남겨 주세요. 가능하면 PLC 종류와 화면 캡처를 함께 적어 주세요. 회사 프로그램 원본은 올리지 마세요.
 
 ---
 
@@ -231,6 +236,20 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 
 ---
 
+## English
+
+**TimeChart Studio** is a free, browser-based timing-chart tool for automated machines.
+
+- **Use it now:** https://mioon1402.github.io/TimeChartForAutomation/ (no install, no sign-up). For offline PCs, download [TimeChartStudio.html](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html) and double-click it.
+- **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
+- **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.
+- **Understand the process:** relays that just copy real I/O are traced back to the physical input/output, steps are built from which outputs are ON, and a sequence-of-events table lists every change in order.
+- **Check and report:** response time, interlock, pulse width and cycle-time rules; printable reports with a title block; PNG/SVG, Excel CSV, WaveDrom and a text format.
+- Files you open are processed only in your browser and never uploaded. The UI switches between Korean and English (top-right `EN` button).
+- Bugs and ideas: [Issues](https://github.com/mioon1402/TimeChartForAutomation/issues).
+
+---
+
 ## 10. 개발자용
 
 ```bash
@@ -252,6 +271,10 @@ src/render      차트 그리기 (화면·보고서·이미지 공용)
 src/components  편집기, PLC·텍스트·보고서 화면
 tests           단위 테스트
 ```
+
+### 웹 주소 배포 (GitHub Pages)
+- `main`에 올라오면 `.github/workflows/pages.yml`이 테스트 → 빌드 → `https://mioon1402.github.io/TimeChartForAutomation/`에 배포합니다. 오프라인 파일(`TimeChartStudio.html`)과 링크 미리보기 이미지(`public/og.png`)도 함께 올라갑니다.
+- 저장소를 복제해서 따로 올릴 때: 저장소 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 바꾸고, `index.html`의 `og:` 주소와 `src/env.ts`의 `REPO_URL`을 자기 저장소로 고칩니다.
 
 ### 시뮬레이션 한계
 - 래더 그래픽은 PLC 소프트웨어에서 니모닉 형태(CSV, PDF, 텍스트)로 뽑아서 불러옵니다.

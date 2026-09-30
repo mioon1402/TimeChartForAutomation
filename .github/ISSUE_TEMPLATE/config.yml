@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 사용 설명서 (README)
+    url: https://github.com/mioon1402/TimeChartForAutomation#readme
+    about: 사용법, XG5000 PDF로 차트 만들기, 자주 묻는 질문

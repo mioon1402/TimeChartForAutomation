@@ -4,7 +4,7 @@ import { formatTime } from '../model/format';
 import { Icon, IconButton, Menu, Modal } from './ui';
 import * as F from './fileActions';
 import { tr } from '../i18n';
-import { WEB_TRIAL } from '../env';
+import { GUIDE_URL, ISSUES_URL, OFFLINE_FILE, REPO_URL, servedFromWeb, WEB_TRIAL } from '../env';
 import { templates } from '../model/templates';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
@@ -244,7 +244,94 @@ export function StatusBar() {
   );
 }
 
-export function HelpModal({ onClose }: { onClose: () => void }) {
+/** 도움말·시작 화면 공통: 설명서, 문제 신고, 오프라인 파일 */
+function PublicLinks() {
+  return (
+    <div className="public-links">
+      <a className="btn small" href={GUIDE_URL} target="_blank" rel="noreferrer">
+        <Icon name="report" size={14} /> {tr('사용 설명서', 'User guide')}
+      </a>
+      <a className="btn small" href={ISSUES_URL} target="_blank" rel="noreferrer">
+        <Icon name="warn" size={14} /> {tr('문제 신고 · 기능 제안', 'Report a problem / suggest')}
+      </a>
+      {servedFromWeb() && (
+        <a className="btn small" href={OFFLINE_FILE} download={OFFLINE_FILE} title={tr('인터넷이 없는 PC(공장, 사내망)에서 쓰는 파일 버전. 받은 파일을 더블클릭하면 열립니다.', 'File version for offline PCs. Double-click the downloaded file to open it.')}>
+          <Icon name="download" size={14} /> {tr('오프라인 버전 받기', 'Download offline version')}
+        </a>
+      )}
+      <a className="btn small" href={REPO_URL} target="_blank" rel="noreferrer">
+        <Icon name="code" size={14} /> {tr('소스 코드', 'Source code')}
+      </a>
+    </div>
+  );
+}
+
+/** 처음 방문한 사람을 위한 시작 화면 */
+export function WelcomeModal({ onClose }: { onClose: () => void }) {
+  const setTab = useStore((s) => s.setTab);
+  const lang = useStore((s) => s.lang);
+  const choices: { icon: string; title: string; desc: string; go: () => void }[] = [
+    {
+      icon: 'chart',
+      title: tr('예제 차트 둘러보기', 'Explore the example chart'),
+      desc: tr('드릴 가공 설비의 타임차트가 열려 있습니다. 파형 에지를 끌어서 고쳐 보세요.', 'A drilling machine chart is open. Drag an edge to change it.'),
+      go: () => setTab('editor'),
+    },
+    {
+      icon: 'cpu',
+      title: tr('PLC 프로그램으로 만들기', 'Generate from a PLC program'),
+      desc: tr('XG5000 니모닉 인쇄 PDF, GX Works CSV, 지멘스 STL, ST 코드를 열면 시뮬레이션해서 차트를 자동으로 그립니다.', 'Open an XG5000 IL PDF, GX Works CSV, Siemens STL or ST code and simulate it into a chart.'),
+      go: () => setTab('plc'),
+    },
+    {
+      icon: 'plus',
+      title: tr('빈 차트로 시작', 'Start a blank chart'),
+      desc: tr('신호를 추가하고 마우스로 파형을 직접 그립니다.', 'Add signals and draw waveforms yourself.'),
+      go: () => {
+        setTab('editor');
+        void F.newProject();
+      },
+    },
+  ];
+  return (
+    <Modal title="TimeChart Studio" onClose={onClose} width={680}>
+      <div className="welcome">
+        <p className="welcome-lead">
+          {tr('자동화 설비의 타임차트를 그리고, PLC 프로그램으로 자동 생성하고, 보고서로 출력하는 도구입니다. 설치나 회원가입 없이 바로 쓸 수 있습니다.', 'Draw timing charts for automated machines, generate them from PLC programs, and print reports. No install or sign-up.')}
+        </p>
+        <div className="welcome-choices">
+          {choices.map((c) => (
+            <button
+              type="button"
+              key={c.title}
+              className="welcome-choice"
+              onClick={() => {
+                c.go();
+                onClose();
+              }}
+            >
+              <Icon name={c.icon} size={20} />
+              <b>{c.title}</b>
+              <span>{c.desc}</span>
+            </button>
+          ))}
+        </div>
+        <p className="welcome-phone">{tr('휴대폰에서는 차트 보기와 간단한 수정에 알맞습니다. 편집과 보고서 출력은 PC가 편합니다.', 'On a phone, use it for viewing and small edits. Editing and printing are easier on a PC.')}</p>
+        <p className="welcome-privacy">
+          {tr('여는 파일(PLC 프로그램, 차트)은 서버로 보내지 않습니다. 모든 계산은 이 브라우저 안에서만 하고, 작업 내용은 이 브라우저에 자동 백업됩니다.', 'Files you open are never uploaded. Everything runs in this browser, and your work is auto-saved here.')}
+        </p>
+        <div className="welcome-foot">
+          <PublicLinks />
+          <button type="button" className="btn small" onClick={() => useStore.getState().setLang(lang === 'ko' ? 'en' : 'ko')}>
+            <Icon name="globe" size={14} /> {lang === 'ko' ? 'English' : '한국어'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function HelpModal({ onClose, onWelcome }: { onClose: () => void; onWelcome: () => void }) {
   const keys: [string, string][] = [
     ['V / D / A / M / S / N / K', tr('선택 / 그리기 / 화살표 / 치수 / 스텝 / 메모 / 마커 도구', 'Tools: select, draw, arrow, dimension, step, note, marker')],
     ['Ctrl+Z, Ctrl+Y', tr('실행 취소, 다시 실행', 'Undo, redo')],
@@ -264,6 +351,19 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title={tr('TimeChart Studio 도움말', 'TimeChart Studio help')} onClose={onClose} width={720}>
       <div className="help">
+        <div className="help-top">
+          <PublicLinks />
+          <button
+            type="button"
+            className="btn small"
+            onClick={() => {
+              onClose();
+              onWelcome();
+            }}
+          >
+            <Icon name="play" size={14} /> {tr('시작 화면', 'Start screen')}
+          </button>
+        </div>
         <h4>{tr('주요 기능', 'Features')}</h4>
         <ul>
           <li>{tr('PLC 프로그램(미쓰비시 GX Works 니모닉/CSV, LS XG5000, 지멘스 STL, IEC ST/SCL)을 불러와 스캔 시뮬레이션으로 타임차트 자동 생성', 'Generate charts from PLC programs (Mitsubishi, LS, Siemens STL, IEC ST) by scan simulation')}</li>

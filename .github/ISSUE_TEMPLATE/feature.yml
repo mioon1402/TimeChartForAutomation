@@ -1,0 +1,16 @@
+name: 기능 제안 (Feature request)
+description: 있으면 좋겠는 기능, 지원했으면 하는 PLC나 파일 형식
+labels: [enhancement]
+body:
+  - type: textarea
+    id: want
+    attributes:
+      label: 어떤 기능이 필요한가요?
+      description: 어떤 작업을 할 때 필요한지 함께 적어 주시면 좋습니다.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: 예시 (선택)
+      description: 비슷한 도구의 화면, 원하는 차트 모양 스케치 등. 회사 자료 원본은 올리지 마세요.

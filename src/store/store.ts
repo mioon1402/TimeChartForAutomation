@@ -104,6 +104,15 @@ const AUTOSAVE_KEY = 'timechart-studio.autosave.v1';
 const PREFS_KEY = 'timechart-studio.prefs.v1';
 const HISTORY_LIMIT = 200;
 
+/** 이 브라우저에 이전 작업(자동 백업)이 있는가 - 처음 방문 판단용 */
+export function hasAutosave(): boolean {
+  try {
+    return !!localStorage.getItem(AUTOSAVE_KEY);
+  } catch {
+    return false;
+  }
+}
+
 function loadInitial(): Project {
   try {
     const raw = localStorage.getItem(AUTOSAVE_KEY);
@@ -167,7 +176,8 @@ export const useStore = create<State>((set, get) => {
     hoverT: null,
     lang: prefs.lang,
     theme: prefs.theme,
-    bottom: 'analysis',
+    // 휴대폰 폭에서는 아래 분석 패널을 접어서 차트를 넓게
+    bottom: typeof window !== 'undefined' && window.innerWidth <= 760 ? null : 'analysis',
     // 휴대폰 폭에서는 속성 패널이 차트를 가리므로 닫힌 상태로 시작
     showProps: typeof window === 'undefined' || window.innerWidth > 760,
     toasts: [],
