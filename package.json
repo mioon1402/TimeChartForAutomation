@@ -15,7 +15,7 @@
     "build:site": "npm run build && node scripts/build-site.mjs"
   },
   "dependencies": {
-    "pdfjs-dist": "^5.7.284",
+    "pdfjs-dist": "^6.3.289",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zustand": "^5.0.15"

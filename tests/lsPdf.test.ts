@@ -105,47 +105,49 @@ describe('PDF text item → lines', () => {
   });
 });
 
-describe('XG5000 IL print layout (렁 / 스텝 / 명령어 / OP1..OP4)', () => {
-  // 실제 XG5000 인쇄본과 같은 배치 (내용은 테스트용)
-  const printout = [
-    '렁   스텝   명령어   OP 1   OP 2   OP 3   OP 4',
-    '0   비실행문   LOAD   M00900',
-    '비실행문   MOV   0   D08100',
-    '비실행문   OUT   P00040',
-    '1   0   설명문   Step 1 LOAD 조건 확인',
-    '2   1   LOAD   F00099',
-    '2   OUT   M00100',
-    '3   3   LOAD   P00008',
-    '4   AND NOT   P0000A',
-    '5   OUT   P00041',
-    '4   6   LOAD   P00009',
-    '7   TON   T0003   5',
-    '5   9   LOAD   T0003',
-    '10   OUT   P00042',
-    '6   11   LOAD>   D00232   D00230',
-    '12   OUT   M00101',
-    '2026-09-28 오후 3:56:50   1/2',
-    '',
-    'OP 5   OP 6   OP 7',
-    '2026-09-28 오후 3:56:50   2/2',
-  ].join('\n');
+// 실제 XG5000 인쇄본과 같은 배치 (내용은 테스트용)
+const printout = [
+  '렁   스텝   명령어   OP 1   OP 2   OP 3   OP 4',
+  '0   비실행문   LOAD   M00900',
+  '비실행문   MOV   0   D08100',
+  '비실행문   OUT   P00040',
+  '1   0   설명문   Step 1 LOAD 조건 확인',
+  '2   1   LOAD   F00099',
+  '2   OUT   M00100',
+  '3   3   LOAD   P00008',
+  '4   AND NOT   P0000A',
+  '5   OUT   P00041',
+  '4   6   LOAD   P00009',
+  '7   TON   T0003   5',
+  '5   9   LOAD   T0003',
+  '10   OUT   P00042',
+  '6   11   LOAD>   D00232   D00230',
+  '12   OUT   M00101',
+  '2026-09-28 오후 3:56:50   1/2',
+  '',
+  'OP 5   OP 6   OP 7',
+  '2026-09-28 오후 3:56:50   2/2',
+].join('\n');
 
+const printoutTokens = [
+  'LOAD F00099',
+  'OUT M00100',
+  'LOAD P00008',
+  'AND NOT P0000A',
+  'OUT P00041',
+  'LOAD P00009',
+  'TON T0003 5',
+  'LOAD T0003',
+  'OUT P00042',
+  'LOAD> D00232 D00230',
+  'OUT M00101',
+];
+
+describe('XG5000 IL print layout (렁 / 스텝 / 명령어 / OP1..OP4)', () => {
   it('skips disabled rungs and rung comments, keeps rung + step numbers out of operands', () => {
     const r = lsStreamLines(printout);
     expect(r.disabled).toEqual([2, 3, 4]);
-    expect(r.lines.map((l) => l.tokens.join(' '))).toEqual([
-      'LOAD F00099',
-      'OUT M00100',
-      'LOAD P00008',
-      'AND NOT P0000A',
-      'OUT P00041',
-      'LOAD P00009',
-      'TON T0003 5',
-      'LOAD T0003',
-      'OUT P00042',
-      'LOAD> D00232 D00230',
-      'OUT M00101',
-    ]);
+    expect(r.lines.map((l) => l.tokens.join(' '))).toEqual(printoutTokens);
     const prog = parseProgram(printout, 'ls');
     expect(prog.messages.map((m) => m.message)).toEqual(['비실행문(실행하지 않는 렁) 3줄은 시뮬레이션에서 제외했습니다']);
     expect(prog.devices.some((d) => d.name === 'M00900' || d.name === 'D08100')).toBe(false);
@@ -161,5 +163,88 @@ describe('XG5000 IL print layout (렁 / 스텝 / 명령어 / OP1..OP4)', () => {
       { t: 600, v: 1 },
       { t: 1000, v: 0 },
     ]);
+  });
+});
+
+/**
+ * 테스트용 PDF 를 직접 만든다. 글꼴은 포함하지 않은 한글 CID 글꼴(Adobe-Korea1, UniKS-UCS2-H)이라
+ * pdf.js 가 파일 안에 넣어 둔 한글 CMap 을 읽어야만 글자가 나온다. 칸 사이는 넓게 띄운다.
+ */
+function makeKoreanPdf(pages: string[][]): Uint8Array {
+  const size = 10;
+  const hex = (s: string) => [...s].map((c) => c.charCodeAt(0).toString(16).padStart(4, '0')).join('');
+  const width = (s: string) => [...s].reduce((w, c) => w + (c.charCodeAt(0) < 0x80 ? 0.5 : 1), 0) * size;
+  const objs: string[] = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${pages.map((_, i) => `${6 + i * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
+    '<< /Type /Font /Subtype /Type0 /BaseFont /HYGoThic-Medium /Encoding /UniKS-UCS2-H /DescendantFonts [4 0 R] >>',
+    '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /HYGoThic-Medium /CIDSystemInfo << /Registry (Adobe) /Ordering (Korea1) /Supplement 2 >> /FontDescriptor 5 0 R /DW 1000 /W [1 95 500] >>',
+    '<< /Type /FontDescriptor /FontName /HYGoThic-Medium /Flags 6 /FontBBox [0 -148 1001 880] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>',
+  ];
+  pages.forEach((lines, i) => {
+    let ops = '';
+    lines.forEach((line, r) => {
+      let x = 40;
+      for (const cell of line.split(/\s{3,}/)) {
+        ops += `BT /F1 ${size} Tf 1 0 0 1 ${x} ${800 - r * 16} Tm <${hex(cell)}> Tj ET\n`;
+        x += width(cell) + 30;
+      }
+    });
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${7 + i * 2} 0 R >>`);
+    objs.push(`<< /Length ${ops.length} >>\nstream\n${ops}endstream`);
+  });
+  let pdf = '%PDF-1.4\n';
+  const offsets = objs.map((o, i) => {
+    const at = pdf.length;
+    pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
+    return at;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  pdf += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return new TextEncoder().encode(pdf);
+}
+
+/**
+ * 앱에 들어가는 pdf.js(최신 브라우저용 빌드)를 Node 에서 그대로 돌리기 위해, Node 에 아직 없는 기능만 채운다.
+ * DOMMatrix 는 캔버스 그리기용이라 글자 추출에는 쓰이지 않는다.
+ */
+function nodePolyfillsForPdfjs() {
+  const g = globalThis as { DOMMatrix?: unknown };
+  g.DOMMatrix ??= class {};
+  // Node 22 (GitHub Actions) 에는 Promise.try 가 없다
+  const P = Promise as { try?: unknown };
+  P.try ??= <T>(fn: (...a: unknown[]) => T, ...args: unknown[]) => new Promise<Awaited<T>>((ok) => ok(fn(...args) as Awaited<T>));
+  const u8 = Uint8Array.prototype as { toHex?: () => string };
+  u8.toHex ??= function (this: Uint8Array) {
+    return Array.from(this, (b) => b.toString(16).padStart(2, '0')).join('');
+  };
+  const map = Map.prototype as { getOrInsertComputed?: unknown; getOrInsert?: unknown };
+  map.getOrInsertComputed ??= function <K, V>(this: Map<K, V>, key: K, make: (k: K) => V) {
+    if (!this.has(key)) this.set(key, make(key));
+    return this.get(key)!;
+  };
+  map.getOrInsert ??= function <K, V>(this: Map<K, V>, key: K, value: V) {
+    if (!this.has(key)) this.set(key, value);
+    return this.get(key)!;
+  };
+  const math = Math as { sumPrecise?: (xs: Iterable<number>) => number };
+  math.sumPrecise ??= (xs) => {
+    let s = 0;
+    for (const x of xs) s += x;
+    return s;
+  };
+}
+
+describe('XG5000 PDF → pdf.js 글자 추출', () => {
+  it('reads Korean text through the inlined CMaps and keeps the print layout', async () => {
+    nodePolyfillsForPdfjs();
+    const { extractPdfText } = await import('../src/io/pdf');
+    const bytes = makeKoreanPdf(printout.split('\n\n').map((p) => p.split('\n')));
+    const r = await extractPdfText(bytes.buffer as ArrayBuffer);
+    expect(r.pages).toBe(2);
+    expect(r.chars).toBeGreaterThan(0);
+    expect(r.text.trimEnd()).toBe(printout);
+    expect(lsStreamLines(r.text).lines.map((l) => l.tokens.join(' '))).toEqual(printoutTokens);
   });
 });

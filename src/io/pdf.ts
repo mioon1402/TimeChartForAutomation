@@ -52,7 +52,7 @@ async function loadPdfjs() {
 
 export async function extractPdfText(data: ArrayBuffer): Promise<PdfText> {
   const pdfjs = await loadPdfjs();
-  const doc = await pdfjs.getDocument({
+  const task = pdfjs.getDocument({
     data: new Uint8Array(data),
     BinaryDataFactory: InlineBinaryDataFactory,
     cMapUrl: 'inline/',
@@ -60,29 +60,32 @@ export async function extractPdfText(data: ArrayBuffer): Promise<PdfText> {
     useWorkerFetch: false,
     useSystemFonts: false,
     disableFontFace: true,
-    isEvalSupported: false,
     useWasm: false,
     verbosity: 0,
-  } as Parameters<typeof pdfjs.getDocument>[0]).promise;
-  const out: string[] = [];
-  let chars = 0;
-  for (let p = 1; p <= doc.numPages; p++) {
-    const page = await doc.getPage(p);
-    const content = await page.getTextContent();
-    const items: PdfTextItem[] = [];
-    for (const it of content.items) {
-      if (!('str' in it)) continue;
-      const tr = it.transform as number[];
-      const h = Math.hypot(tr[2], tr[3]) || it.height || 10;
-      items.push({ str: it.str, x: tr[4], y: tr[5], w: it.width, h });
-      chars += it.str.trim().length;
+  } as Parameters<typeof pdfjs.getDocument>[0]);
+  try {
+    const doc = await task.promise;
+    const out: string[] = [];
+    let chars = 0;
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const content = await page.getTextContent();
+      const items: PdfTextItem[] = [];
+      for (const it of content.items) {
+        if (!('str' in it)) continue;
+        const tr = it.transform as number[];
+        const h = Math.hypot(tr[2], tr[3]) || it.height || 10;
+        items.push({ str: it.str, x: tr[4], y: tr[5], w: it.width, h });
+        chars += it.str.trim().length;
+      }
+      out.push(...itemsToLines(items), '');
+      page.cleanup();
     }
-    out.push(...itemsToLines(items), '');
-    page.cleanup();
+    return { text: out.join('\n'), pages: doc.numPages, chars };
+  } finally {
+    // pdf.js 6 에서 doc.destroy() 가 없어져 로딩 작업을 정리한다 (읽다가 실패해도 정리)
+    await task.destroy();
   }
-  const pages = doc.numPages;
-  await doc.destroy();
-  return { text: out.join('\n'), pages, chars };
 }
 
 export function isPdf(name: string, head?: Uint8Array): boolean {
