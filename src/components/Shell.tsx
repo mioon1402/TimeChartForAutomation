@@ -6,6 +6,7 @@ import * as F from './fileActions';
 import { tr } from '../i18n';
 import { GUIDE_URL, ISSUES_URL, OFFLINE_FILE, REPO_URL, servedFromWeb, WEB_TRIAL } from '../env';
 import { templates } from '../model/templates';
+import { tourTitle, type TourId } from './Tour';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
   const tab = useStore((s) => s.tab);
@@ -45,6 +46,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
       <nav className="menus">
         <Menu
           label={tr('파일', 'File')}
+          tour="menu-file"
           items={[
             { label: tr('새 차트', 'New chart'), icon: 'plus', onClick: F.newProject },
             { label: tr('열기…', 'Open…'), icon: 'open', shortcut: 'Ctrl+O', onClick: F.openProject },
@@ -117,14 +119,14 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
       </div>
       <nav className="tabs" role="tablist">
         {tabs.map((t) => (
-          <button type="button" role="tab" aria-selected={tab === t.id} key={t.id} className={`tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)}>
+          <button type="button" role="tab" aria-selected={tab === t.id} key={t.id} className={`tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)} data-tour={`tab-${t.id}`}>
             <Icon name={t.icon} size={15} />
             <span>{t.label}</span>
           </button>
         ))}
       </nav>
       <div className="top-right">
-        <IconButton icon="undo" title={tr('실행 취소 (Ctrl+Z)', 'Undo (Ctrl+Z)')} onClick={undo} disabled={!canUndo} />
+        <IconButton icon="undo" title={tr('실행 취소 (Ctrl+Z)', 'Undo (Ctrl+Z)')} onClick={undo} disabled={!canUndo} tour="undo" />
         <IconButton icon="redo" title={tr('다시 실행 (Ctrl+Y)', 'Redo (Ctrl+Y)')} onClick={redo} disabled={!canRedo} />
         {!WEB_TRIAL && <IconButton icon="save" title={tr('저장 (Ctrl+S)', 'Save (Ctrl+S)')} onClick={() => F.saveProject()} />}
         <IconButton icon="globe" title="한국어 / English" label={lang === 'ko' ? 'EN' : '한'} onClick={() => setLang(lang === 'ko' ? 'en' : 'ko')} />
@@ -172,12 +174,12 @@ export function Toolbar() {
     <div className="toolbar">
       <div className="tool-group">
         {TOOLS.map((t) => (
-          <IconButton key={t.id} icon={t.icon} title={`${tr(t.ko, t.en)} (${t.key})`} active={tool === t.id} onClick={() => setTool(t.id)} />
+          <IconButton key={t.id} icon={t.icon} title={`${tr(t.ko, t.en)} (${t.key})`} active={tool === t.id} onClick={() => setTool(t.id)} tour={`tool-${t.id}`} />
         ))}
       </div>
       <div className="sep" />
       <div className="tool-group">
-        <IconButton icon="plus" label={tr('신호', 'Signal')} title={tr('비트 신호 추가', 'Add bit signal')} onClick={() => addKind('bit')} />
+        <IconButton icon="plus" label={tr('신호', 'Signal')} title={tr('비트 신호 추가', 'Add bit signal')} onClick={() => addKind('bit')} tour="add-signal" />
         <Menu
           label="▾"
           items={[
@@ -266,8 +268,21 @@ function PublicLinks() {
   );
 }
 
+/** 튜토리얼 시작 버튼 두 개 */
+function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primary?: boolean }) {
+  return (
+    <>
+      {(['basic', 'plc'] as TourId[]).map((id, k) => (
+        <button type="button" key={id} className={`btn small ${primary && k === 0 ? 'primary' : ''}`} onClick={() => onTour(id)}>
+          <Icon name="play" size={14} /> {tourTitle(id)}
+        </button>
+      ))}
+    </>
+  );
+}
+
 /** 처음 방문한 사람을 위한 시작 화면 */
-export function WelcomeModal({ onClose }: { onClose: () => void }) {
+export function WelcomeModal({ onClose, onTour }: { onClose: () => void; onTour: (id: TourId) => void }) {
   const setTab = useStore((s) => s.setTab);
   const lang = useStore((s) => s.lang);
   const choices: { icon: string; title: string; desc: string; go: () => void }[] = [
@@ -299,6 +314,21 @@ export function WelcomeModal({ onClose }: { onClose: () => void }) {
         <p className="welcome-lead">
           {tr('자동화 설비의 타임차트를 그리고, PLC 프로그램으로 자동 생성하고, 보고서로 출력하는 도구입니다. 설치나 회원가입 없이 바로 쓸 수 있습니다.', 'Draw timing charts for automated machines, generate them from PLC programs, and print reports. No install or sign-up.')}
         </p>
+        <div className="welcome-tour">
+          <div>
+            <b>{tr('처음이세요? 따라 하기 튜토리얼', 'New here? Follow a short tutorial')}</b>
+            <span>{tr('버튼을 하나씩 짚어 가며 알려 줍니다. 각 3분.', 'It points at each button in turn. About 3 minutes each.')}</span>
+          </div>
+          <div className="welcome-tour-btns">
+            <TourButtons
+              primary
+              onTour={(id) => {
+                onClose();
+                onTour(id);
+              }}
+            />
+          </div>
+        </div>
         <div className="welcome-choices">
           {choices.map((c) => (
             <button
@@ -331,7 +361,7 @@ export function WelcomeModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function HelpModal({ onClose, onWelcome }: { onClose: () => void; onWelcome: () => void }) {
+export function HelpModal({ onClose, onWelcome, onTour }: { onClose: () => void; onWelcome: () => void; onTour: (id: TourId) => void }) {
   const keys: [string, string][] = [
     ['V / D / A / M / S / N / K', tr('선택 / 그리기 / 화살표 / 치수 / 스텝 / 메모 / 마커 도구', 'Tools: select, draw, arrow, dimension, step, note, marker')],
     ['Ctrl+Z, Ctrl+Y', tr('실행 취소, 다시 실행', 'Undo, redo')],
@@ -363,6 +393,15 @@ export function HelpModal({ onClose, onWelcome }: { onClose: () => void; onWelco
           >
             <Icon name="play" size={14} /> {tr('시작 화면', 'Start screen')}
           </button>
+        </div>
+        <h4>{tr('따라 하기 튜토리얼', 'Tutorials')}</h4>
+        <div className="help-tours">
+          <TourButtons
+            onTour={(id) => {
+              onClose();
+              onTour(id);
+            }}
+          />
         </div>
         <h4>{tr('주요 기능', 'Features')}</h4>
         <ul>

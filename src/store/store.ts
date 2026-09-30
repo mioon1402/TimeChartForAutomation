@@ -104,6 +104,25 @@ const AUTOSAVE_KEY = 'timechart-studio.autosave.v1';
 const PREFS_KEY = 'timechart-studio.prefs.v1';
 const HISTORY_LIMIT = 200;
 
+/** 튜토리얼 동안 원래 차트를 보관 (튜토리얼 도중 창을 닫아도 다음에 열 때 되살림) */
+const TUTORIAL_BACKUP_KEY = 'timechart-studio.tutorial-backup.v1';
+
+export function saveTutorialBackup(p: Project): void {
+  try {
+    localStorage.setItem(TUTORIAL_BACKUP_KEY, JSON.stringify(p));
+  } catch {
+    /* 저장 공간 부족 등 - 메모리 보관본으로만 복원 */
+  }
+}
+
+export function clearTutorialBackup(): void {
+  try {
+    localStorage.removeItem(TUTORIAL_BACKUP_KEY);
+  } catch {
+    /* 무시 */
+  }
+}
+
 /** 이 브라우저에 이전 작업(자동 백업)이 있는가 - 처음 방문 판단용 */
 export function hasAutosave(): boolean {
   try {
@@ -114,6 +133,16 @@ export function hasAutosave(): boolean {
 }
 
 function loadInitial(): Project {
+  // 튜토리얼 도중 창을 닫았으면 튜토리얼 전 차트로
+  try {
+    const bak = localStorage.getItem(TUTORIAL_BACKUP_KEY);
+    if (bak) {
+      localStorage.removeItem(TUTORIAL_BACKUP_KEY);
+      return migrateProject(JSON.parse(bak));
+    }
+  } catch {
+    /* 무시하고 자동 백업본 사용 */
+  }
   try {
     const raw = localStorage.getItem(AUTOSAVE_KEY);
     if (raw) return migrateProject(JSON.parse(raw));

@@ -79,6 +79,10 @@
 
 ## 3. 5분 따라하기
 
+> **앱 안에 따라 하기 튜토리얼이 있습니다.** 처음 열면 나오는 시작 화면, 또는 오른쪽 위 `?`(도움말)에서 **차트 그리기 기초** / **PLC 프로그램으로 차트 만들기**를 누르세요. 누를 버튼을 하나씩 짚어 주고, 해 보면 저절로 다음으로 넘어갑니다. 끝나면 원래 차트로 돌아옵니다.
+
+직접 읽으며 해 보려면:
+
 1. **예제 보기**: 처음 열면 나오는 시작 화면에서 `예제 차트 둘러보기`를 누르면 "드릴 가공 유닛" 예제 차트가 나옵니다. 상단 `파일 → 템플릿`에서 로봇 핸드셰이크, 인버터 컨베이어 예제도 열 수 있습니다.
 2. **파형 고치기**: 왼쪽 위 연필(그리기, `D` 키)을 누르고 신호 줄에서 마우스로 끌면 ON/OFF가 뒤집힙니다. 화살표(선택, `V` 키) 상태에서 파형이 바뀌는 지점을 끌면 시간이 옮겨집니다. 틀리면 `Ctrl+Z`로 되돌립니다.
 3. **PLC 프로그램으로 만들기**: 상단 `PLC 시뮬레이션` 탭 → `예제 불러오기…`에서 "LS XGK - 픽앤플레이스"를 고르고 → 오른쪽 아래 `▶ 시뮬레이션 → 타임차트 생성`을 누릅니다.
@@ -243,6 +247,7 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 - **Use it now:** https://mioon1402.github.io/TimeChartForAutomation/ (no install, no sign-up). For offline PCs, download [TimeChartStudio.html](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html) and double-click it.
 - **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
 - **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.
+- **Built-in tutorials** (Help `?` or the start screen) point at each control and advance as you try it.
 - **Understand the process:** relays that just copy real I/O are traced back to the physical input/output, steps are built from which outputs are ON, and a sequence-of-events table lists every change in order.
 - **Check and report:** response time, interlock, pulse width and cycle-time rules; printable reports with a title block; PNG/SVG, Excel CSV, WaveDrom and a text format.
 - Files you open are processed only in your browser and never uploaded. The UI switches between Korean and English (top-right `EN` button).
