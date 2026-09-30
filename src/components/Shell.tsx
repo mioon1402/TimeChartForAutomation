@@ -134,7 +134,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
       </div>
       <nav className="tabs" role="tablist">
         {tabs.map((t) => (
-          <button type="button" role="tab" aria-selected={tab === t.id} key={t.id} className={`tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)} data-tour={`tab-${t.id}`}>
+          <button type="button" role="tab" aria-selected={tab === t.id} key={t.id} className={`tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)} data-tour={`tab-${t.id}`} title={t.label}>
             <Icon name={t.icon} size={15} />
             <span>{t.label}</span>
             {t.id === 'sequence' && seqChanged && <i className="tab-dot" title={tr('차트에 아직 적용하지 않은 변경', 'Changes not applied to the chart yet')} />}

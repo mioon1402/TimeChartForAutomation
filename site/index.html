@@ -759,7 +759,7 @@
         <div class="wrap">
           <div class="sec-head">
             <span class="kicker">무엇을 할 수 있나요</span>
-            <h2>그리기, PLC 로 만들기, 실무 순서대로 만들기, 배우기</h2>
+            <h2>그리기, PLC 로 만들기, 동작 순서표로 만들기, 인쇄, 배우기</h2>
             <p>설계 검토, 설비 사양서, 고객 보고서에 들어가는 타임차트를 한곳에서 만들고 검토합니다.</p>
           </div>
 
@@ -796,9 +796,9 @@
 
           <div class="feature">
             <div class="f-text" style="--c: var(--act)">
-              <span class="tag">실무 순서대로 새로 만들기</span>
-              <h3>실무에서 만드는 순서 그대로 적으면 차트가 됩니다</h3>
-              <p>단계마다 무엇을 왜 하는지 설명이 붙어 있어 처음 만드는 사람도 따라갈 수 있습니다.</p>
+              <span class="tag">동작 순서표로 만들기</span>
+              <h3>실무 순서 그대로, 엑셀처럼 표에 적으면 차트가 됩니다</h3>
+              <p>한 페이지에 위에서 아래로 적어 내려가면 시간 흐름, 사이클 타임, 인터록 검토, 차트 미리보기가 바로 바뀝니다. 엑셀에 정리해 둔 동작 순서표와 I/O 리스트는 복사해서 붙여 넣으면 제목 줄로 칸을 맞춰 읽습니다.</p>
               <ol class="steps5">
                 <li>설비와 목표 사이클 타임</li>
                 <li>움직이는 기기와 동작 시간 (실린더, 모터, 흡착)</li>
@@ -806,12 +806,28 @@
                 <li>동작 순서 (앞 동작 뒤에 / 동시에)</li>
                 <li>타임차트와 사이클 타임 · 인터록 검토</li>
               </ol>
-              <a class="btn ghost small" href="app/#wizard">순서대로 만들어 보기</a>
+              <a class="btn ghost small" href="app/#wizard">동작 순서표로 만들어 보기</a>
             </div>
-            <div class="shot"><img src="img/wizard.png" width="1280" height="760" loading="lazy" alt="작성 도우미의 동작 순서 단계 화면" /></div>
+            <div class="shot"><img src="img/wizard.png" width="1280" height="760" loading="lazy" alt="동작 순서 탭: 엑셀처럼 입력하는 동작 순서표와 시간 흐름 막대, 아래에 사이클 타임과 차트 미리보기" /></div>
           </div>
 
           <div class="feature flip">
+            <div class="f-text" style="--c: var(--out)">
+              <span class="tag">설비 파일 · 인쇄</span>
+              <h3>설비 하나의 차트를 한 파일로, 인쇄는 한 장으로</h3>
+              <p>자동 운전 사이클, 원점 복귀, 유닛별 차트를 엑셀 시트처럼 한 파일에 모으고, 목차와 함께 한 번에 인쇄합니다.</p>
+              <ul class="ticks">
+                <li><b>한 장으로</b>: 제목 · 사이클 타임 · 전체 타임차트 · 공정 스텝 표를 한 장에 맞춰 넣습니다</li>
+                <li>A4 · A3, <b>가로 · 세로</b>, 짧은 표는 한 장에 모으고 긴 표는 다음 장으로 이어서</li>
+                <li><b>흑백 프린터용</b>: 색 대신 무늬로 출력 · 센서를 구분하고 범례를 붙입니다</li>
+                <li>작성 · 검토 · 승인 칸이 있는 표제란, PDF 저장</li>
+              </ul>
+              <a class="btn ghost small" href="app/">예제로 인쇄 미리보기</a>
+            </div>
+            <div class="shot"><img src="img/print.png" width="1280" height="760" loading="lazy" alt="보고서 탭: 한 장으로 인쇄 미리보기. 흑백 무늬로 구분한 전체 타임차트와 공정 스텝 표, 표제란이 한 장에 들어 있다" /></div>
+          </div>
+
+          <div class="feature">
             <div class="f-text" style="--c: var(--sen)">
               <span class="tag">직접 그려 보며 배우기</span>
               <h3>튜토리얼과 채점되는 연습 문제 15개</h3>
@@ -959,7 +975,7 @@
                 </tr>
                 <tr>
                   <th>내보내기</th>
-                  <td>표제란 있는 PDF 보고서(A4 · A3), PNG, SVG, 이미지 복사, 엑셀 CSV(변화 시점표 · 신호 목록 · 스텝표), WaveDrom JSON</td>
+                  <td>표제란 있는 PDF 보고서(A4 · A3, 가로 · 세로, 한 장 요약, 흑백 무늬, 설비 전체 목차), PNG, SVG, 이미지 복사, 엑셀 CSV(변화 시점표 · 신호 목록 · 스텝표), WaveDrom JSON</td>
                 </tr>
               </tbody>
             </table>
@@ -998,7 +1014,7 @@
             <a class="btn primary" href="app/">바로 시작하기 →</a>
             <a class="btn ghost" href="app/#tutorial">3분 튜토리얼</a>
             <a class="btn ghost" href="app/#practice">연습 문제</a>
-            <a class="btn ghost" href="app/#wizard">순서대로 새로 만들기</a>
+            <a class="btn ghost" href="app/#wizard">동작 순서표로 만들기</a>
           </div>
         </div>
       </section>

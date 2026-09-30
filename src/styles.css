@@ -3934,6 +3934,19 @@ button.seq-kpi {
   }
 }
 
+/* 1500px 이하: 로고 글자를 숨기고, 1300px 이하: 고르지 않은 탭은 아이콘만 (제목 자리 확보) */
+@media (max-width: 1500px) {
+  .brand-name {
+    display: none;
+  }
+}
+
+@media (max-width: 1300px) {
+  .tab:not(.on) span {
+    display: none;
+  }
+}
+
 /* 좁은 노트북: 메뉴·버튼 간격을 줄여 한 줄에 */
 @media (max-width: 900px) {
   .topbar {
