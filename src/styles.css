@@ -388,6 +388,7 @@ kbd {
 .icon-btn.active {
   background: var(--accent-soft);
   color: var(--accent);
+  border-color: rgba(37, 99, 235, 0.35);
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
@@ -506,6 +507,7 @@ textarea.input {
 .input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
@@ -1415,6 +1417,7 @@ table.tbl tr.sel td {
 }
 
 table.tbl tr.fail td {
+  background: rgba(254, 226, 226, 0.55);
   background: color-mix(in srgb, #fee2e2 55%, transparent);
 }
 
@@ -1617,6 +1620,7 @@ table.tbl tr.fail td {
 }
 
 .dev-table tr.on td {
+  background: rgba(232, 239, 255, 0.6);
   background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
 }
 
@@ -2283,6 +2287,7 @@ table.tbl tr.fail td {
 }
 
 .seq-status.changed {
+  background: rgba(217, 119, 6, 0.16);
   background: color-mix(in srgb, var(--warn) 16%, transparent);
   color: var(--warn);
   font-weight: 600;
@@ -2506,6 +2511,7 @@ button.seq-kpi {
 .seq-notes {
   padding: 8px 12px;
   border-left: 3px solid var(--warn);
+  background: rgba(217, 119, 6, 0.1);
   background: color-mix(in srgb, var(--warn) 10%, transparent);
   border-radius: 0 4px 4px 0;
   font-size: 13px;
@@ -2727,6 +2733,7 @@ button.seq-kpi {
 }
 
 .grid td.ro {
+  background: rgba(247, 248, 250, 0.7);
   background: color-mix(in srgb, var(--panel-2) 70%, transparent);
   color: var(--muted);
 }
@@ -2876,16 +2883,19 @@ button.seq-kpi {
 }
 
 .chip.lv1 {
+  background: rgba(22, 163, 74, 0.16);
   background: color-mix(in srgb, var(--ok) 16%, transparent);
   color: var(--ok);
 }
 
 .chip.lv2 {
+  background: rgba(37, 99, 235, 0.16);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
 }
 
 .chip.lv3 {
+  background: rgba(217, 119, 6, 0.18);
   background: color-mix(in srgb, var(--warn) 18%, transparent);
   color: var(--warn);
 }
@@ -2935,6 +2945,7 @@ button.seq-kpi {
 }
 
 .practice-card.done {
+  border-color: rgba(22, 163, 74, 0.5);
   border-color: color-mix(in srgb, var(--ok) 50%, var(--border));
 }
 
@@ -3036,6 +3047,7 @@ button.seq-kpi {
   padding: 6px 10px;
   font-size: 12.5px;
   border-radius: 6px;
+  background: rgba(217, 119, 6, 0.14);
   background: color-mix(in srgb, var(--warn) 14%, transparent);
   color: var(--warn);
 }
@@ -3204,6 +3216,7 @@ button.seq-kpi {
 }
 
 .tour-task.done {
+  background: rgba(22, 163, 74, 0.14);
   background: color-mix(in srgb, var(--ok) 14%, transparent);
   color: var(--ok);
 }
@@ -3319,6 +3332,7 @@ button.seq-kpi {
   z-index: 400;
   border: 3px dashed var(--accent);
   border-radius: 14px;
+  background: rgba(232, 239, 255, 0.85);
   background: color-mix(in srgb, var(--accent-soft) 85%, transparent);
   display: flex;
   align-items: center;
@@ -3702,7 +3716,9 @@ button.seq-kpi {
   font-size: 12.5px;
   line-height: 1.5;
   border-radius: 6px;
+  background: rgba(217, 119, 6, 0.12);
   background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid rgba(217, 119, 6, 0.4);
   border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
 }
 
@@ -3984,7 +4000,9 @@ button.seq-kpi {
   margin: 4px 0 10px;
   padding: 10px 12px;
   border-radius: 7px;
+  background: rgba(245, 158, 11, 0.14);
   background: color-mix(in srgb, #f59e0b 14%, var(--panel));
+  border: 1px solid rgba(245, 158, 11, 0.45);
   border: 1px solid color-mix(in srgb, #f59e0b 45%, transparent);
   line-height: 1.55;
   font-size: 12.5px;
