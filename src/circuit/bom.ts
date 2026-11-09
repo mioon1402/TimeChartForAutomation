@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, PARTS, plcAddresses, REAL, VALVES } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, VALVES } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatTime } from '../model/format';
@@ -60,6 +60,11 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_pb: 5,
   r_lamp: 8,
   r_motor3: 9,
+  r_relay8: 3,
+  r_timer8: 4,
+  r_ss: 6,
+  r_estop: 6,
+  r_tb: 12,
   frl: 10,
   v32: 10,
   v52: 10,
@@ -78,7 +83,7 @@ const VALVE_KIND: Partial<Record<PartType, [string, string]>> = {
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
 function mainOf(parts: Part[]): Part {
   const rank = (p: Part) =>
-    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc'
+    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_timer8'
       ? 0
       : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3'
         ? 1
@@ -161,6 +166,19 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('파일럿 램프', 'Pilot lamp'), spec: lampColorName(p.color) };
     case 'r_motor3':
       return { kind: tr('3상 유도 전동기', '3-phase induction motor'), spec: '' };
+    case 'r_relay8':
+      return { kind: tr('릴레이 (8핀) + 소켓', 'Relay (8-pin) + socket'), spec: `${tr('코일 AC 220V', 'coil AC 220V')}, ${ab}` };
+    case 'r_timer8': {
+      const mode = p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : p.timerMode === 'flicker' ? tr('플리커', 'flicker') : tr('ON 딜레이', 'on-delay');
+      const cts = p.inst13 ? tr('한시 1a1b · 순시 1a1b', 'timed 1NO1NC · inst. 1NO1NC') : tr('한시 2a2b', 'timed 2NO2NC');
+      return { kind: tr('타이머 (8핀) + 소켓', 'Timer (8-pin) + socket'), spec: `${mode} ${formatTime(p.preset ?? 3000, 's')}, ${cts}` };
+    }
+    case 'r_ss':
+      return { kind: tr('셀렉터 스위치 (2단)', 'Selector switch (2-position)'), spec: ab };
+    case 'r_estop':
+      return { kind: tr('비상정지 스위치', 'Emergency stop'), spec: [tr('적색 버섯, 잠김', 'red mushroom, latching'), ab].join(', ') };
+    case 'r_tb':
+      return { kind: tr('단자대', 'Terminal block'), spec: `${tbSize(p)}P` };
     case 'fuse3':
     case 'fuse':
       return { kind: tr('퓨즈', 'Fuse'), spec: p.type === 'fuse3' ? '3P' : '1P' };
@@ -204,7 +222,7 @@ export function partsList(c: Circuit): BomRow[] {
   for (const [k, parts] of groups) {
     const main = mainOf(parts);
     // 실물 기기는 몸 안의 보조 접점(1a1b)도 센다
-    const inside = parts.filter((p) => p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr').length;
+    const inside = parts.reduce((n, p) => n + (p.type === 'r_relay8' || p.type === 'r_timer8' ? 2 : p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' ? 1 : 0), 0);
     const a = parts.filter((p) => CONTACT_A.has(p.type)).length + inside;
     const b = parts.filter((p) => CONTACT_B.has(p.type)).length + inside;
     const poles = (parts.filter((p) => p.type === 'km3').length + parts.filter((p) => p.type === 'r_mc').length) * 3;
@@ -296,7 +314,7 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   const airIds = new Map<number, string[]>();
   const elecIds = new Map<number, string[]>();
   for (const p of c.parts) {
-    PARTS[p.type].pins.forEach((pin, i) => {
+    partPins(p).forEach((pin, i) => {
       const n = model.net.pinNet.get(`${p.id}:${i}`)!;
       const m = pin.air ? airIds : elecIds;
       m.set(n, [...(m.get(n) ?? []), p.id]);
@@ -334,7 +352,7 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   }
   const plcParts = c.parts.filter((p) => p.type === 'plc').map((p) => p.id);
   for (const msg of model.plcIssues) out.push({ level: model.prog ? 'error' : 'warn', msg, partIds: plcParts });
-  if (c.parts.some((p) => PARTS[p.type].pins.length) && !c.parts.some((p) => p.type === 'src' || p.type === 'src3' || p.type === 'r_term')) {
+  if (c.parts.some((p) => partPins(p).length) && !c.parts.some((p) => p.type === 'src' || p.type === 'src3' || p.type === 'r_term')) {
     out.push({ level: 'error', msg: tr('전원(L·N, +24V·0V, 3상)이 없습니다', 'No supply (L/N, +24V/0V or 3-phase)'), partIds: [] });
   }
   return out;

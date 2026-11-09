@@ -49,6 +49,11 @@ export type PartType =
   | 'r_pb' // 푸시버튼 유닛: 11-12 NC · 23-24 NO (누르는 동안)
   | 'r_lamp' // 파일럿 램프 X1 · X2
   | 'r_motor3' // 3상 전동기 U V W + PE
+  | 'r_relay8' // 8핀 릴레이 + 소켓: 2-7 코일, 1-3·8-6 a, 1-4·8-5 b
+  | 'r_timer8' // 8핀 타이머 + 소켓: 2-7 전원, 8-6 한시 a, 8-5 한시 b, 1-3 a · 1-4 b (한시 또는 순시)
+  | 'r_ss' // 셀렉터 스위치 (손잡이, 11-12 b · 23-24 a, 돌려서 유지)
+  | 'r_estop' // 비상정지 (노란 판 + 빨간 버섯, 눌러서 잠김, 11-12 b · 23-24 a)
+  | 'r_tb' // 단자대 (번호마다 위·아래 나사가 이어짐)
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -96,6 +101,10 @@ export interface Part {
   solB?: string;
   /** 속도 제어 밸브: 빠르기 (%) */
   speed?: number;
+  /** 단자대: 극수 */
+  n?: number;
+  /** 8핀 타이머: 1-3 · 1-4 접점이 순시 접점 (기본은 한시) */
+  inst13?: boolean;
 }
 
 /** 전선 색: 갈색 L1, 검정 L2, 회색 L3, 파랑 N, 녹황 PE, 그 밖 제어선 */
@@ -131,6 +140,8 @@ export interface Circuit {
   autoChart?: boolean;
   /** 마지막으로 타임차트에 적용한 회로의 서명 */
   applied?: string;
+  /** 결선표에서 배선을 마쳤다고 체크한 전선 (단자 두 개의 키) */
+  wired?: string[];
 }
 
 export function emptyCircuit(): Circuit {

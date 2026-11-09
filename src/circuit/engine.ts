@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { isLinkedSensor, OPERATOR, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, VALVES } from './parts';
+import { isLinkedSensor, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import type { PlcConfig, SimSettings } from '../plc/types';
 import { parseProgram, type ParsedProgram } from '../plc/program';
@@ -42,6 +42,8 @@ interface Conductor {
   plcOut?: number;
   /** 3선식 센서: 이 부품에 전원이 있어야 닫힌다 */
   power?: string;
+  /** 타이머의 순시 접점: 한시 출력이 아니라 코일을 따른다 */
+  inst?: boolean;
 }
 
 /** 공압 포트 상태: P = 압력, E = 배기(대기), X = 막힘 */
@@ -137,13 +139,13 @@ export class CircuitModel {
       if (!this.tagLabel.has(tag)) this.tagLabel.set(tag, p.tag.trim() || PARTS[p.type].prefix || '?');
       if (!this.mainPart.has(tag)) this.mainPart.set(tag, p);
       const def = PARTS[p.type];
-      if (p.type === 'coil' || def.selfCoil) {
-        setKind(tag, 'coil', p);
-        push(this.coilParts, tag, p.id);
-      } else if (p.type === 'timer') {
+      if (p.type === 'timer' || p.type === 'r_timer8') {
         setKind(tag, 'timer', p);
         push(this.timerParts, tag, p.id);
         if (!this.timerDef.has(tag)) this.timerDef.set(tag, { mode: p.timerMode ?? 'on', preset: Math.max(0, p.preset ?? 3000) });
+      } else if (p.type === 'coil' || def.selfCoil) {
+        setKind(tag, 'coil', p);
+        push(this.coilParts, tag, p.id);
       } else if (p.type === 'ol3' || p.type === 'r_thr') setKind(tag, 'thr', p);
       else if (isLinkedSensor(p)) {
         setKind(tag, 'sensor', p);
@@ -158,17 +160,20 @@ export class CircuitModel {
         this.loads.push(p);
         push(this.loadParts, tag, p.id);
       }
-      if (def.poles) {
-        def.poles.forEach(([i, j], k) => {
+      const poles = partPoles(p);
+      if (poles) {
+        // 단자대는 늘 통한다. 8핀 타이머의 1-3 · 1-4 는 순시로 고를 수 있다
+        const always = p.type === 'fuse' || p.type === 'fuse3' || p.type === 'r_tb';
+        poles.forEach(([i, j], k) => {
           const a = this.net.pinNet.get(`${p.id}:${i}`)!;
           const b = this.net.pinNet.get(`${p.id}:${j}`)!;
-          this.conductors.push({ part: p, a, b, tag, nc: def.polesNc?.[k] ?? !!def.nc, always: p.type === 'fuse' || p.type === 'fuse3' });
+          this.conductors.push({ part: p, a, b, tag, nc: def.polesNc?.[k] ?? !!def.nc, always, inst: p.type === 'r_timer8' && !!p.inst13 && k < 2 });
         });
       }
       if (p.type === 'src' || p.type === 'r_term') this.sources.push({ net: this.net.pinNet.get(`${p.id}:0`)!, id: POLE_IDENTITY[p.pole ?? 'L'] });
       if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => this.sources.push({ net: this.net.pinNet.get(`${p.id}:${i}`)!, id }));
       const pin = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
-      def.pins.forEach((pd, i) => pd.air && this.airNets.add(pin(i)));
+      partPins(p).forEach((pd, i) => pd.air && this.airNets.add(pin(i)));
       const tubed = (n: number) => this.net.pinCount[n] > 1 || this.net.hasWire[n];
       if (p.type === 'prox') {
         // PNP: 감지하면 출력이 + 에, NPN: 출력이 0V 에 이어진다
@@ -371,7 +376,7 @@ export class CircuitSim {
 
   /** 접점 (부품) 이 닫혀 있는가 */
   closed(p: Part): boolean {
-    if (p.type === 'fuse' || p.type === 'fuse3') return true;
+    if (p.type === 'fuse' || p.type === 'fuse3' || p.type === 'r_tb') return true;
     const v = this.on(tagKey(p));
     return PARTS[p.type].nc ? !v : v;
   }
@@ -424,7 +429,7 @@ export class CircuitSim {
       return i;
     };
     for (const c of this.m.conductors) {
-      let closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || this.on(c.tag) !== c.nc;
+      let closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || (c.inst ? !!this.timers.get(c.tag)?.coil : this.on(c.tag)) !== c.nc;
       if (c.power && !this.powered.get(c.power)) closed = false;
       if (closed) {
         const ra = find(c.a);

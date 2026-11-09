@@ -4,7 +4,7 @@ import { autoWireColor } from '../circuit/wires';
 import { OPERATOR, partBox, pinPositions, type PaletteItem } from '../circuit/parts';
 import { tagKey, type CircuitModel, type CircuitSim } from '../circuit/engine';
 import { uid } from '../model/wave';
-import { CircuitLayer, circuitBounds, G, PartGlyph, partState, type CircuitColors } from '../render/CircuitSvg';
+import { CircuitLayer, circuitBounds, G, PartGlyph, partState, type CircuitColors, type LayerOptions } from '../render/CircuitSvg';
 import { tr } from '../i18n';
 
 export interface Sel {
@@ -91,6 +91,8 @@ export interface CanvasProps {
   ghostPart: (item: PaletteItem, x: number, y: number) => Part;
   /** 바뀌면 회로 전체가 보이게 확대·이동 */
   fitKey: number;
+  /** 결선표에서 고른 전선 (강조, 화면 밖이면 그쪽으로 이동) */
+  highlight?: LayerOptions['highlight'];
 }
 
 export function CircuitCanvas(props: CanvasProps) {
@@ -189,6 +191,18 @@ export function CircuitCanvas(props: CanvasProps) {
       zoomAnchor.current = null;
     }
   }, [props.fitKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 결선표에서 고른 전선이 화면 밖이면 그쪽으로
+  useEffect(() => {
+    const el = wrapRef.current;
+    const h = props.highlight;
+    if (!el || !h?.pts.length) return;
+    const xs = [...h.pts, ...h.segs.flat()].map((p) => p[0]);
+    const ys = [...h.pts, ...h.segs.flat()].map((p) => p[1]);
+    const [ax, bx, ay, by] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)].map((v, i) => (v - (i < 2 ? x0 : y0)) * scale);
+    const inView = ax >= el.scrollLeft && bx <= el.scrollLeft + el.clientWidth && ay >= el.scrollTop && by <= el.scrollTop + el.clientHeight;
+    if (!inView) el.scrollTo({ left: (ax + bx) / 2 - el.clientWidth / 2, top: (ay + by) / 2 - el.clientHeight / 2, behavior: 'smooth' });
+  }, [props.highlight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -390,7 +404,7 @@ export function CircuitCanvas(props: CanvasProps) {
         </defs>
         <rect x={x0 * G} y={y0 * G} width={W} height={H} fill="url(#cc-grid)" />
         <rect x={x0 * G} y={y0 * G} width={W} height={H} fill="url(#cc-grid5)" />
-        <CircuitLayer circuit={circuit} model={model} c={c} o={{ sim, selected, flagged: props.flagged, showPins: !sim }} />
+        <CircuitLayer circuit={circuit} model={model} c={c} o={{ sim, selected, flagged: props.flagged, showPins: !sim, highlight: props.highlight }} />
         {preview && <polyline points={preview.map((p) => `${p[0] * G},${p[1] * G}`).join(' ')} fill="none" stroke={c.accent} strokeWidth={2} strokeDasharray="5 4" />}
         {pinHot && hover && <circle cx={hover[0] * G} cy={hover[1] * G} r={6} fill="none" stroke={c.accent} strokeWidth={1.6} />}
         {ghost && (

@@ -45,6 +45,14 @@ function defaultName(p: Part): string {
       return t_('표시등', 'Lamp');
     case 'r_motor3':
       return t_('전동기', 'Motor');
+    case 'r_relay8':
+      return t_('릴레이', 'Relay');
+    case 'r_timer8':
+      return t_('타이머', 'Timer');
+    case 'r_ss':
+      return t_('셀렉터 스위치', 'Selector switch');
+    case 'r_estop':
+      return t_('비상정지', 'E-stop');
     case 'pb_no':
     case 'pb_nc':
       return t_('푸시버튼', 'Push button');

@@ -533,3 +533,116 @@ describe('wire colours when drawing', () => {
     expect(autoWireColor(plain, new CircuitModel(plain), [0, 0], [0, 2])).toBeUndefined();
   });
 });
+
+describe('control panel devices (8-pin relay & timer, selector, E-stop, terminal block)', () => {
+  const pinAt = (p: Part, i: number) => pinPositions(p)[i];
+
+  /** 8핀 타이머: SS 로 2-7 에 전원, 1-3 → LA, 8-6 → LB, 1-4 → LC */
+  function timerBench(inst13: boolean): Circuit {
+    const L = part('src', -10, -10, '', { pole: 'L' });
+    const N = part('src', 10, 10, '', { pole: 'N' });
+    const ss = part('r_ss', -10, 0, 'SS');
+    const t = part('r_timer8', 0, 0, 'T1', { timerMode: 'on', preset: 1000, ...(inst13 ? { inst13: true } : {}) });
+    const la = part('lamp', 6, -6, 'LA');
+    const lb = part('lamp', 9, -6, 'LB');
+    const lc = part('lamp', 12, -6, 'LC');
+    const w = (a: [number, number], b: [number, number]) => wire(a, b);
+    return {
+      parts: [L, N, ss, t, la, lb, lc],
+      wires: [
+        w(pinAt(L, 0), pinAt(ss, 2)),
+        w(pinAt(ss, 3), pinAt(t, 1)),
+        w(pinAt(t, 6), pinAt(N, 0)),
+        w(pinAt(L, 0), pinAt(t, 0)),
+        w(pinAt(L, 0), pinAt(t, 7)),
+        w(pinAt(t, 2), pinAt(la, 0)),
+        w(pinAt(t, 5), pinAt(lb, 0)),
+        w(pinAt(t, 3), pinAt(lc, 0)),
+        w(pinAt(la, 1), pinAt(N, 0)),
+        w(pinAt(lb, 1), pinAt(N, 0)),
+        w(pinAt(lc, 1), pinAt(N, 0)),
+      ],
+      ops: [
+        { id: 'a', wait: 500, tag: 'SS', action: 'on', hold: 0 },
+        { id: 'b', wait: 2500, tag: 'SS', action: 'off', hold: 0 },
+      ],
+    };
+  }
+
+  it('8-pin timer: 2-7 power, 8-6 timed, 1-3 / 1-4 timed or instantaneous', () => {
+    const timed = runScenario(timerBench(false));
+    expect(edges(timed, 'tq:T1').map((e) => [e.t, e.v])).toEqual([[0, 0], [1500, 1], [3000, 0]]);
+    expect(edges(timed, 'load:LA').map((e) => e.t)).toEqual([0, 1500, 3000]);
+    expect(edges(timed, 'load:LB').map((e) => e.t)).toEqual([0, 1500, 3000]);
+    expect(edges(timed, 'load:LC').map((e) => [e.t, e.v])).toEqual([[0, 1], [1500, 0], [3000, 1]]);
+    const inst = runScenario(timerBench(true));
+    // 순시 접점은 전원이 들어오는 순간 바뀐다
+    expect(edges(inst, 'load:LA').map((e) => e.t)).toEqual([0, 500, 3000]);
+    expect(edges(inst, 'load:LB').map((e) => e.t)).toEqual([0, 1500, 3000]);
+    expect(edges(inst, 'load:LC').map((e) => [e.t, e.v])).toEqual([[0, 1], [500, 0], [3000, 1]]);
+  });
+
+  it('runs the control panel example through the terminal block', () => {
+    const c = example('panel');
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    expect(res.warnings).toEqual([]);
+    expect(edges(res, 'coil:X1').map((e) => e.t)).toEqual([0, 1000, 6000, 7000, 8500]);
+    expect(edges(res, 'tc:T1').map((e) => e.t)).toEqual([0, 1000, 6000, 7000, 8500]);
+    // 기동 3초 뒤 운전 램프, 그동안 대기 램프
+    expect(edges(res, 'load:GL').map((e) => e.t)).toEqual([0, 4000, 6000]);
+    expect(edges(res, 'load:YL').map((e) => e.t)).toEqual([0, 1000, 4000, 7000, 8500]);
+    // 정지 램프: 운전 선택 뒤 X1 이 꺼져 있을 때 (비상정지 중에는 꺼짐)
+    expect(edges(res, 'load:RL').map((e) => e.t)).toEqual([0, 500, 1000, 6300, 7000, 9500]);
+    const rows = partsList(c);
+    expect(rows.find((r) => r.tag === 'X1')).toMatchObject({ kind: '릴레이 (8핀) + 소켓', a: 2, b: 2 });
+    expect(rows.find((r) => r.tag === 'T1')?.spec).toContain('한시 2a2b');
+    expect(rows.find((r) => r.tag === 'TB1')).toMatchObject({ kind: '단자대', spec: '8P' });
+    expect(rows.find((r) => r.tag === 'EMS')).toMatchObject({ kind: '비상정지 스위치', a: 1, b: 1 });
+    expect(rows.find((r) => r.tag === 'SS')).toMatchObject({ kind: '셀렉터 스위치 (2단)' });
+  });
+
+  it('terminal blocks have two screws per number and keep their size and ticks through saving', async () => {
+    const { partPins } = await import('../src/circuit/parts');
+    const tb = part('r_tb', 0, 0, 'TB1', { n: 12 });
+    expect(partPins(tb)).toHaveLength(24);
+    expect(pinPositions(tb)[23]).toEqual([22, 2]);
+    const c: Circuit = { parts: [tb, part('r_timer8', 0, 10, 'T1', { inst13: true })], wires: [], ops: [], wired: ['a|b'] };
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify(c)))!;
+    expect(back.parts[0].n).toBe(12);
+    expect(back.parts[1].inst13).toBe(true);
+    expect(back.wired).toEqual(['a|b']);
+  });
+});
+
+describe('wiring list', () => {
+  it('turns the drawing into terminal-to-terminal wires with wire numbers', async () => {
+    const { wiringList, wiringCsv, termText } = await import('../src/circuit/wiring');
+    const c = example('panel');
+    const rows = wiringList(c, new CircuitModel(c));
+    expect(rows).toHaveLength(26);
+    const text = rows.map((r) => [r.no, termText(r.from), termText(r.to), r.color]);
+    // 전원부터: 1 = L, 2 = N
+    expect(text[0]).toEqual([1, 'L', 'MCB1 1', 'brown']);
+    expect(text.filter((r) => r[0] === 2).every((r) => r[3] === 'blue')).toBe(true);
+    // 단자대 위(문 쪽)와 아래(판넬 쪽)는 같은 선번호
+    const no = (a: string, b: string) => text.find((r) => (r[1] === a && r[2] === b) || (r[1] === b && r[2] === a))?.[0];
+    expect(no('EMS 11', 'TB1 1 위')).toBeDefined();
+    expect(no('EMS 11', 'TB1 1 위')).toBe(no('TB1 1 아래', 'X1 8'));
+    // 릴레이 소켓의 점퍼 (2-3), 타이머 공통 (1-2)
+    expect(no('X1 2', 'X1 3')).toBeDefined();
+    expect(no('T1 1', 'T1 2')).toBeDefined();
+    // 넷마다 (단자 수 - 1) 가닥: 같은 단자 쌍이 두 번 나오지 않는다
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+    expect(rows.every((r) => r.segs.length > 0 && r.length > 0)).toBe(true);
+    const csv = wiringCsv(rows, new Set([rows[0].key]));
+    expect(csv.charCodeAt(0)).toBe(0xfeff);
+    expect(csv.trim().split('\r\n')).toHaveLength(27);
+    expect(csv.split('\r\n')[1]).toBe('1,1,L,,MCB1,1,갈색,O');
+
+    const real = example('real');
+    const realRows = wiringList(real, new CircuitModel(real));
+    expect(realRows.map((r) => `${termText(r.from)}-${termText(r.to)}`)).toContain('MCB1 2-MC1 1/L1');
+    expect(realRows.map((r) => `${termText(r.from)}-${termText(r.to)}`)).toContain('MC1 2/T1-M1 U');
+  });
+});
