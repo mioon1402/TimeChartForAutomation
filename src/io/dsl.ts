@@ -226,6 +226,7 @@ export function parseDsl(text: string, base?: Project): DslResult {
     p.revisions = base.revisions;
     p.plc = base.plc;
     p.sequence = base.sequence;
+    p.circuit = base.circuit;
     p.sheet = base.sheet;
     p.settings = { ...p.settings, ...base.settings };
     p.meta = { ...p.meta, date: base.meta.date, logo: base.meta.logo, signLabels: base.meta.signLabels };

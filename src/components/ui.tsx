@@ -51,6 +51,10 @@ const PATHS: Record<string, string> = {
   globe: 'M12 3a9 9 0 110 18 9 9 0 010-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
   help: 'M12 3a9 9 0 110 18 9 9 0 010-18zM9.5 9a2.5 2.5 0 114 2c-1 .7-1.5 1.2-1.5 2.5M12 17v.5',
   ruleCheck: 'M9 11l2 2 4-4M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z',
+  circuit: 'M2 15h6l8-7M16 15h6M16 11.5V15M5 6h3M5 4v4',
+  wire: 'M4 19h6V5h10M4 17v4M20 3v4',
+  rotate: 'M20 11a8 8 0 10-2.3 5.7M20 4v7h-7',
+  stop: 'M6 6h12v12H6z',
 };
 
 export function Icon({ name, size = 16, className }: { name: keyof typeof PATHS | string; size?: number; className?: string }) {

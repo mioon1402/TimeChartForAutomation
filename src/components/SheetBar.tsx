@@ -65,7 +65,7 @@ export function SheetBar() {
             onKeyDown={(e) => e.key === 'Enter' && switchSheet(i)}
             onDoubleClick={() => setRenaming(i)}
           >
-            <Icon name={p.sequence ? 'table' : p.plc?.source ? 'cpu' : 'chart'} size={13} />
+            <Icon name={p.circuit?.parts.length ? 'circuit' : p.sequence ? 'table' : p.plc?.source ? 'cpu' : 'chart'} size={13} />
             {renaming === i ? (
               <input
                 className="input sb-input"
@@ -103,6 +103,7 @@ export function SheetBar() {
           <Menu
             label={tr('+ 차트 추가', '+ Add chart')}
             items={[
+              { label: tr('회로도로 새 차트', 'New chart from a circuit'), icon: 'circuit', onClick: F.addCircuitSheet },
               { label: tr('동작 순서표로 새 차트', 'New chart from a sequence table'), icon: 'table', onClick: F.addSequenceSheet },
               { label: tr('빈 차트', 'Blank chart'), icon: 'plus', onClick: F.addBlankSheet },
               { label: tr('지금 차트 복제', 'Duplicate this chart'), icon: 'copy', onClick: F.duplicateSheet },

@@ -1,6 +1,6 @@
 # TimeChart Studio
 
-자동화 설비의 타임차트를 그리고, PLC 프로그램(LS XG5000 · 미쓰비시 · 지멘스 STL · IEC ST)을 스캔 시뮬레이션해서 차트를 자동으로 만들고, 보고서로 출력하는 브라우저 앱이다. 서버 없이 브라우저 안에서만 동작하고, 단일 HTML 파일로 빌드된다. 사용자는 한국 자동화·제어 엔지니어이고 UI 기본 언어는 한국어다.
+자동화 설비의 제어 회로도를 그리고 시뮬레이션해서(CADe SIMU 처럼) 타임차트와 부품 리스트를 자동으로 만들고, PLC 프로그램(LS XG5000 · 미쓰비시 · 지멘스 STL · IEC ST)도 스캔 시뮬레이션해서 차트를 만들어 보고서로 출력하는 브라우저 앱이다. 회로도 탭이 중심이고 타임차트는 그 결과물(보조)이다. 서버 없이 브라우저 안에서만 동작하고, 단일 HTML 파일로 빌드된다. 사용자는 한국 자동화·제어 엔지니어이고 UI 기본 언어는 한국어다.
 
 - 사이트: https://mioon1402.github.io/TimeChartForAutomation/ (소개 페이지) · `/app/` (편집기)
 - 사용 설명서: `README.md` (일반 사용자용, 한국어)
@@ -24,20 +24,22 @@ npm run build:web   # 인쇄·다운로드가 막힌 내장 뷰어(claude.ai 아
 
 - 혼자 쓰는 공개 저장소다. `main`에 push 하면 `.github/workflows/pages.yml`이 테스트 → `npm run build:site` → GitHub Pages 배포를 한다.
 - 사이트 구성: `/` = `site/index.html` (정적 소개 페이지, 캡처 이미지는 `site/img/`), `/app/` = 편집기, `/TimeChartStudio.html` 과 `/app/TimeChartStudio.html` = 오프라인 파일, `/og.png` = 링크 미리보기 (`public/og.png`).
-- 소개 페이지는 편집기로 바로 가는 링크를 쓴다: `app/#tutorial`, `#tutorial-plc`, `#practice`, `#wizard`, `#plc` (`src/App.tsx`에서 처리).
+- 소개 페이지는 편집기로 바로 가는 링크를 쓴다: `app/#circuit`, `#tutorial`, `#tutorial-plc`, `#practice`, `#wizard`, `#plc` (`src/App.tsx`에서 처리).
 - `dist/`, `_site/`, `dist-web/` 는 빌드 결과라 커밋하지 않는다.
 
 ## 구조
 
 ```text
+src/circuit     회로도: 부품 정의·기하(parts.ts), 선 연결(netlist.ts: 끝점·T 분기), 사건 구동 시뮬레이션(engine.ts: 극 판정, 코일 하나씩 안정화,
+                타이머·실린더 사건), 조작 순서 → 타임차트(chart.ts), 부품 리스트·검사(bom.ts), 저장 검사(sanitize.ts), 예제(examples.ts)
 src/model       파형 데이터·연산(wave.ts), 분석·규칙 검증(analysis.ts), 프로젝트/예제(project.ts), 동작 순서 모델(sequence.ts),
                 동작 순서 표 편집 규칙·차트 적용(seqEdit.ts), 설비 파일 = 차트 여러 장(book.ts)
 src/plc         PLC 파서(il.ts 미쓰비시·LS, stl.ts 지멘스, st.ts ST), LS PDF 텍스트 해석(lsStream.ts), 스캔 실행기(runtime.ts),
                 시뮬레이터·설비 모델(simulator.ts: 실린더·지연·위치 축), I/O 매핑 추적(alias.ts), 예제(samples.ts)
 src/learn       연습 문제(exercises.ts)와 채점(grade.ts)
 src/io          PDF 텍스트 추출(pdf.ts, pdf.js + 한글 CMap), WaveDrom, CSV, TCT 텍스트, 엑셀 붙여넣기 표(tsv.ts), 파일 입출력
-src/render      차트 그리기 (편집기·보고서·이미지 내보내기 공용 SVG)
-src/components  편집기, 동작 순서 탭(SequencePanel.tsx)·PLC·텍스트·보고서 화면, 엑셀형 표(Grid.tsx), 차트 탭(SheetBar.tsx),
+src/render      차트 그리기 (편집기·보고서·이미지 내보내기 공용 SVG), 회로도 기호(CircuitSvg.tsx)
+src/components  회로도 탭(CircuitPanel.tsx, CircuitCanvas.tsx), 편집기, 동작 순서 탭(SequencePanel.tsx)·PLC·텍스트·보고서 화면, 엑셀형 표(Grid.tsx), 차트 탭(SheetBar.tsx),
                 튜토리얼(Tour.tsx), 연습 문제(Practice.tsx)
 src/store       zustand 상태 (프로젝트, 실행 취소, 자동 백업, 튜토리얼·연습 상태)
 site            소개 페이지와 캡처
@@ -59,4 +61,5 @@ tests           단위 테스트
 - LS XGK: `F00099` 항상 ON, `F0009A` 항상 OFF, 타이머 기본 단위 100ms. XG5000 은 니모닉을 인쇄(PDF)로만 내보낼 수 있어서 PDF 텍스트를 토큰 흐름으로 읽는다(`lsStream.ts`). "비실행문" 렁은 빼고, "설명문"은 설명으로 처리한다.
 - 많은 현장 프로그램이 실제 입력(P)을 M 릴레이로 복사해서 쓴다. `alias.ts`가 복사 렁(`LOAD P → OUT M`, 반전, 항상 ON 조건 경유, 사슬)을 따라가 실제 I/O 로 풀어 준다.
 - 실무 타임차트 작성 순서: 설비 사양(목표 사이클 타임) → 동작 기기와 동작 시간 → I/O 목록 → 동작 순서 → 차트·검토(사이클 타임, 인터록). 동작 순서 탭이 이 순서를 한 페이지에 위에서 아래로 놓는다. 표를 고치면 프로젝트에 바로 저장되고, 차트는 [차트에 적용]에서만 다시 만든다(`applySequence`, 표제란·PLC 설정 유지).
+- 회로도: 같은 기호(코일 X1 ↔ 접점 X1)끼리 연동한다. 회로·조작 순서는 `Project.circuit` 에 저장되고, 차트는 `applyCircuit` 으로 만든다. 손으로 그린 차트는 자동으로 덮어쓰지 않는다(`autoChartOn`: 빈 차트이거나 회로로 만든 차트일 때만). 회로 예제를 추가·수정하면 `tests/circuit.test.ts` 에 동작 시각 테스트를 넣는다.
 - 인쇄 사용자는 흑백 프린터, A4 세로, 한 장 출력을 많이 쓴다. 보고서를 바꿀 때 `한 장으로`/세로/흑백에서 깨지지 않는지 확인한다.

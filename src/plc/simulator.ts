@@ -315,7 +315,7 @@ function numericRange(points: WavePoint[]): [number, number] {
   return lo === hi ? [lo, lo + 1] : [lo, hi];
 }
 
-function niceCeil(v: number): number {
+export function niceCeil(v: number): number {
   if (v <= 0) return 1000;
   const pow = Math.pow(10, Math.floor(Math.log10(v)));
   for (const m of [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * pow >= v) return m * pow;

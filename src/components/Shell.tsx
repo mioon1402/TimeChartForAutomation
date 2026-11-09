@@ -7,6 +7,8 @@ import { tr } from '../i18n';
 import { GUIDE_URL, introUrl, ISSUES_URL, OFFLINE_FILE, REPO_URL, servedFromWeb, WEB_TRIAL } from '../env';
 import { templates } from '../model/templates';
 import { sequenceStatus } from '../model/seqEdit';
+import { autoChartOn, circuitStatus } from '../circuit/chart';
+import { circuitExamples } from '../circuit/examples';
 import { tourTitle, type TourId } from './Tour';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
@@ -20,9 +22,11 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
   const theme = useStore((s) => s.theme);
   const { undo, redo, setLang, setTheme, setMeta, setTour, setPracticePicker } = useStore.getState();
   const seqChanged = useStore((s) => sequenceStatus(s.project) === 'changed');
+  const circuitChanged = useStore((s) => circuitStatus(s.project) === 'changed' && !autoChartOn(s.project));
   const [editing, setEditing] = useState(false);
 
   const tabs: { id: Tab; icon: string; label: string }[] = [
+    { id: 'circuit', icon: 'circuit', label: tr('회로도', 'Circuit') },
     { id: 'editor', icon: 'chart', label: tr('타임차트', 'Chart') },
     { id: 'sequence', icon: 'table', label: tr('동작 순서', 'Sequence') },
     { id: 'plc', icon: 'cpu', label: tr('PLC 시뮬레이션', 'PLC simulation') },
@@ -51,6 +55,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
           label={tr('파일', 'File')}
           tour="menu-file"
           items={[
+            { label: tr('새 회로도 (그리면 타임차트 · 부품 리스트 자동)', 'New circuit (chart and parts list from the drawing)'), icon: 'circuit', onClick: () => void F.newCircuitDoc() },
             { label: tr('새 차트: 동작 순서표로 만들기', 'New chart: from a sequence table'), icon: 'table', onClick: () => F.newSequenceChart() },
             { label: tr('새 차트: 빈 차트', 'New chart: blank'), icon: 'plus', onClick: F.newProject },
             { label: tr('열기…', 'Open…'), icon: 'open', shortcut: 'Ctrl+O', onClick: F.openProject },
@@ -62,6 +67,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
                 ]),
             { divider: true },
             ...templates().map((t) => ({ label: tr('템플릿: ', 'Template: ') + t.name, icon: 'chart', onClick: () => F.loadTemplate(t.id) })),
+            ...circuitExamples().map((ex) => ({ label: tr('예제 회로: ', 'Example circuit: ') + ex.name, icon: 'circuit', onClick: () => F.openCircuitExample(ex.id) })),
             { label: tr('예제: PLC 프로그램 → 차트', 'Example: PLC program → chart'), icon: 'cpu', onClick: () => setTab('plc') },
             ...(WEB_TRIAL ? [] : [{ divider: true }, { label: tr('보고서 인쇄 / PDF', 'Print report / PDF'), icon: 'print', shortcut: 'Ctrl+P', onClick: F.printReport }]),
           ]}
@@ -141,6 +147,7 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
             <Icon name={t.icon} size={15} />
             <span>{t.label}</span>
             {t.id === 'sequence' && seqChanged && <i className="tab-dot" title={tr('차트에 아직 적용하지 않은 변경', 'Changes not applied to the chart yet')} />}
+            {t.id === 'circuit' && circuitChanged && <i className="tab-dot" title={tr('타임차트에 아직 적용하지 않은 회로 변경', 'Circuit changes not applied to the chart yet')} />}
           </button>
         ))}
       </nav>
@@ -309,12 +316,19 @@ function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primar
   );
 }
 
-const WHATS_NEW_KEY = 'timechart-studio.whats-new.v2';
+const WHATS_NEW_KEY = 'timechart-studio.whats-new.v3';
 
 /** 이전 버전을 쓰던 사람에게 한 번만: 새로 생긴 기능 */
 export function WhatsNew({ onClose }: { onClose: () => void }) {
   const setTab = useStore((s) => s.setTab);
   const items: { icon: string; title: string; desc: string; go?: () => void; goLabel?: string }[] = [
+    {
+      icon: 'circuit',
+      title: tr('회로도 탭 (CADe SIMU 처럼 그리고 시뮬레이션)', 'Circuit tab (draw and simulate like CADe SIMU)'),
+      desc: tr('푸시버튼·릴레이·타이머·MC·전동기·램프·공압 실린더로 결선도를 그리고 버튼을 눌러 움직여 봅니다. 조작 순서를 적으면 타임차트가, 그림에서 부품 리스트가 자동으로 나옵니다.', 'Draw relay, motor and pneumatic circuits and click buttons to run them. Write the operations and the timing chart and parts list come out automatically.'),
+      go: () => F.openCircuitExample('self-hold'),
+      goLabel: tr('예제 열기', 'Open example'),
+    },
     {
       icon: 'table',
       title: tr('동작 순서 탭 (엑셀처럼 입력)', 'Sequence tab (spreadsheet-like)'),
@@ -391,6 +405,12 @@ export function WelcomeModal({ onClose, onTour }: { onClose: () => void; onTour:
   const lang = useStore((s) => s.lang);
   const choices: { icon: string; title: string; desc: string; go: () => void }[] = [
     {
+      icon: 'circuit',
+      title: tr('회로도 그리기', 'Draw a circuit'),
+      desc: tr('푸시버튼·릴레이·MC·타이머·전동기·실린더로 결선도를 그리고 눌러서 움직여 봅니다. 타임차트와 부품 리스트는 자동으로 나옵니다.', 'Draw relay, motor and pneumatic circuits and run them. The timing chart and parts list are made for you.'),
+      go: () => F.openCircuitExample('self-hold'),
+    },
+    {
       icon: 'chart',
       title: tr('예제 차트 둘러보기', 'Explore the example chart'),
       desc: tr('드릴 가공 설비의 타임차트가 열려 있습니다. 파형 에지를 끌어서 고쳐 보세요.', 'A drilling machine chart is open. Drag an edge to change it.'),
@@ -413,7 +433,7 @@ export function WelcomeModal({ onClose, onTour }: { onClose: () => void; onTour:
     <Modal title="TimeChart Studio" onClose={onClose} width={680}>
       <div className="welcome">
         <p className="welcome-lead">
-          {tr('자동화 설비의 타임차트를 그리고, PLC 프로그램으로 자동 생성하고, 보고서로 출력하는 도구입니다. 설치나 회원가입 없이 바로 쓸 수 있습니다.', 'Draw timing charts for automated machines, generate them from PLC programs, and print reports. No install or sign-up.')}
+          {tr('제어 회로도를 그리고 시뮬레이션해서 타임차트와 부품 리스트를 자동으로 만들고, PLC 프로그램으로도 차트를 만들어 보고서로 출력하는 도구입니다. 설치나 회원가입 없이 바로 쓸 수 있습니다.', 'Draw and simulate control circuits to get the timing chart and parts list automatically, generate charts from PLC programs, and print reports. No install or sign-up.')}
         </p>
         <div className="welcome-tour">
           <div>
@@ -465,6 +485,7 @@ export function WelcomeModal({ onClose, onTour }: { onClose: () => void; onTour:
 export function HelpModal({ onClose, onWelcome, onTour }: { onClose: () => void; onWelcome: () => void; onTour: (id: TourId) => void }) {
   const keys: [string, string][] = [
     ['V / D / A / M / S / N / K', tr('선택 / 그리기 / 화살표 / 치수 / 스텝 / 메모 / 마커 도구', 'Tools: select, draw, arrow, dimension, step, note, marker')],
+    [tr('회로도: V / W / R / Del', 'Circuit: V / W / R / Del'), tr('선택 / 선 긋기 / 회전 / 삭제 (단자를 끌면 선, 방향키로 한 칸 이동, Ctrl+C·V·D 복사)', 'Select / wire / rotate / delete (drag a terminal to wire, arrows nudge, Ctrl+C/V/D copy)')],
     ['Ctrl+Z, Ctrl+Y', tr('실행 취소, 다시 실행', 'Undo, redo')],
     ['Ctrl+PgUp / Ctrl+PgDn', tr('설비 파일의 이전 / 다음 차트', 'Previous / next chart in the file')],
     ['Ctrl+S, Ctrl+O', tr('저장, 열기', 'Save, open')],
@@ -508,6 +529,7 @@ export function HelpModal({ onClose, onWelcome, onTour }: { onClose: () => void;
         </div>
         <h4>{tr('주요 기능', 'Features')}</h4>
         <ul>
+          <li>{tr('회로도 탭: 푸시버튼·릴레이·타이머·MC·THR·전동기·램프·솔레노이드·실린더로 결선도를 그리고 마우스로 눌러 시뮬레이션. 조작 순서를 적으면 타임차트, 그림에서 부품 리스트(접점 수·수량)가 자동으로 나옴', 'Circuit tab: draw relay, contactor, timer, motor and pneumatic circuits and simulate by clicking. Operations become the timing chart; the drawing becomes the parts list')}</li>
           <li>{tr('동작 순서 탭: 설비 → 동작 기기 → I/O → 동작 순서를 엑셀처럼 표에 적으면(엑셀 표 붙여넣기 가능) 타임차트·사이클 타임·인터록 검토가 바로 나옴', 'Sequence tab: fill in devices, I/O and sequence in spreadsheet-like tables (paste from Excel) to get the chart, cycle time and interlock checks')}</li>
           <li>{tr('설비 파일: 한 설비의 차트 여러 장(자동 사이클, 원점 복귀, 유닛별 …)을 한 파일에 두고, 목차와 함께 한 번에 인쇄', 'Machine file: keep all charts of one machine in one file and print them together with a contents page')}</li>
           <li>{tr('PLC 프로그램(미쓰비시 GX Works 니모닉/CSV, LS XG5000, 지멘스 STL, IEC ST/SCL)을 불러와 스캔 시뮬레이션으로 타임차트 자동 생성', 'Generate charts from PLC programs (Mitsubishi, LS, Siemens STL, IEC ST) by scan simulation')}</li>

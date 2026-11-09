@@ -1,5 +1,6 @@
 import type { PlcConfig } from '../plc/types';
 import type { SeqSpec } from './sequence';
+import type { Circuit } from '../circuit/types';
 
 /** 신호 종류 */
 export type SignalKind =
@@ -93,6 +94,8 @@ export interface DimensionAnnotation {
   t2: number;
   /** 비어 있으면 자동으로 시간차 표시 */
   label: string;
+  /** 회로 시뮬레이션이 그린 치수선 (다시 적용하면 새로 그림) */
+  auto?: boolean;
 }
 
 export interface NoteAnnotation {
@@ -214,4 +217,6 @@ export interface Project {
   sheet?: string;
   /** 작성 도우미(설비 → 기기 → I/O → 동작 순서)로 만든 차트면 그 입력 - 순서를 고쳐 다시 만들 때 사용 */
   sequence?: SeqSpec;
+  /** 회로도 탭에서 그린 회로와 조작 순서 (차트는 이 회로를 시뮬레이션해서 만든다) */
+  circuit?: Circuit;
 }

@@ -53,7 +53,7 @@ export function TextPanel() {
   const apply = () => {
     if (!parsed.project) return;
     const cur = useStore.getState().project;
-    const next: Project = mode === 'dsl' ? { ...parsed.project, plc: cur.plc, revisions: cur.revisions } : { ...parsed.project, id: cur.id, meta: { ...cur.meta, title: parsed.project.meta.title || cur.meta.title }, plc: cur.plc, revisions: cur.revisions };
+    const next: Project = mode === 'dsl' ? { ...parsed.project, plc: cur.plc, revisions: cur.revisions } : { ...parsed.project, id: cur.id, meta: { ...cur.meta, title: parsed.project.meta.title || cur.meta.title }, plc: cur.plc, circuit: cur.circuit, revisions: cur.revisions };
     commit(next);
     setDirty(false);
     setTimeout(() => useStore.getState().fitZoom(), 0);

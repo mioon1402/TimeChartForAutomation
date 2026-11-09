@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>TimeChart Studio – 자동화 설비 타임차트 · PLC 시뮬레이션 무료 도구</title>
-    <meta name="description" content="자동화 설비의 타임차트를 직접 그리거나 LS XG5000 · 미쓰비시 · 지멘스 PLC 프로그램으로 자동으로 만들고, 표제란이 있는 보고서로 출력하는 무료 웹 도구. 설치와 회원가입 없이 브라우저에서 바로 씁니다." />
+    <meta name="description" content="릴레이·전자접촉기·타이머·전동기·공압 실린더 제어 회로도를 그리고 시뮬레이션하면 타임차트와 부품 리스트가 자동으로 나오고, LS XG5000 · 미쓰비시 · 지멘스 PLC 프로그램으로도 타임차트를 만들어 표제란이 있는 보고서로 출력하는 무료 웹 도구. 설치와 회원가입 없이 브라우저에서 바로 씁니다." />
     <meta name="theme-color" content="#0f1b2d" />
     <link rel="canonical" href="https://mioon1402.github.io/TimeChartForAutomation/" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="TimeChart Studio – 자동화 설비 타임차트" />
-    <meta property="og:description" content="PLC 프로그램으로 타임차트를 자동으로 그리고 보고서로 출력합니다. 설치·회원가입 없이 브라우저에서 바로 사용." />
+    <meta property="og:description" content="회로도를 그리면 타임차트와 부품 리스트가 나옵니다. PLC 프로그램으로도 타임차트를 자동으로 그리고 보고서로 출력합니다. 설치·회원가입 없이 브라우저에서 바로 사용." />
     <meta property="og:url" content="https://mioon1402.github.io/TimeChartForAutomation/" />
     <meta property="og:image" content="https://mioon1402.github.io/TimeChartForAutomation/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -730,14 +730,14 @@
       <div class="hero">
         <div class="wrap hero-grid">
           <div class="hero-left">
-            <span class="eyebrow">자동화 설비 · PLC 타임차트 도구</span>
-            <h1>PLC 프로그램을 넣으면 <em>타임차트</em>가 그려집니다</h1>
+            <span class="eyebrow">제어 회로도 · 타임차트 · PLC 도구</span>
+            <h1>회로도를 그리면 <em>타임차트</em>와 부품 리스트가 나옵니다</h1>
             <p class="hero-copy">
-              설비가 한 사이클 동안 언제 무엇이 움직이는지 그리는 타임차트를 직접 그리거나, LS XG5000 · 미쓰비시 · 지멘스 PLC 프로그램으로 자동으로 만들고, 작성·검토·승인 칸이 있는 보고서로 뽑습니다.
+              푸시버튼·릴레이·타이머·전자접촉기·전동기·공압 실린더로 결선도를 그리고 눌러서 움직여 봅니다. 조작 순서를 적으면 타임차트가, 그림에서 부품 리스트가 자동으로 나오고, LS XG5000 · 미쓰비시 · 지멘스 PLC 프로그램으로도 차트를 만들어 작성·검토·승인 칸이 있는 보고서로 뽑습니다.
             </p>
             <div class="cta">
               <a class="btn primary" href="app/">바로 시작하기 →</a>
-              <a class="btn ghost" href="app/#tutorial">3분 튜토리얼</a>
+              <a class="btn ghost" href="app/#circuit">예제 회로 돌려 보기</a>
             </div>
             <div class="continue" id="continue" hidden>
               <span>이 브라우저에 하던 작업이 있습니다: <b id="continue-title"></b></span>
@@ -750,7 +750,7 @@
             </ul>
           </div>
           <div class="shot">
-            <img src="img/plc-result.png" width="1280" height="760" alt="LS PLC 예제 프로그램을 시뮬레이션해 만든 타임차트: 솔레노이드, 실린더 동작선, 센서가 시간 순서로 그려져 있고 위에 공정 스텝 띠, 아래에 동작 순서표가 있다" />
+            <img src="img/circuit.png" width="1280" height="760" alt="회로도 탭: 자기유지 회로를 시뮬레이션하는 화면. 전압이 닿은 선이 빨강·파랑으로 보이고 MC1 코일과 운전 램프가 켜져 있으며, 아래에 기동 버튼·MC1·전동기·램프의 타임차트가 기록되고 있다" />
           </div>
         </div>
       </div>
@@ -759,8 +759,24 @@
         <div class="wrap">
           <div class="sec-head">
             <span class="kicker">무엇을 할 수 있나요</span>
-            <h2>그리기, PLC 로 만들기, 동작 순서표로 만들기, 인쇄, 배우기</h2>
+            <h2>회로도로 만들기, 그리기, PLC 로 만들기, 동작 순서표로 만들기, 인쇄, 배우기</h2>
             <p>설계 검토, 설비 사양서, 고객 보고서에 들어가는 타임차트를 한곳에서 만들고 검토합니다.</p>
+          </div>
+
+          <div class="feature flip">
+            <div class="f-text" style="--c: var(--accent)">
+              <span class="tag">회로도 → 타임차트 · 부품 리스트</span>
+              <h3>CADe SIMU 처럼 결선도를 그리고 눌러서 움직여 봅니다</h3>
+              <p>부품을 놓고 단자끼리 끌어서 선을 잇습니다. 코일과 접점은 같은 기호(X1, MC1, T1)로 연동합니다.</p>
+              <ul class="ticks">
+                <li>전원 · 차단기 · 퓨즈 · THR · 푸시버튼 · 셀렉터 · 비상정지 · 리밋 스위치 · 릴레이 · MC · 타이머 · 램프 · 부저 · 3상 전동기 · 솔레노이드 · 공압 실린더</li>
+                <li>버튼을 누르면 전압이 닿은 선이 색으로 보이고, 자기유지 · 인터록 · 정역(상 순서) · 한시 동작 · 실린더 왕복이 그대로 움직입니다. 단락과 결상도 알려 줍니다</li>
+                <li><b>조작 순서</b>(PB1 누름 → 3초 뒤 PB0 누름)만 적으면 <b>타임차트</b>가 자동으로, 그림에서 <b>부품 리스트</b>(품명 · 사양 · 접점 수 · 수량)가 자동으로</li>
+                <li>보고서에 회로도 · 조작 순서 · 부품 리스트 · 타임차트를 함께 인쇄</li>
+              </ul>
+              <a class="btn ghost small" href="app/#circuit">예제 회로 열어 보기</a>
+            </div>
+            <div class="shot"><img src="img/circuit-bom.png" width="1280" height="760" loading="lazy" alt="회로도 탭: 공압 실린더 1사이클 회로, 오른쪽에 회로도에서 자동으로 만든 부품 리스트, 아래에 기동 버튼·릴레이·솔레노이드·실린더 타임차트" /></div>
           </div>
 
           <div class="feature">

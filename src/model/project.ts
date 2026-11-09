@@ -12,6 +12,7 @@ import type {
 } from './types';
 import { normalize, pulsesToPoints, uid } from './wave';
 import { sanitizeSequence } from './sequence';
+import { sanitizeCircuit } from '../circuit/sanitize';
 import { todayString } from './format';
 
 export const ROLE_COLORS: Record<SignalRole, string> = {
@@ -171,6 +172,7 @@ export function migrateProject(raw: unknown): Project {
     rules: Array.isArray(o.rules) ? (o.rules as TimingRule[]) : [],
     plc: o.plc as Project['plc'],
     sequence: sanitizeSequence(o.sequence),
+    circuit: sanitizeCircuit(o.circuit),
     sheet: typeof o.sheet === 'string' && o.sheet ? o.sheet : undefined,
   };
 }

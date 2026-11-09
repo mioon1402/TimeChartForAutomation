@@ -10,6 +10,7 @@ import { ReportPanel } from './components/ReportPanel';
 import { HelpModal, markWhatsNewSeen, StatusBar, Toolbar, TopBar, useShortcuts, WelcomeModal, WhatsNew, whatsNewPending } from './components/Shell';
 import { Tour } from './components/Tour';
 import { SequencePanel } from './components/SequencePanel';
+import { CircuitPanel } from './components/CircuitPanel';
 import { SheetBar } from './components/SheetBar';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PracticePicker } from './components/Practice';
@@ -53,7 +54,7 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  // 소개 페이지에서 바로 가기: /app/#tutorial, #tutorial-plc, #practice, #wizard(동작 순서 탭), #plc
+  // 소개 페이지에서 바로 가기: /app/#tutorial, #tutorial-plc, #practice, #wizard(동작 순서 탭), #plc, #circuit(회로도 예제)
   useEffect(() => {
     const h = typeof location !== 'undefined' ? location.hash.replace('#', '') : '';
     const s = useStore.getState();
@@ -63,6 +64,10 @@ export default function App() {
     else if (h === 'practice') s.setPracticePicker(true);
     else if (h === 'wizard' || h === 'sequence') s.setTab('sequence');
     else if (h === 'plc') s.setTab('plc');
+    else if (h === 'circuit') {
+      if (!s.project.circuit?.parts.length) void import('./components/fileActions').then((F) => F.openCircuitExample('self-hold'));
+      else s.setTab('circuit');
+    }
     else return;
     storageSet(WELCOME_KEY, '1');
     setWelcome(false);
@@ -166,7 +171,7 @@ export default function App() {
     >
       <TopBar onHelp={() => setHelp(true)} />
       {!practice && <SheetBar />}
-      <ErrorBoundary key={tab} area={{ editor: tr('타임차트', 'Chart'), sequence: tr('동작 순서', 'Sequence'), plc: 'PLC', text: tr('텍스트 코드', 'Text'), report: tr('보고서', 'Report') }[tab]}>
+      <ErrorBoundary key={tab} area={{ circuit: tr('회로도', 'Circuit'), editor: tr('타임차트', 'Chart'), sequence: tr('동작 순서', 'Sequence'), plc: 'PLC', text: tr('텍스트 코드', 'Text'), report: tr('보고서', 'Report') }[tab]}>
         {tab === 'editor' && (
           <>
             <Toolbar />
@@ -180,6 +185,7 @@ export default function App() {
             <StatusBar />
           </>
         )}
+        {tab === 'circuit' && <CircuitPanel />}
         {tab === 'sequence' && <SequencePanel />}
         {tab === 'plc' && <PlcPanel />}
         {tab === 'text' && <TextPanel />}

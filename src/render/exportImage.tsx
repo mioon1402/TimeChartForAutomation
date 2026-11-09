@@ -2,6 +2,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { Project } from '../model/types';
 import { ChartSvg, type ChartSvgOptions } from './ChartSvg';
 import { downloadBlob } from '../io/files';
+import type { Circuit } from '../circuit/types';
+import { CircuitSvg } from './CircuitSvg';
+
+export function circuitSvgString(c: Circuit): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${renderToStaticMarkup(<CircuitSvg circuit={c} />)}`;
+}
 
 export function chartSvgString(project: Project, opts: ChartSvgOptions = {}): string {
   const markup = renderToStaticMarkup(<ChartSvg project={project} {...opts} />);
