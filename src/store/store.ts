@@ -7,7 +7,7 @@ import { deleteTime, insertTime, normalize, scaleTime, uid } from '../model/wave
 import { bookFromProject, mergeAutosave, migrateDocument, uniqueSheetName, sheetName, type Book } from '../model/book';
 import { setLang, type Lang } from '../i18n';
 
-export type Tab = 'editor' | 'sequence' | 'plc' | 'text' | 'report';
+export type Tab = 'circuit' | 'editor' | 'sequence' | 'plc' | 'text' | 'report';
 export type Tool = 'select' | 'draw' | 'arrow' | 'dimension' | 'note' | 'marker' | 'step';
 export type Selection =
   | { type: 'signals'; ids: string[] }
@@ -264,7 +264,8 @@ export const useStore = create<State>((set, get) => {
     dirty: false,
     fileName: '',
 
-    tab: 'editor',
+    // 회로도가 있는 문서는 회로도부터
+    tab: initialDoc.sheets[initialDoc.active]?.circuit?.parts.length ? 'circuit' : 'editor',
     tool: 'select',
     selection: null,
     range: null,

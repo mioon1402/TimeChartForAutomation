@@ -1,6 +1,7 @@
 # TimeChart Studio
 
-**자동화 설비의 타임차트를 그리고, PLC 프로그램으로 자동으로 만들고, 보고서(PDF)로 뽑는 무료 도구**입니다.
+**제어 회로도를 그리면 타임차트와 부품 리스트가 자동으로 나오고, PLC 프로그램으로도 타임차트를 만들어 보고서(PDF)로 뽑는 무료 도구**입니다.
+CADe SIMU 처럼 푸시버튼·릴레이·타이머·전자접촉기·전동기·공압 실린더로 결선도를 그리고 눌러서 움직여 볼 수 있습니다.
 
 ### ▶ 바로 쓰기: https://mioon1402.github.io/TimeChartForAutomation/
 
@@ -32,6 +33,7 @@
 설비 사양서, 매뉴얼, 사이클 타임 검토, 고객 보고서에 들어가는 그림이 바로 이것입니다.
 
 ### 이 프로그램이 해 주는 일
+0. **회로도 → 타임차트 · 부품 리스트**: 회로도 탭에서 결선도(전원, 차단기, 푸시버튼, 릴레이·MC 코일과 접점, 타이머, THR, 램프, 전동기, 솔레노이드, 공압 실린더, PLC 블록)를 그리고 버튼을 눌러 시뮬레이션합니다. "PB1 누름 → 3초 뒤 PB0 누름" 같은 조작 순서만 적으면 회로가 그대로 움직인 결과가 타임차트가 되고, 그림에서 부품 리스트(기호·품명·사양·접점 수·수량)가 자동으로 나옵니다.
 1. **그리기**: 마우스로 ON/OFF 파형을 그립니다. 실린더 이동 시간은 경사선으로, 공정 스텝은 색 띠로 표시하고, "이 신호 때문에 저 신호가 켜진다"는 화살표와 시간 치수선을 넣을 수 있습니다.
 2. **PLC 프로그램으로 자동 생성**: PLC 프로그램(래더를 니모닉으로 뽑은 것)을 넣으면 PLC가 도는 것처럼 계산해서 타임차트를 자동으로 그려 줍니다. LS XG5000은 **니모닉(IL)을 PDF로 인쇄한 파일을 그대로 열면** 됩니다.
 3. **검토와 보고서**: 사이클 타임과 가장 오래 걸리는 스텝(병목)을 계산하고, "SOL이 켜지고 0.4초 안에 센서가 들어와야 한다" 같은 규칙을 자동으로 OK/NG 판정합니다. 결과는 도면 표제란(작성/검토/승인)이 있는 PDF 보고서로 뽑습니다.
@@ -60,8 +62,8 @@
 
 ### 웹 주소로 열기
 - 첫 주소는 **소개 페이지**입니다. 무엇을 할 수 있는지, 타임차트가 처음인 사람을 위한 설명, XG5000 PDF 로 만드는 법이 있고, 이 브라우저에 하던 작업이 있으면 **이어서 작업하기** 버튼이 나옵니다.
-- 소개 페이지의 버튼은 편집기의 원하는 화면으로 바로 갑니다: `app/#tutorial`(차트 그리기 튜토리얼), `app/#tutorial-plc`(PLC 튜토리얼), `app/#practice`(연습 문제), `app/#wizard`(동작 순서 탭), `app/#plc`(PLC 탭).
-- 크롬 또는 엣지를 권장합니다. 편집기를 처음 열면 시작 화면에서 **예제 차트 둘러보기 / PLC 프로그램으로 만들기 / 동작 순서표로 만들기** 중 하나를 고릅니다.
+- 소개 페이지의 버튼은 편집기의 원하는 화면으로 바로 갑니다: `app/#circuit`(회로도 탭, 예제 회로), `app/#tutorial`(차트 그리기 튜토리얼), `app/#tutorial-plc`(PLC 튜토리얼), `app/#practice`(연습 문제), `app/#wizard`(동작 순서 탭), `app/#plc`(PLC 탭).
+- 크롬 또는 엣지를 권장합니다. 편집기를 처음 열면 시작 화면에서 **회로도 그리기 / 예제 차트 둘러보기 / PLC 프로그램으로 만들기 / 동작 순서표로 만들기** 중 하나를 고릅니다.
 - 휴대폰에서도 열리지만, 편집과 보고서 출력은 마우스가 있는 PC가 편합니다.
 - 새 기능이 나오면 같은 주소에서 바로 반영됩니다.
 
@@ -89,6 +91,21 @@
 2. **파형 고치기**: 왼쪽 위 연필(그리기, `D` 키)을 누르고 신호 줄에서 마우스로 끌면 ON/OFF가 뒤집힙니다. 화살표(선택, `V` 키) 상태에서 파형이 바뀌는 지점을 끌면 시간이 옮겨집니다. 틀리면 `Ctrl+Z`로 되돌립니다.
 3. **PLC 프로그램으로 만들기**: 상단 `PLC 시뮬레이션` 탭 → `예제 불러오기…`에서 "LS XGK - 픽앤플레이스"를 고르고 → 오른쪽 아래 `▶ 시뮬레이션 → 타임차트 생성`을 누릅니다.
 4. **보고서 뽑기**: `보고서` 탭 → `인쇄 / PDF 저장`을 누르고 → 프린터를 "PDF로 저장"으로 고릅니다.
+
+### 회로도를 그려서 타임차트 · 부품 리스트 만들기 (회로도 탭)
+
+맨 앞 `회로도` 탭이 이 프로그램의 시작점입니다. 결선도를 그리면 나머지(타임차트, 부품 리스트, 보고서)는 따라 나옵니다.
+
+1. **예제로 익히기**: 회로도 탭 위쪽 `예제 회로`에서 **자기유지 / 정역 운전(인터록) / 타이머 지연 동작 / 공압 실린더 1사이클 / PLC 자기유지 + 타이머** 중 하나를 엽니다. PLC 예제는 PLC 탭에 미쓰비시 프로그램이 함께 들어가고, 그 프로그램을 고치면 회로도 동작도 바뀝니다.
+2. **부품 놓기**: 왼쪽 목록(전원, 보호 기기, 조작 스위치, 릴레이·타이머, 출력, 공압)에서 부품을 누르고 그림판을 누르면 놓입니다. `Shift`를 누른 채 놓으면 계속 놓을 수 있고, `R`은 회전, `Delete`는 삭제입니다.
+3. **선 긋기**: 부품 단자(작은 점)에서 다른 단자까지 끌면 꺾인 선이 그어집니다. 선 중간에서 끌기 시작하거나 선 끝이 다른 선 중간에 닿으면 T 분기로 이어지고 점이 찍힙니다. 엇갈리기만 한 선은 이어지지 않습니다. 빈 곳에서 시작하려면 `W`(선 긋기 도구)를 쓰세요.
+4. **기호로 연동**: 코일 `X1`과 접점 `X1`처럼 기호가 같으면 함께 움직입니다. 타이머 `T1`의 접점은 한시 접점, THR 의 b접점(95-96)은 트립되면 열립니다. 리밋 스위치는 속성에서 실린더 끝(전진단/후진단)에 연결합니다.
+5. **시뮬레이션**: `▶ 시뮬레이션`을 누르고 버튼을 마우스로 누릅니다(누르는 동안 ON). 셀렉터·차단기·THR·비상정지는 누를 때마다 바뀝니다. 전압이 닿은 선은 극마다 색(L·+24V 빨강, N·0V 파랑, L2 주황, L3 보라)으로 보이고, 코일·램프·전동기 회전(정/역)·실린더 움직임이 그대로 보입니다. 단락, 3상 결상도 알려 줍니다. 속도는 ×0.25 ~ ×4, 일시정지가 됩니다.
+6. **조작 순서 → 타임차트**: 오른쪽 `조작 순서`에 "대기 0.5 s → PB1 누름(0.3 s) → 대기 3 s → PB0 누름"처럼 적으면 아래 미리보기에 타임차트가 바로 그려지고 `타임차트` 탭에 반영됩니다. 시뮬레이션에서 직접 눌러 본 뒤 `정지`하면 누른 순서와 시간을 조작 순서로 저장할 수도 있습니다. 메모를 적으면 차트의 공정 스텝 이름이 되고, 타이머 지연은 치수선으로 자동 표시됩니다.
+7. **부품 리스트**: `부품 리스트`에 기호마다 품명·설명·사양·접점 수(예: 전자접촉기 주접점 3P, 보조 2a1b)가 나오고, 같은 품명·사양끼리 수량을 모은 표가 함께 나옵니다. `엑셀 CSV 저장`으로 받거나 보고서에 넣어 인쇄합니다.
+8. **검사**: 코일이 없는 접점, 같은 기호의 코일 두 개, 이어지지 않은 단자, 전원 없음 같은 실수를 `검사`에서 알려 줍니다.
+
+> 차트가 손으로 그린 것이면 회로를 고쳐도 덮어쓰지 않습니다. 이때는 `타임차트에 적용`을 눌러야 바뀝니다. 같은 기호의 신호는 이름·색·화살표를 유지하고 파형만 바뀝니다. 새 회로는 `+ 차트 추가 → 회로도로 새 차트`로 시작하세요.
 
 ### 내 설비의 타임차트를 처음부터 만들기 (동작 순서 탭)
 
@@ -296,6 +313,34 @@ XG5000은 니모닉을 텍스트나 CSV로 내보내는 기능이 없고 **인�
 
 ## 9. 기능 상세
 
+### 회로도 시뮬레이션
+- 부품: 전원(L·N, +24V·0V, 3상 L1·L2·L3), 배선용 차단기 1P·3P, 퓨즈 1P·3P, 열동형 과부하 계전기(THR, 트립/복귀), 푸시버튼 a·b(색), 셀렉터 a·b, 비상정지, 리밋 스위치 a·b, 릴레이·전자접촉기 코일, 보조 a·b접점, MC 주접점 3P, 타이머(ON/OFF 딜레이, 한시 접점), 파일럿 램프(5색), 부저, 3상 전동기, 단상·직류 전동기, 솔레노이드 밸브, 공압 실린더(단동 스프링 복귀 / 복동), PLC 블록, 글자
+- PLC 블록: 입력 8개(위)와 공통 C · 릴레이 출력 8개(아래). 입력 단자에 +24V·L 이 닿으면 ON, 출력은 C ↔ Q 접점. 첫 주소(X0/Y0, P00000/P00040, I0.0/Q0.0, %IX0.0/%QX0.0)에서 차례로 번호가 붙고, PLC 시뮬레이션 탭의 프로그램을 스캔 타임마다 실행합니다. 버튼 → PLC → 램프·MC·솔레노이드까지 한 회로로 움직이고, 타임차트에 PLC 입출력 행(디바이스 코멘트 이름)이 함께 나옵니다
+- 계산: 닫힌 접점으로 이어진 선을 묶고, 부하의 두 단자가 같은 계통의 다른 극(+24V↔0V, L↔N, L1↔L2 …)에 닿으면 동작. 3상 전동기는 상 순서로 정/역을 정하고 두 상만 닿으면 결상. 한 선에 서로 다른 극이 닿으면 단락
+- 시간: 타이머 만료, 실린더 도착·끝 센서 벗어남(스트로크 3%)을 사건으로 계산해서 시간이 정확합니다(스캔 간격 오차 없음)
+- 동시에 누른 인터록 버튼은 앞 렁이 이기고, 계속 켜졌다 꺼지는 회로는 발진으로 알려 줍니다
+- 회로·조작 순서는 차트(.tchart)에 함께 저장되고, 실행 취소(Ctrl+Z)·자동 백업이 됩니다. 회로도는 PNG·SVG 로 내보낼 수 있습니다
+
+### CADe SIMU 와 비교
+
+| 기능 | CADe SIMU | TimeChart Studio 회로도 |
+|---|---|---|
+| 결선도 그리기 · 부품 라이브러리 | 많음 (2D/3D 그림 포함) | 기본 제어 부품 26종 (PLC 블록 포함) |
+| 버튼을 눌러 실시간 시뮬레이션 | O | O (속도 조절·일시정지) |
+| 전류가 흐르는 선 표시 | O | 전압이 닿은 선을 극별 색으로 |
+| 단락 검출 | O (멈춤) | O (경고·선 깜빡임) |
+| 릴레이 · MC · 타이머 · THR | O | O |
+| 3상 전동기 정역 · 결상 | O | O |
+| 공압 실린더 · 솔레노이드 · 리밋 스위치 | O (밸브·배관까지) | 실린더·솔레노이드·끝 센서 (밸브·배관 기호 없음) |
+| 회로 안의 PLC | O (LOGO!, S7-1200/1500, 래더·FBD·Grafcet 편집) | O (PLC 블록 입력 8·릴레이 출력 8, PLC 탭의 미쓰비시·LS·지멘스 STL·ST 프로그램을 스캔 실행. 래더·FBD 그림 편집은 없음) |
+| PC_SIMU(가상 설비) · 아두이노 연결 | O | — |
+| 조작 순서 → 타임차트 자동 생성 | — | O |
+| 부품 리스트 · 접점 수 · 수량 집계 · CSV | — | O |
+| 회로 검사 (코일 없는 접점, 떠 있는 단자 …) | — | O |
+| 표제란 보고서 (회로도 + 타임차트 + 부품 리스트) | 인쇄만 | O |
+| 설치 · 운영체제 | 윈도우 실행 파일 | 브라우저(파일 하나, 오프라인, 휴대폰) |
+| 언어 | 스페인어·영어 등 | 한국어·영어 |
+
 ### PLC 시뮬레이션
 - 스캔 단위 실행: 타이머(100ms/10ms, FX 번호별 단위), 카운터, 상승/하강 에지, SET/RST, MPS/MRD/MPP, 비교 접점, MOV/INC/ADD, **미쓰비시 STL 스텝 래더**, MC/MCR, 점프를 처리합니다.
 - 설비 모델: 실린더(싱글/더블 솔레노이드, 전진·후진 시간), 지연 응답(ON/OFF 지연, 반전), 위치 축(정/역 출력, 속도 선택, 엔코더 카운터, 위치 구간 리밋 스위치, 프로그램의 엔코더 리셋 반영)
@@ -359,6 +404,7 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 **TimeChart Studio** is a free, browser-based timing-chart tool for automated machines.
 
 - **Use it now:** https://mioon1402.github.io/TimeChartForAutomation/ (no install, no sign-up). For offline PCs, download [TimeChartStudio.html](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html) and double-click it.
+- **Circuit tab (like CADe SIMU):** draw relay, contactor, timer, overload, motor and pneumatic circuits on a grid and run them by clicking buttons; live wires are coloured by pole, motors spin forward/reverse, cylinders move, shorts and open phases are flagged. Write the operator actions (or record them while simulating) and the timing chart is generated; the parts list (tags, item, spec, contacts used, quantities) comes straight from the drawing and prints in the report.
 - **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
 - **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.
 - **Sequence tab** following real design practice on one page: machine spec → moving devices and motion times → I/O list with PLC addresses → sequence (after / together with previous) → live preview with cycle time and interlock checks. The tables work like a spreadsheet (type, arrow keys, Ctrl+C/V with Excel); paste an Excel sequence table or I/O list and columns are matched by their headers.
@@ -388,12 +434,13 @@ npm run build:site # GitHub Pages 사이트 조립 (_site/: 소개 페이지 + a
 구성: React 19 + TypeScript + Zustand, Vite(단일 HTML 빌드), pdf.js(PDF 텍스트, 한글 CMap 포함), Vitest
 
 ```text
+src/circuit     회로도: 부품 정의(parts.ts), 선 연결(netlist.ts), 사건 구동 시뮬레이션(engine.ts), 타임차트 만들기(chart.ts), 부품 리스트·검사(bom.ts), 예제(examples.ts)
 src/model       파형 데이터, 분석·규칙 검증, 템플릿, 동작 순서 모델(sequence.ts)과 표 편집 규칙(seqEdit.ts), 설비 파일(book.ts)
 src/learn       연습 문제(exercises.ts)와 채점(grade.ts)
 src/plc         PLC 파서(미쓰비시·LS·지멘스 STL·ST), LS PDF 텍스트 해석, 스캔 실행기, 시뮬레이터, 설비 모델, I/O 매핑 추적(alias.ts)
 src/io          PDF 텍스트 추출, WaveDrom, CSV, TCT 텍스트, 엑셀 붙여넣기 표(tsv.ts), 파일 입출력
 src/render      차트 그리기 (화면·보고서·이미지 공용)
-src/components  편집기, 동작 순서(SequencePanel)·PLC·텍스트·보고서 화면, 엑셀형 표(Grid), 차트 탭(SheetBar)
+src/components  회로도(CircuitPanel·CircuitCanvas), 편집기, 동작 순서(SequencePanel)·PLC·텍스트·보고서 화면, 엑셀형 표(Grid), 차트 탭(SheetBar)
 site            소개 페이지(index.html)와 화면 캡처(img/)
 scripts         사이트 조립(build-site.mjs)
 tests           단위 테스트
@@ -405,10 +452,12 @@ tests           단위 테스트
 - 저장소를 복제해서 따로 올릴 때: 저장소 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 바꾸고, `index.html`의 `og:` 주소와 `src/env.ts`의 `REPO_URL`을 자기 저장소로 고칩니다.
 
 ### 시뮬레이션 한계
+- 회로도는 전압·전류 값을 계산하지 않고 "어느 극에 닿았나"로 판단합니다. 부하를 직렬로 이은 회로, 다이오드·아날로그 부품은 아직 없습니다. PLC 블록은 한 회로에 여러 개 놓아도 프로그램은 PLC 탭의 하나를 함께 씁니다.
 - 래더 그래픽은 PLC 소프트웨어에서 니모닉 형태(CSV, PDF, 텍스트)로 뽑아서 불러옵니다.
 - 인덱스 수식, 파일 레지스터, 통신·위치결정 명령, 사용자 FB 정의 등은 무시하고 경고로 알려 줍니다.
 
 ### 로드맵
+- 회로도: 공압 밸브·배관 기호, Y-Δ 기동 예제, PLC 아날로그 입출력
 - 스텝 번호 가로축 차트, 여러 위치를 오가는 동작선(서보·3위치 실린더)
 - XGI/XGR IEC IL, PLCopen XML 읽기
 - 데스크톱 앱 패키징(파일 연결), 엑셀(.xlsx) 보고서

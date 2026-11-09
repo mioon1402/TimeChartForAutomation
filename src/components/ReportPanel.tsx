@@ -14,6 +14,9 @@ import { Check, Field, Icon, TextInput, TimeInput } from './ui';
 import { tr } from '../i18n';
 import { storageGet, storageSet } from '../storage';
 import { WEB_TRIAL } from '../env';
+import { CircuitSvg } from '../render/CircuitSvg';
+import { bomSummary, contactsLabel, partsList } from '../circuit/bom';
+import { opTimes } from '../circuit/engine';
 
 export interface ReportOpts {
   paper: 'A4' | 'A3';
@@ -40,6 +43,10 @@ export interface ReportOpts {
   stretch: boolean;
   /** 표제란 (빼면 차트를 더 크게) */
   titleBlock: boolean;
+  /** 회로도 탭에서 그린 회로도 (+ 조작 순서) */
+  circuit: boolean;
+  /** 회로도에서 만든 부품 리스트 */
+  bom: boolean;
 }
 
 const OPTS_KEY = 'timechart-studio.report.v1';
@@ -91,6 +98,8 @@ export const DEFAULT_REPORT_OPTS: ReportOpts = {
   violations: true,
   stretch: true,
   titleBlock: true,
+  circuit: true,
+  bom: true,
 };
 
 function loadOpts(): ReportOpts {
@@ -330,6 +339,12 @@ export function ReportPanel() {
             <div className="checks">
               <Check checked={o.cover} onChange={(v) => set({ cover: v })} label={tr('표지 · 요약', 'Cover & summary')} />
               <Check checked={o.chart} onChange={(v) => set({ chart: v })} label={tr('타임차트', 'Timing chart')} />
+              {!!project.circuit?.parts.length && (
+                <>
+                  <Check checked={o.circuit} onChange={(v) => set({ circuit: v })} label={tr('회로도 · 조작 순서', 'Circuit diagram & operations')} />
+                  <Check checked={o.bom} onChange={(v) => set({ bom: v })} label={tr('부품 리스트 (회로도에서 자동)', 'Parts list (from the circuit)')} />
+                </>
+              )}
               {project.sequence && <Check checked={o.sequence} onChange={(v) => set({ sequence: v })} label={tr('동작 순서표 (설계: 기기 · 순서 · I/O)', 'Sequence table (design)')} />}
               <Check checked={o.signals} onChange={(v) => set({ signals: v })} label={tr('신호(I/O) 목록', 'Signal (I/O) list')} />
               <Check checked={o.steps} onChange={(v) => set({ steps: v })} label={tr('공정 스텝 · 사이클 타임', 'Steps & cycle time')} />
@@ -797,6 +812,18 @@ function buildPages(project: Project, o: ReportOpts, size: { w: number; h: numbe
     });
   }
 
+  if (o.circuit && project.circuit?.parts.length) {
+    pages.push({
+      kind: 'circuit',
+      title: tr('회로도', 'Circuit diagram'),
+      body: (
+        <div className="circuit-page">
+          <CircuitSvg circuit={project.circuit} width={contentW} height={contentH - 4} />
+        </div>
+      ),
+    });
+  }
+
   if (o.chart && visible.length) {
     // 행 분할: 페이지 높이에 맞게
     const full = computeLayout(project, { includeHidden: false });
@@ -979,6 +1006,7 @@ function tableBlocks(project: Project, o: ReportOpts, rules: RuleResult[]): Bloc
   const c = cycleSummary(project);
 
   if (o.sequence && project.sequence) blocks.push(...sequenceBlocks(project.sequence));
+  if (project.circuit?.parts.length) blocks.push(...circuitBlocks(project, o));
 
   if (o.signals && visible.length) {
     blocks.push({
@@ -1317,4 +1345,93 @@ function sequenceBlocks(spec: SeqSpec): Block[] {
       ),
     },
   ];
+}
+
+/** 회로도의 조작 순서 · 부품 리스트 */
+function circuitBlocks(project: Project, o: ReportOpts): Block[] {
+  const c = project.circuit!;
+  const blocks: Block[] = [];
+  const u = project.settings.timeUnit;
+  if (o.circuit && c.ops.length) {
+    const times = opTimes(c.ops);
+    const act = { press: tr('누름 → 뗌', 'Press'), on: 'ON', off: 'OFF' };
+    blocks.push({
+      id: 'circuit-ops',
+      title: tr('조작 순서', 'Operations'),
+      head: (
+        <tr>
+          <th>No</th>
+          <th>{tr('시각', 'Time')}</th>
+          <th>{tr('기기', 'Device')}</th>
+          <th>{tr('동작', 'Action')}</th>
+          <th>{tr('누름 시간', 'Hold')}</th>
+          <th>{tr('메모', 'Note')}</th>
+        </tr>
+      ),
+      rows: c.ops.map((op, i) => (
+        <tr key={op.id}>
+          <td>{i + 1}</td>
+          <td className="mono">{formatTime(times[i], u)}</td>
+          <td className="mono">
+            <b>{op.tag}</b> {c.parts.find((p) => p.tag === op.tag && p.name)?.name ?? ''}
+          </td>
+          <td>{act[op.action]}</td>
+          <td className="mono">{op.action === 'press' ? formatTime(op.hold, u) : ''}</td>
+          <td>{op.note ?? ''}</td>
+        </tr>
+      )),
+    });
+  }
+  if (o.bom) {
+    const rows = partsList(c);
+    blocks.push({
+      id: 'bom',
+      title: tr('부품 리스트', 'Parts list'),
+      head: (
+        <tr>
+          <th>No</th>
+          <th>{tr('기호', 'Tag')}</th>
+          <th>{tr('품명', 'Item')}</th>
+          <th>{tr('설명', 'Description')}</th>
+          <th>{tr('사양', 'Spec')}</th>
+          <th>{tr('접점', 'Contacts')}</th>
+          <th>{tr('수량', 'Qty')}</th>
+        </tr>
+      ),
+      rows: rows.map((r, i) => (
+        <tr key={`${r.tag}-${i}`}>
+          <td>{i + 1}</td>
+          <td className="mono">
+            <b>{r.tag}</b>
+          </td>
+          <td>{r.kind}</td>
+          <td>{r.name}</td>
+          <td>{r.spec}</td>
+          <td>{contactsLabel(r)}</td>
+          <td>1</td>
+        </tr>
+      )),
+    });
+    blocks.push({
+      id: 'bom-sum',
+      title: tr('부품 수량 집계', 'Parts quantities'),
+      head: (
+        <tr>
+          <th>{tr('품명', 'Item')}</th>
+          <th>{tr('사양', 'Spec')}</th>
+          <th>{tr('수량', 'Qty')}</th>
+          <th>{tr('기호', 'Tags')}</th>
+        </tr>
+      ),
+      rows: bomSummary(rows).map((s, i) => (
+        <tr key={i}>
+          <td>{s.kind}</td>
+          <td>{s.spec}</td>
+          <td>{s.qty}</td>
+          <td className="mono">{s.tags.join(', ')}</td>
+        </tr>
+      )),
+    });
+  }
+  return blocks;
 }

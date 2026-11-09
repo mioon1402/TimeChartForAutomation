@@ -1,10 +1,10 @@
 import { useStore, newEmptyProject } from '../store/store';
-import { sampleProject } from '../model/project';
-import { downloadText, openTextFile, readTextSmart, safeFileName } from '../io/files';
+import { createProject, sampleProject } from '../model/project';
+import { downloadBlob, downloadText, openTextFile, readTextSmart, safeFileName } from '../io/files';
 import { importWaveDrom, exportWaveDrom } from '../io/wavedrom';
 import { exportChangeTable, exportSignalList, exportStepTable, importCsvLog } from '../io/csv';
 import { serializeDsl, parseDsl } from '../io/dsl';
-import { copyPngToClipboard, downloadPng, downloadSvg } from '../render/exportImage';
+import { circuitSvgString, copyPngToClipboard, downloadPng, downloadSvg, svgToPngBlob } from '../render/exportImage';
 import { checkRules } from '../model/analysis';
 import { parseLooseJson } from '../io/json5';
 import type { Project } from '../model/types';
@@ -16,6 +16,9 @@ import { defaultSpec, type SeqSpec } from '../model/sequence';
 import { autoTitle, emptySpec, newSequenceProject } from '../model/seqEdit';
 import { documentTitle, isBookJson, migrateDocument, serializeDocument, sheetName } from '../model/book';
 import { uid } from '../model/wave';
+import { circuitExamples } from '../circuit/examples';
+import { applyCircuit } from '../circuit/chart';
+import { emptyCircuit } from '../circuit/types';
 
 type FileHandle = { name: string; createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> };
 let handle: FileHandle | null = null;
@@ -61,6 +64,53 @@ export function addSequenceSheet() {
   p.meta.title = chartTitle(p.meta.machine, p.sheet);
   g().addSheet(p);
   g().setTab('sequence');
+}
+
+/** 회로도로 새 차트 탭 */
+export function addCircuitSheet() {
+  const p = inheritMeta(createProject());
+  p.meta.title = tr('새 회로도 타임차트', 'New circuit timing chart');
+  p.sheet = tr('새 회로도', 'New circuit');
+  p.circuit = emptyCircuit();
+  g().addSheet(p);
+  g().setTab('circuit');
+}
+
+/** 새 문서: 빈 회로도 */
+export async function newCircuitDoc() {
+  if (!(await confirmDiscard())) return;
+  handle = null;
+  const p = createProject();
+  p.meta.title = tr('새 회로도 타임차트', 'New circuit timing chart');
+  p.circuit = emptyCircuit();
+  g().loadProject(p);
+  g().setTab('circuit');
+}
+
+/** 예제 회로: 지금 차트가 비었으면 그 자리에, 아니면 새 차트 탭으로 */
+export function openCircuitExample(id: string) {
+  const ex = circuitExamples().find((e) => e.id === id);
+  if (!ex) return;
+  const cur = g().project;
+  const empty = !cur.signals.length && !cur.circuit?.parts.length;
+  const base = empty ? cur : inheritMeta(createProject());
+  const p = applyCircuit({ ...base, meta: { ...base.meta, title: ex.name, description: '' }, sheet: ex.name, circuit: ex.build(), ...(ex.plc ? { plc: ex.plc() } : {}) });
+  if (empty) g().commit(p);
+  else g().addSheet(p);
+  g().setTab('circuit');
+  g().toast(tr(`예제 "${ex.name}" 을(를) 열었습니다. [시뮬레이션]을 눌러 버튼을 눌러 보세요.`, `Opened "${ex.name}". Press Simulate and click the buttons.`), 'ok');
+}
+
+export async function exportCircuitImage(kind: 'png' | 'svg') {
+  const c = g().project.circuit;
+  if (!c?.parts.length) {
+    g().toast(tr('회로도가 비어 있습니다', 'The circuit is empty'), 'warn');
+    return;
+  }
+  const svg = circuitSvgString(c);
+  const name = `${base()}_${tr('회로도', 'circuit')}`;
+  if (kind === 'svg') downloadBlob(`${name}.svg`, new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+  else downloadBlob(`${name}.png`, await svgToPngBlob(svg, 2));
 }
 
 export function duplicateSheet() {
