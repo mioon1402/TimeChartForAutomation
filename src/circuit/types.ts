@@ -29,6 +29,7 @@ export type PartType =
   | 'motor' // 단상·직류 전동기
   | 'sol' // 솔레노이드 밸브 코일
   | 'cyl' // 공압 실린더 (솔레노이드 기호로 움직임)
+  | 'plc' // PLC: 입력 8 · 릴레이 출력 8, PLC 탭의 프로그램을 스캔 실행
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -63,6 +64,9 @@ export interface Part {
   cyl?: string;
   end?: '+' | '-';
   text?: string;
+  /** PLC: 입력·출력 첫 주소 (X0 / Y0, P00000 / P00040, I0.0 / Q0.0, %IX0.0 / %QX0.0) */
+  inBase?: string;
+  outBase?: string;
 }
 
 export interface Wire {

@@ -1,8 +1,13 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { isLinkedSensor, OPERATOR, PARTS, POLE_IDENTITY, POLE_SYSTEM } from './parts';
+import { isLinkedSensor, OPERATOR, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM } from './parts';
 import { formatTime } from '../model/format';
+import type { PlcConfig, SimSettings } from '../plc/types';
+import { parseProgram, type ParsedProgram } from '../plc/program';
+import { parseDeviceComments } from '../plc/comments';
+import { normDevice } from '../plc/devices';
+import type { PlcRuntime } from '../plc/runtime';
 
 /**
  * 회로 시뮬레이션 (사건 구동)
@@ -33,9 +38,26 @@ interface Conductor {
   tag: string;
   nc: boolean;
   always: boolean;
+  /** PLC 릴레이 출력 번호 (공통 C ↔ Qn) */
+  plcOut?: number;
 }
 
-export type TrackKind = 'operator' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'load' | 'motor' | 'cyl';
+/** 회로 안의 PLC: 입력 단자 넷과 프로그램 디바이스 */
+export interface PlcBlock {
+  part: Part;
+  inNets: number[];
+  /** 런타임에 쓰는 디바이스 이름 */
+  inDev: string[];
+  outDev: string[];
+  /** 화면에 보이는 주소 */
+  inAddr: string[];
+  outAddr: string[];
+  /** 디바이스 설명 (코멘트) */
+  inName: string[];
+  outName: string[];
+}
+
+export type TrackKind = 'operator' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut';
 
 export interface Track {
   key: string;
@@ -46,6 +68,8 @@ export interface Track {
   part: Part;
   points: WavePoint[];
   last: number | string | null;
+  /** PLC 입출력 번호 */
+  idx?: number;
 }
 
 /** 회로에서 바뀌지 않는 정보 (기호 연결, 넷) */
@@ -66,8 +90,16 @@ export class CircuitModel {
   readonly sources: { net: number; id: string }[] = [];
   /** 대표 부품 (기호마다 처음 나온 것, 코일이 있으면 코일) */
   readonly mainPart = new Map<string, Part>();
+  readonly plcs: PlcBlock[] = [];
+  /** PLC 탭의 프로그램 (회로에 PLC 가 있을 때만) */
+  readonly prog: ParsedProgram | null = null;
+  readonly plcSim: SimSettings | null = null;
+  readonly plcIssues: string[] = [];
 
-  constructor(readonly circuit: Circuit) {
+  constructor(
+    readonly circuit: Circuit,
+    plc?: PlcConfig,
+  ) {
     this.net = buildNetlist(circuit);
     const rank: Record<TagKind, number> = { coil: 5, timer: 5, thr: 4, sensor: 3, operator: 2 };
     const setKind = (tag: string, k: TagKind, p: Part) => {
@@ -113,6 +145,41 @@ export class CircuitModel {
       }
       if (p.type === 'src') this.sources.push({ net: this.net.pinNet.get(`${p.id}:0`)!, id: POLE_IDENTITY[p.pole ?? 'L'] });
       if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => this.sources.push({ net: this.net.pinNet.get(`${p.id}:${i}`)!, id }));
+    }
+    // PLC: 입력은 단자 넷의 극으로 읽고, 출력은 공통 C ↔ Qn 접점
+    const blocks = circuit.parts.filter((p) => p.type === 'plc');
+    if (blocks.length) {
+      const dialect = plc?.dialect ?? 'mitsubishi';
+      if (plc?.source.trim()) {
+        try {
+          this.prog = parseProgram(plc.source, plc.dialect, parseDeviceComments(plc.comments, plc.dialect));
+          this.plcSim = plc.sim;
+          const errs = this.prog.messages.filter((m) => m.severity === 'error');
+          if (errs.length) this.plcIssues.push(`PLC 프로그램 오류 ${errs.length}개 (줄 ${errs[0].line}: ${errs[0].message})`);
+        } catch (e) {
+          this.plcIssues.push(`PLC 프로그램을 읽지 못했습니다: ${(e as Error).message}`);
+        }
+      } else this.plcIssues.push('PLC 프로그램이 없습니다. PLC 시뮬레이션 탭에서 넣으세요');
+      const byAddr = new Map((this.prog?.devices ?? []).filter((d) => d.address).map((d) => [d.address!.toUpperCase(), d.name]));
+      const info = new Map((this.prog?.devices ?? []).map((d) => [d.name, d]));
+      const dev = (a: string) => (dialect === 'st' ? byAddr.get(a.toUpperCase()) ?? a : normDevice(a, dialect));
+      const net = (p: Part, i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
+      for (const p of blocks) {
+        const { ins, outs } = plcAddresses(p);
+        const inDev = ins.map(dev);
+        const outDev = outs.map(dev);
+        this.plcs.push({
+          part: p,
+          inNets: ins.map((_, n) => net(p, n)),
+          inDev,
+          outDev,
+          inAddr: ins,
+          outAddr: outs,
+          inName: inDev.map((d) => info.get(d)?.comment ?? ''),
+          outName: outDev.map((d) => info.get(d)?.comment ?? ''),
+        });
+        for (let n = 0; n < PLC_IO; n++) this.conductors.push({ part: p, a: net(p, PLC_IO), b: net(p, PLC_IO + 1 + n), tag: tagKey(p), nc: false, always: false, plcOut: n });
+      }
     }
     // 실린더 기호가 없는 리밋 스위치 연결은 조작 기기로
     for (const [tag, s] of this.sensorDef) {
@@ -164,6 +231,13 @@ export class CircuitSim {
   readonly motorDir = new Map<string, 1 | -1>();
   readonly openPhase = new Set<string>();
   shorted = false;
+  readonly plcIn = new Map<string, boolean[]>();
+  readonly plcOut = new Map<string, boolean[]>();
+  private rt: PlcRuntime | null = null;
+  private nextScan: number | null = null;
+  private scanK = 0;
+  /** 기록이 마지막으로 바뀐 시각 */
+  lastChangeT = 0;
   readonly warnings: string[] = [];
   private readonly warned = new Set<string>();
   readonly tracks: Track[] = [];
@@ -173,9 +247,50 @@ export class CircuitSim {
     for (const tag of m.coilParts.keys()) this.coilOn.set(tag, false);
     for (const tag of m.timerParts.keys()) this.timers.set(tag, { coil: false, out: false, since: 0 });
     for (const tag of m.cylDef.keys()) this.cyl.set(tag, { pos: 0, target: 0, atPlus: false, atMinus: true });
+    for (const b of m.plcs) {
+      this.plcIn.set(b.part.id, new Array<boolean>(PLC_IO).fill(false));
+      this.plcOut.set(b.part.id, new Array<boolean>(PLC_IO).fill(false));
+    }
+    m.plcIssues.forEach((w) => this.warn(w));
+    if (m.prog && m.plcSim && m.plcs.length) {
+      try {
+        this.rt = m.prog.createRuntime(m.plcSim);
+        this.nextScan = 0;
+      } catch (e) {
+        this.warn(`PLC 를 시작하지 못했습니다: ${(e as Error).message}`);
+      }
+    }
     this.buildTracks();
     this.settle();
+    if (this.rt) {
+      this.scanPlc();
+      this.settle();
+    }
     this.record();
+  }
+
+  get hasPlc(): boolean {
+    return this.rt !== null;
+  }
+
+  get scanTime(): number {
+    return Math.max(0.1, this.m.plcSim?.scanTime ?? 10);
+  }
+
+  /** PLC 한 스캔: 입력 단자 전압 → 프로그램 → 출력 접점 */
+  private scanPlc(): void {
+    const rt = this.rt!;
+    for (const b of this.m.plcs) {
+      const ins = b.inNets.map((n) => {
+        const p = this.netPole[n];
+        return p === '+24V' || p === 'L1' || p === 'L2' || p === 'L3';
+      });
+      this.plcIn.set(b.part.id, ins);
+      ins.forEach((v, i) => rt.writeBit(b.inDev[i], v));
+    }
+    rt.scan(this.t, this.scanK++);
+    for (const b of this.m.plcs) this.plcOut.set(b.part.id, b.outDev.map((d) => rt.readBit(d)));
+    this.nextScan = this.t + this.scanTime;
   }
 
   // ───────────── 상태 읽기 ─────────────
@@ -256,7 +371,8 @@ export class CircuitSim {
       return i;
     };
     for (const c of this.m.conductors) {
-      if (c.always || this.on(c.tag) !== c.nc) {
+      const closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || this.on(c.tag) !== c.nc;
+      if (closed) {
         const ra = find(c.a);
         const rb = find(c.b);
         if (ra !== rb) parent[ra] = rb;
@@ -370,9 +486,9 @@ export class CircuitSim {
     this.warn(`${formatTime(this.t, 's')}: 릴레이가 계속 켜졌다 꺼졌다 합니다 (발진)`, 'osc');
   }
 
-  /** 다음 사건 시각 (타이머 만료, 실린더 도착·끝 센서 벗어남) */
-  nextEvent(): number | null {
-    let best = Infinity;
+  /** 다음 사건 시각 (타이머 만료, 실린더 도착·끝 센서 벗어남, PLC 스캔) */
+  nextEvent(withScan = true): number | null {
+    let best = withScan && this.nextScan !== null ? this.nextScan : Infinity;
     for (const [tag, st] of this.timers) {
       const def = this.m.timerDef.get(tag)!;
       if ((def.mode === 'on' && st.coil && !st.out) || (def.mode === 'off' && !st.coil && st.out)) best = Math.min(best, st.since + def.preset);
@@ -420,6 +536,10 @@ export class CircuitSim {
         if (def.mode === 'on' && st.coil && !st.out) st.out = true;
         else if (def.mode === 'off' && !st.coil && st.out) st.out = false;
       }
+      if (this.nextScan !== null && this.nextScan <= this.t + EPS) {
+        this.settle();
+        this.scanPlc();
+      }
       this.settle();
       this.record();
     }
@@ -453,6 +573,15 @@ export class CircuitSim {
     for (const [tag, p] of m.cylDef) {
       this.tracks.push({ key: `cyl:${tag}`, tag: m.label(tag), kind: 'cyl', part: p, points: [], last: null });
     }
+    // PLC: 선이 이어진 입출력 단자만
+    const wired = (p: Part, i: number) => {
+      const n = m.net.pinNet.get(`${p.id}:${i}`)!;
+      return m.net.pinCount[n] > 1 || m.net.hasWire[n];
+    };
+    for (const b of m.plcs) {
+      b.inAddr.forEach((a, n) => wired(b.part, n) && this.tracks.push({ key: `plcIn:${b.part.id}:${n}`, tag: a, kind: 'plcIn', part: b.part, points: [], last: null, idx: n }));
+      b.outAddr.forEach((a, n) => wired(b.part, PLC_IO + 1 + n) && this.tracks.push({ key: `plcOut:${b.part.id}:${n}`, tag: a, kind: 'plcOut', part: b.part, points: [], last: null, idx: n }));
+    }
   }
 
   private trackValue(tr: Track): number | string {
@@ -475,6 +604,10 @@ export class CircuitSim {
       }
       case 'cyl':
         return this.cyl.get(tag)?.target ?? 0;
+      case 'plcIn':
+        return this.plcIn.get(tr.part.id)?.[tr.idx!] ? 1 : 0;
+      case 'plcOut':
+        return this.plcOut.get(tr.part.id)?.[tr.idx!] ? 1 : 0;
     }
   }
 
@@ -491,6 +624,7 @@ export class CircuitSim {
         if (remain > 0) pt.ramp = Math.round(remain * 1000) / 1000;
       }
       tr.points.push(pt);
+      if (tr.last !== null) this.lastChangeT = Math.max(this.lastChangeT, t);
       tr.last = v;
     }
   }
@@ -555,11 +689,12 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
   const lastOp = events.length ? events[events.length - 1].t : 0;
   if (fixed !== null) sim.advanceTo(fixed);
   else {
-    // 마지막 조작 뒤: 타이머·실린더가 멈출 때까지 (최대 60초)
+    // 마지막 조작 뒤: 타이머·실린더가 멈출 때까지 (최대 60초). PLC 는 늘 스캔하므로 20초 동안 바뀐 것이 없으면 멈춤
     const limit = lastOp + 60000;
-    for (let i = 0; i < 10000; i++) {
+    for (let i = 0; i < 200000; i++) {
       const next = sim.nextEvent();
       if (next === null || next > limit) break;
+      if (sim.hasPlc && sim.nextEvent(false) === null && next > Math.max(lastOp, sim.lastChangeT) + 20000) break;
       sim.advanceTo(next);
     }
   }

@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, PARTS } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, PARTS, plcAddresses } from './parts';
 import { CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatTime } from '../model/format';
@@ -49,6 +49,7 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   motor: 9,
   sol: 10,
   cyl: 11,
+  plc: 3,
 };
 
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
@@ -104,6 +105,10 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     }
     case 'cyl':
       return { kind: tr('공압 실린더', 'Pneumatic cylinder'), spec: `${p.solMinus?.trim() ? tr('복동', 'double-acting') : tr('단동 (스프링 복귀)', 'single-acting')}, ${tr('전진', 'adv')} ${formatTime(p.stroke ?? 1000, 's')}` };
+    case 'plc': {
+      const { ins, outs } = plcAddresses(p);
+      return { kind: 'PLC', spec: tr(`입력 8 (${ins[0]}~${ins[7]}) · 릴레이 출력 8 (${outs[0]}~${outs[7]})`, `8 in (${ins[0]}–${ins[7]}) · 8 relay out (${outs[0]}–${outs[7]})`) };
+    }
     default:
       return { kind: partKindName(p.type), spec: ab };
   }
@@ -198,13 +203,15 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   }
   for (const p of c.parts) {
     const pins = PARTS[p.type].pins;
-    if (!pins.length || p.type === 'src') continue;
+    if (!pins.length || p.type === 'src' || p.type === 'plc') continue;
     const nets = pins.map((_, i) => model.net.pinNet.get(`${p.id}:${i}`)!);
     const floating = nets.filter((n) => model.net.pinCount[n] <= 1 && !model.net.hasWire[n]).length;
     if (floating) out.push({ level: 'warn', msg: tr(`${p.tag || partKindName(p.type)}: 이어지지 않은 단자 ${floating}개`, `${p.tag || partKindName(p.type)}: ${floating} unconnected terminal(s)`), partIds: [p.id] });
     const poles = PARTS[p.type].poles ?? (PARTS[p.type].load && nets.length === 2 ? ([[0, 1]] as [number, number][]) : []);
     if (poles.some(([i, j]) => nets[i] === nets[j])) out.push({ level: 'warn', msg: tr(`${p.tag || partKindName(p.type)}: 두 단자가 선으로 바로 이어져 있습니다`, `${p.tag || partKindName(p.type)}: both terminals are wired together`), partIds: [p.id] });
   }
+  const plcParts = c.parts.filter((p) => p.type === 'plc').map((p) => p.id);
+  for (const msg of model.plcIssues) out.push({ level: model.prog ? 'error' : 'warn', msg, partIds: plcParts });
   if (c.parts.some((p) => PARTS[p.type].pins.length) && !c.parts.some((p) => p.type === 'src' || p.type === 'src3')) {
     out.push({ level: 'error', msg: tr('전원(L·N, +24V·0V, 3상)이 없습니다', 'No supply (L/N, +24V/0V or 3-phase)'), partIds: [] });
   }

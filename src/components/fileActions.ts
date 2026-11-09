@@ -94,7 +94,7 @@ export function openCircuitExample(id: string) {
   const cur = g().project;
   const empty = !cur.signals.length && !cur.circuit?.parts.length;
   const base = empty ? cur : inheritMeta(createProject());
-  const p = applyCircuit({ ...base, meta: { ...base.meta, title: ex.name, description: '' }, sheet: ex.name, circuit: ex.build() });
+  const p = applyCircuit({ ...base, meta: { ...base.meta, title: ex.name, description: '' }, sheet: ex.name, circuit: ex.build(), ...(ex.plc ? { plc: ex.plc() } : {}) });
   if (empty) g().commit(p);
   else g().addSheet(p);
   g().setTab('circuit');

@@ -1,7 +1,8 @@
 import type { LampColor, Part, PartType, Pole, Rot } from './types';
+import type { PlcDialect } from '../plc/types';
 import { tr } from '../i18n';
 
-export type PartCategory = 'power' | 'protect' | 'switch' | 'relay' | 'output' | 'pneumatic' | 'misc';
+export type PartCategory = 'power' | 'protect' | 'switch' | 'relay' | 'output' | 'pneumatic' | 'plc' | 'misc';
 
 export interface PinDef {
   x: number;
@@ -102,8 +103,59 @@ export const PARTS: Record<PartType, PartDef> = {
   motor: { type: 'motor', cat: 'output', pins: pins2('1', '2'), load: true, box: BOX2, prefix: 'M' },
   sol: { type: 'sol', cat: 'pneumatic', pins: pins2('1', '2'), load: true, box: BOX2, prefix: 'SOL' },
   cyl: { type: 'cyl', cat: 'pneumatic', pins: [], box: [0, -1.6, 12, 1.8], prefix: 'CYL' },
+  // 입력 I0~I7 (위), 출력 공통 C 와 Q0~Q7 (아래)
+  plc: {
+    type: 'plc',
+    cat: 'plc',
+    pins: [
+      ...Array.from({ length: 8 }, (_, n) => ({ x: -7 + 2 * n, y: -3, label: `I${n}` })),
+      { x: -9, y: 3, label: 'C' },
+      ...Array.from({ length: 8 }, (_, n) => ({ x: -7 + 2 * n, y: 3, label: `Q${n}` })),
+    ],
+    box: [-10, -3, 9, 3],
+    prefix: 'PLC',
+  },
   text: { type: 'text', cat: 'misc', pins: [], box: [0, -0.8, 4, 0.4], prefix: '' },
 };
+
+export const PLC_IO = 8;
+
+/** PLC 종류별 기본 첫 주소 */
+export function plcBases(d: PlcDialect | undefined): { in: string; out: string } {
+  switch (d) {
+    case 'ls':
+      return { in: 'P00000', out: 'P00040' };
+    case 'siemens':
+      return { in: 'I0.0', out: 'Q0.0' };
+    case 'st':
+      return { in: '%IX0.0', out: '%QX0.0' };
+    default:
+      return { in: 'X0', out: 'Y0' };
+  }
+}
+
+/** 첫 주소에서 n 번째 주소: X0→X7(8진), P00040→P00047(16진 비트), I0.0→I0.7→I1.0, 그 밖은 끝 숫자 + n */
+export function plcAddress(base: string, n: number): string {
+  const b = base.trim();
+  let m = /^(.*?)(\d+)\.(\d+)$/.exec(b);
+  if (m) {
+    const bit = Number(m[3]) + n;
+    return `${m[1]}${Number(m[2]) + Math.floor(bit / 8)}.${bit % 8}`;
+  }
+  if ((m = /^([XY])([0-7]+)$/i.exec(b))) return m[1].toUpperCase() + (parseInt(m[2], 8) + n).toString(8);
+  if ((m = /^(P|M|K|L)(\d{4})([0-9A-F])$/i.exec(b))) {
+    const v = parseInt(m[2], 10) * 16 + parseInt(m[3], 16) + n;
+    return `${m[1].toUpperCase()}${String(Math.floor(v / 16)).padStart(4, '0')}${(v % 16).toString(16).toUpperCase()}`;
+  }
+  if ((m = /^(.*?)(\d+)$/.exec(b))) return `${m[1]}${String(Number(m[2]) + n).padStart(m[2].length, '0')}`;
+  return `${b}${n}`;
+}
+
+export function plcAddresses(p: Part): { ins: string[]; outs: string[] } {
+  const ins = Array.from({ length: PLC_IO }, (_, n) => plcAddress(p.inBase || 'X0', n));
+  const outs = Array.from({ length: PLC_IO }, (_, n) => plcAddress(p.outBase || 'Y0', n));
+  return { ins, outs };
+}
 
 export const LAMP_PREFIX: Record<LampColor, string> = { red: 'RL', green: 'GL', yellow: 'YL', white: 'WL', blue: 'BL' };
 export const LAMP_HEX: Record<LampColor, string> = { red: '#ef4444', green: '#22c55e', yellow: '#facc15', white: '#e5e7eb', blue: '#3b82f6' };
@@ -175,6 +227,8 @@ export function partKindName(type: PartType): string {
       return tr('솔레노이드 밸브', 'Solenoid valve');
     case 'cyl':
       return tr('공압 실린더', 'Pneumatic cylinder');
+    case 'plc':
+      return tr('PLC (입력 8 · 릴레이 출력 8)', 'PLC (8 in / 8 relay out)');
     case 'text':
       return tr('글자', 'Text');
   }
@@ -249,6 +303,7 @@ export function palette(): PaletteGroup[] {
       title: tr('공압', 'Pneumatics'),
       items: [it('sol', tr('솔레노이드 밸브', 'Solenoid valve')), it('cyl', tr('공압 실린더', 'Cylinder'), { stroke: 1000, strokeBack: 1000 })],
     },
+    { title: 'PLC', items: [it('plc', tr('PLC (입력 8 · 출력 8)', 'PLC (8 in / 8 out)'))] },
     { title: tr('기타', 'Other'), items: [it('text', tr('글자', 'Text'), { text: tr('글자', 'Text') })] },
   ];
 }

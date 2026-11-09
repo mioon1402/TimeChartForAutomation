@@ -250,7 +250,8 @@ describe('parts list and checks', () => {
 
   it('examples have no drawing problems', () => {
     for (const e of circuitExamples()) {
-      const issues = checkCircuit(e.build());
+      const c = e.build();
+      const issues = checkCircuit(c, new CircuitModel(c, e.plc?.()));
       expect(issues, e.id).toEqual([]);
     }
   });
@@ -266,5 +267,40 @@ describe('saving', () => {
     expect(p.circuit!.ops).toEqual(c.ops);
     expect(sanitizeCircuit(null)).toBeUndefined();
     expect(migrateProject(JSON.parse(JSON.stringify(createProject()))).circuit).toBeUndefined();
+  });
+});
+
+describe('PLC block', () => {
+  it('numbers PLC terminals per maker', async () => {
+    const { plcAddress } = await import('../src/circuit/parts');
+    expect([0, 7, 8].map((n) => plcAddress('X0', n))).toEqual(['X0', 'X7', 'X10']);
+    expect([0, 7, 15, 16].map((n) => plcAddress('P00040', n))).toEqual(['P00040', 'P00047', 'P0004F', 'P00050']);
+    expect([0, 7, 8].map((n) => plcAddress('I0.0', n))).toEqual(['I0.0', 'I0.7', 'I1.0']);
+    expect(plcAddress('%QX0.6', 3)).toBe('%QX1.1');
+  });
+
+  it('runs the PLC tab program against the wired buttons and lamps', () => {
+    const ex = circuitExamples().find((e) => e.id === 'plc')!;
+    const c = ex.build();
+    const res = runScenario(c, new CircuitModel(c, ex.plc!()));
+    expect(res.warnings).toEqual([]);
+    // 버튼은 500 ms 에 눌림 → 다음 스캔(510 ms)에 Y0, T0 3초 뒤 Y1, 정지 5.5 s → 다음 스캔에 모두 OFF
+    expect(edges(res, 'load:GL').map((e) => e.t)).toEqual([0, 510, 5510]);
+    expect(edges(res, 'load:YL').map((e) => e.t)).toEqual([0, 3510, 5510]);
+    const p = applyCircuit({ ...createProject(), circuit: c, plc: ex.plc!() });
+    expect(p.signals.filter((s) => s.group === 'PLC 입력').map((s) => [s.address, s.name])).toEqual([
+      ['X0', '기동 PB'],
+      ['X1', '정지 PB'],
+    ]);
+    expect(p.signals.filter((s) => s.group === 'PLC 출력').map((s) => s.address)).toEqual(['Y0', 'Y1']);
+    expect(partsList(c).find((r) => r.tag === 'PLC1')).toMatchObject({ kind: 'PLC' });
+  });
+
+  it('warns when the circuit has a PLC but no program', () => {
+    const ex = circuitExamples().find((e) => e.id === 'plc')!;
+    const c = ex.build();
+    expect(checkCircuit(c).some((i) => i.msg.includes('PLC 프로그램이 없습니다'))).toBe(true);
+    const res = runScenario(c);
+    expect(edges(res, 'load:GL')).toEqual([{ t: 0, v: 0 }]);
   });
 });

@@ -1,6 +1,7 @@
 import type { Circuit, OpStep, Part, PartType, Wire } from './types';
 import { uid } from '../model/wave';
 import { tr } from '../i18n';
+import { defaultSimSettings, type PlcConfig } from '../plc/types';
 
 /** 예제 회로를 좌표로 적기 위한 도우미 */
 class Builder {
@@ -244,11 +245,55 @@ function cylinderCycle(): Circuit {
   return b.done();
 }
 
+/** PLC 자기유지: 기동 PB → X0, 정지 PB → X1, Y0 운전 램프, T0(3초) 뒤 Y1 램프 */
+function plcSelfHold(): Circuit {
+  const b = new Builder();
+  b.part('src', 1, 2, '', { pole: '+24V' });
+  b.part('src', 1, 23, '', { pole: '0V' });
+  b.wire([1, 2], [21, 2]);
+  b.wire([1, 23], [21, 23]);
+  b.part('plc', 12, 12, 'PLC1', { name: tr('미쓰비시 FX', 'Mitsubishi FX'), inBase: 'X0', outBase: 'Y0' });
+  b.part('pb_no', 5, 5, 'PB1', { name: tr('기동', 'Start'), color: 'green' });
+  b.part('pb_no', 9, 5, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.wire([5, 2], [5, 3]);
+  b.wire([5, 7], [5, 9]);
+  b.wire([9, 2], [9, 3]);
+  b.wire([9, 7], [9, 8], [7, 8], [7, 9]);
+  // 출력 공통 C 는 +24V, 출력 → 램프 → 0V
+  b.wire([3, 15], [3, 2]);
+  b.part('lamp', 5, 19, 'GL', { name: tr('운전', 'Run'), color: 'green' });
+  b.wire([5, 15], [5, 17]);
+  b.wire([5, 21], [5, 23]);
+  b.part('lamp', 11, 19, 'YL', { name: tr('3초 뒤', 'After 3 s'), color: 'yellow' });
+  b.wire([7, 15], [7, 16], [11, 16], [11, 17]);
+  b.wire([11, 21], [11, 23]);
+  b.part('text', 1, -1, '', { text: tr('PLC 자기유지 + 타이머 (미쓰비시 FX)', 'PLC self-hold + timer (Mitsubishi FX)') });
+  b.op(500, 'PB1', 'press', tr('기동', 'Start'));
+  b.op(5000, 'PB0', 'press', tr('정지', 'Stop'));
+  return b.done();
+}
+
+function plcSelfHoldProgram(): PlcConfig {
+  const source = ['LD X0', 'OR Y0', 'ANI X1', 'OUT Y0', 'LD Y0', 'OUT T0 K30', 'LD T0', 'OUT Y1', 'END'].join('\n');
+  const comments = [
+    ['X0', tr('기동 PB', 'Start PB')],
+    ['X1', tr('정지 PB', 'Stop PB')],
+    ['Y0', tr('운전 램프', 'Run lamp')],
+    ['T0', tr('3초 타이머', '3 s timer')],
+    ['Y1', tr('3초 뒤 램프', 'Lamp after 3 s')],
+  ]
+    .map(([k, v]) => `${k}\t${v}`)
+    .join('\n');
+  return { dialect: 'mitsubishi', source, comments, sim: { ...defaultSimSettings(), watch: ['X0', 'X1', 'Y0', 'T0', 'Y1'] } };
+}
+
 export interface CircuitExample {
   id: string;
   name: string;
   desc: string;
   build: () => Circuit;
+  /** PLC 가 있는 회로: PLC 탭에 넣을 프로그램 */
+  plc?: () => PlcConfig;
 }
 
 export function circuitExamples(): CircuitExample[] {
@@ -257,5 +302,6 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'reversing', name: tr('정역 운전 (인터록)', 'Forward / reverse (interlock)'), desc: tr('MC1·MC2 서로 b접점 인터록, 주회로에서 L1·L3 교체', 'MC1/MC2 interlocked, L1 and L3 swapped'), build: reversing },
     { id: 'timer', name: tr('타이머 지연 동작', 'Timer delay'), desc: tr('기동 3초 뒤 운전, 기다리는 동안 대기 표시', 'Run 3 s after start, waiting lamp meanwhile'), build: timerDelay },
     { id: 'cylinder', name: tr('공압 실린더 1사이클', 'Cylinder one cycle'), desc: tr('기동 → 전진 → 전진단 → 후진 → 후진단', 'Start → advance → end → return'), build: cylinderCycle },
+    { id: 'plc', name: tr('PLC 자기유지 + 타이머', 'PLC self-hold + timer'), desc: tr('푸시버튼 → PLC 입력, PLC 출력 → 램프. 프로그램은 PLC 탭에서 고칩니다', 'Buttons to PLC inputs, outputs to lamps; edit the program in the PLC tab'), build: plcSelfHold, plc: plcSelfHoldProgram },
   ];
 }

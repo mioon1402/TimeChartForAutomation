@@ -90,8 +90,16 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
   // 조작: 조작 순서에 나온 순서, 그 밖에 바뀐 것
   const ops = res.tracks.filter((t) => t.kind === 'operator' && (firstOp(keyTag(t)) < Infinity || pts(t).length > 1));
   ops.sort((a, b) => firstOp(keyTag(a)) - firstOp(keyTag(b)) || compareTags(a.tag, b.tag));
-  const G = { op: t_('조작', 'Operation'), mc: t_('전자접촉기', 'Contactors'), relay: t_('릴레이', 'Relays'), timer: t_('타이머', 'Timers'), pneu: t_('공압', 'Pneumatics'), sensor: t_('센서', 'Sensors'), out: t_('출력', 'Outputs') };
+  const G = { plcIn: t_('PLC 입력', 'PLC inputs'), plcOut: t_('PLC 출력', 'PLC outputs'), op: t_('조작', 'Operation'), mc: t_('전자접촉기', 'Contactors'), relay: t_('릴레이', 'Relays'), timer: t_('타이머', 'Timers'), pneu: t_('공압', 'Pneumatics'), sensor: t_('센서', 'Sensors'), out: t_('출력', 'Outputs') };
   for (const tr of ops) out.push(bit(tr, 'input', G.op));
+
+  // PLC 입출력 (주소 = 디바이스, 이름 = 코멘트)
+  for (const tr of res.tracks.filter((t) => t.kind === 'plcIn' || t.kind === 'plcOut')) {
+    const b = res.model.plcs.find((x) => x.part.id === tr.part.id);
+    const input = tr.kind === 'plcIn';
+    const name = (input ? b?.inName : b?.outName)?.[tr.idx!] || (input ? t_('PLC 입력', 'PLC input') : t_('PLC 출력', 'PLC output'));
+    out.push(bit(tr, input ? 'input' : 'output', input ? G.plcIn : G.plcOut, { name }));
+  }
 
   // 릴레이·전자접촉기 (그린 순서)
   for (const tr of res.tracks.filter((t) => t.kind === 'coil')) {
@@ -165,8 +173,9 @@ function opSteps(c: Circuit, res: ScenarioResult, until: number): Step[] {
 }
 
 /** 회로가 바뀌었는지 보는 서명 (차트에 영향을 주는 것만) */
-export function circuitSig(c: Circuit): string {
-  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0]);
+export function circuitSig(c: Circuit, plcSource = ''): string {
+  const plc = c.parts.some((p) => p.type === 'plc') ? plcSource : '';
+  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc]);
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -228,14 +237,14 @@ export function circuitToProject(base: Project, c: Circuit, res: ScenarioResult 
     steps,
     annotations,
     rules,
-    circuit: { ...c, applied: circuitSig(c) },
+    circuit: { ...c, applied: circuitSig(c, base.plc?.source) },
   };
 }
 
 /** 회로를 시뮬레이션해서 차트에 넣는다 (회로가 없으면 그대로) */
 export function applyCircuit(p: Project): Project {
   if (!p.circuit) return p;
-  return circuitToProject(p, p.circuit, runScenario(p.circuit, new CircuitModel(p.circuit)));
+  return circuitToProject(p, p.circuit, runScenario(p.circuit, new CircuitModel(p.circuit, p.plc)));
 }
 
 export type CircuitStatus = 'none' | 'applied' | 'changed';
@@ -243,7 +252,7 @@ export type CircuitStatus = 'none' | 'applied' | 'changed';
 export function circuitStatus(p: Project): CircuitStatus {
   const c = p.circuit;
   if (!c || !c.parts.length) return 'none';
-  return c.applied === circuitSig(c) ? 'applied' : 'changed';
+  return c.applied === circuitSig(c, p.plc?.source) ? 'applied' : 'changed';
 }
 
 /**

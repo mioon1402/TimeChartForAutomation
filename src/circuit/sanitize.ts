@@ -39,6 +39,8 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (optStr(q.cyl)) p.cyl = str(q.cyl);
     if (q.end === '+' || q.end === '-') p.end = q.end;
     if (typeof q.text === 'string') p.text = q.text;
+    if (optStr(q.inBase)) p.inBase = str(q.inBase);
+    if (optStr(q.outBase)) p.outBase = str(q.outBase);
     parts.push(p);
   }
   const wires: Wire[] = [];

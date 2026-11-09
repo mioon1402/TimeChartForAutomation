@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Circuit, Part } from '../circuit/types';
-import { LAMP_HEX, PARTS, partBox, pinPositions, rotate } from '../circuit/parts';
+import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, rotate } from '../circuit/parts';
 import { CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { formatTime } from '../model/format';
 import { FONT } from './layout';
@@ -38,6 +38,9 @@ export interface PartState {
   pos: number;
   /** 접점이 따르는 기기 종류 (타이머 한시 접점, THR 접점 표시용) */
   link?: TagKind;
+  /** PLC 입출력 램프 */
+  plcIn?: boolean[];
+  plcOut?: boolean[];
 }
 
 export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null): PartState {
@@ -56,7 +59,46 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     timer: p.type === 'timer' ? sim.timerView(tag) : null,
     pos: p.type === 'cyl' ? sim.cylPos(tag) : 0,
     link: model.tagKind.get(tag),
+    plcIn: p.type === 'plc' ? sim.plcIn.get(p.id) : undefined,
+    plcOut: p.type === 'plc' ? sim.plcOut.get(p.id) : undefined,
   };
+}
+
+/** PLC: 입력 I0~I7 (위), 공통 C 와 릴레이 출력 Q0~Q7 (아래), 입출력 램프 */
+function PlcGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const { ins, outs } = plcAddresses(p);
+  const xs = Array.from({ length: 8 }, (_, n) => -140 + 40 * n);
+  return (
+    <g>
+      {xs.map((x) => (
+        <path key={x} d={`M${x},-60V-42M${x},60V42`} stroke={c.ink} />
+      ))}
+      <path d="M-180,60V30H150" stroke={c.muted} strokeDasharray="3 3" />
+      <rect x={-196} y={-42} width={372} height={84} rx={6} fill={c.bg} stroke={c.ink} strokeWidth={1.8} />
+      <path d="M-180,60V42" stroke={c.ink} />
+      {xs.map((x, n) => (
+        <g key={n} stroke="none">
+          <rect x={x - 6} y={-38} width={12} height={7} rx={1.5} fill={st.plcIn?.[n] ? '#22c55e' : 'none'} stroke={st.plcIn?.[n] ? '#16a34a' : c.muted} strokeWidth={1} />
+          <text x={x} y={-20} textAnchor="middle" fontSize={9.5} fill={c.ink}>
+            {ins[n]}
+          </text>
+          <rect x={x - 6} y={31} width={12} height={7} rx={1.5} fill={st.plcOut?.[n] ? '#f59e0b' : 'none'} stroke={st.plcOut?.[n] ? '#d97706' : c.muted} strokeWidth={1} />
+          <text x={x} y={25} textAnchor="middle" fontSize={9.5} fill={c.ink}>
+            {outs[n]}
+          </text>
+        </g>
+      ))}
+      <text x={-180} y={25} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={c.ink} stroke="none">
+        C
+      </text>
+      <text x={-186} y={4} fontSize={13} fontWeight={800} fill={c.accent} stroke="none">
+        PLC
+      </text>
+      <text x={-150} y={4} fontSize={11.5} fontWeight={700} fill={c.ink} stroke="none">
+        {[p.tag, p.name].filter(Boolean).join('  ')}
+      </text>
+    </g>
+  );
 }
 
 // ───────────────────────── 기호 ─────────────────────────
@@ -327,6 +369,8 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
         </g>
       );
     }
+    case 'plc':
+      return <PlcGlyph p={p} st={st} c={c} />;
     case 'text':
       return (
         <text y={0} fontSize={14} fontWeight={600} fill={c.ink} stroke="none">
@@ -338,7 +382,7 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
 
 /** 기호·설명·단자 번호 (글자는 돌리지 않는다) */
 export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: CircuitColors }) {
-  if (p.type === 'src' || p.type === 'src3' || p.type === 'text') return null;
+  if (p.type === 'src' || p.type === 'src3' || p.type === 'text' || p.type === 'plc') return null;
   const X = p.x * G;
   const Y = p.y * G;
   const vertical = p.rot === 0 || p.rot === 180;
@@ -456,7 +500,8 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
             {o.showPins &&
               pinPositions(p).map(([x, y], i) => {
                 const n = model.net.pinNet.get(`${p.id}:${i}`)!;
-                const open = model.net.pinCount[n] <= 1 && !model.net.hasWire[n];
+                // PLC 는 안 쓰는 단자가 많은 게 정상
+                const open = p.type !== 'plc' && model.net.pinCount[n] <= 1 && !model.net.hasWire[n];
                 return <circle key={i} cx={x * G} cy={y * G} r={open ? 3.2 : 2} fill={open ? c.bg : c.ink} stroke={open ? c.danger : 'none'} strokeWidth={1.4} />;
               })}
           </g>

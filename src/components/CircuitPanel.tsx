@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project } from '../model/types';
 import { emptyCircuit, type Circuit, type LampColor, type OpStep, type Part, type Pole, type Wire } from '../circuit/types';
-import { FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partKindName, type PaletteItem } from '../circuit/parts';
+import { FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partKindName, plcAddresses, plcBases, type PaletteItem } from '../circuit/parts';
+import type { PlcDialect } from '../plc/types';
+import { dialectName } from '../plc/program';
 import { CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
 import { applyCircuit, autoChartOn, circuitStatus, circuitToProject } from '../circuit/chart';
 import { bomCsv, bomSummary, checkCircuit, contactsLabel, partsList, type CircuitIssue } from '../circuit/bom';
@@ -37,7 +39,7 @@ interface Running {
 }
 
 /** 팔레트 항목 → 새 부품 (기호는 앞글자 + 다음 번호, 접점은 최근 코일 기호) */
-export function makePart(c: Circuit, item: PaletteItem, x: number, y: number, id = uid('cp')): Part {
+export function makePart(c: Circuit, item: PaletteItem, x: number, y: number, id = uid('cp'), dialect?: PlcDialect): Part {
   const def = PARTS[item.type];
   const p: Part = { id, type: item.type, x, y, rot: 0, tag: '', ...item.init };
   if (!item.init?.tag) {
@@ -48,6 +50,11 @@ export function makePart(c: Circuit, item: PaletteItem, x: number, y: number, id
       const prefix = item.type === 'lamp' ? LAMP_PREFIX[p.color ?? 'red'] : item.prefix ?? def.prefix;
       p.tag = nextTag(c.parts, prefix);
     }
+  }
+  if (item.type === 'plc') {
+    const b = plcBases(dialect);
+    p.inBase = b.in;
+    p.outBase = b.out;
   }
   if (item.type === 'cyl') {
     const used = new Set(c.parts.filter((q) => q.type === 'cyl').flatMap((q) => [normTag(q.solPlus ?? ''), normTag(q.solMinus ?? '')]));
@@ -85,7 +92,7 @@ export function CircuitPanel() {
   const theme = useStore((s) => s.theme);
   const { commit, endMerge, toast, setTab } = useStore.getState();
   const circuit = project.circuit ?? EMPTY;
-  const model = useMemo(() => new CircuitModel(circuit), [circuit]);
+  const model = useMemo(() => new CircuitModel(circuit, project.plc), [circuit, project.plc]);
   const issues = useMemo(() => checkCircuit(circuit, model), [circuit, model]);
   const colors: CircuitColors = theme === 'dark' ? CIRCUIT_DARK : CIRCUIT_LIGHT;
   const [sel, setSel] = useState<Sel>(NO_SEL);
@@ -257,7 +264,7 @@ export function CircuitPanel() {
     );
   };
   const onPlace = (item: PaletteItem, x: number, y: number, keep: boolean) => {
-    const p = makePart(circuit, item, x, y);
+    const p = makePart(circuit, item, x, y, undefined, project.plc?.dialect);
     commitCircuit({ ...circuit, parts: [...circuit.parts, p] });
     setSel({ parts: [p.id], wires: [] });
     setSide('props');
@@ -439,7 +446,7 @@ export function CircuitPanel() {
           onEndMerge={endMerge}
           onEditPart={(p) => void editTag(p)}
           flagged={flagged}
-          ghostPart={(item, x, y) => makePart(circuit, item, x, y, 'ghost')}
+          ghostPart={(item, x, y) => makePart(circuit, item, x, y, 'ghost', project.plc?.dialect)}
           fitKey={fitKey}
         />
         <aside className="cc-side">
@@ -596,7 +603,7 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
     <div className="cc-props">
       <div className="cc-props-head">
         <svg width={34} height={34} viewBox="-50 -50 100 100" aria-hidden="true">
-          <g fill="none" strokeWidth={2.6} transform={p.type === 'cyl' ? 'translate(-46,0) scale(0.38)' : PARTS[p.type].box[2] - PARTS[p.type].box[0] > 3 ? 'scale(0.75)' : undefined}>
+          <g fill="none" strokeWidth={2.6} transform={p.type === 'cyl' ? 'translate(-46,0) scale(0.38)' : p.type === 'plc' ? 'scale(0.25)' : PARTS[p.type].box[2] - PARTS[p.type].box[0] > 3 ? 'scale(0.75)' : undefined}>
             <PartGlyph part={{ ...p, rot: 0 }} st={partState(p, model, null)} c={colors} />
           </g>
         </svg>
@@ -610,6 +617,8 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
         <Field label={tr('전원 극', 'Supply pole')} wide hint={tr('같은 계통끼리 동작: +24V↔0V, L(L1)·L2·L3↔N', 'Works within a system: +24V↔0V, L/L1/L2/L3↔N')}>
           <Select value={p.pole ?? 'L'} onChange={(v: Pole) => set({ pole: v })} options={(['L', 'N', '+24V', '0V', 'L1', 'L2', 'L3'] as Pole[]).map((x) => ({ value: x, label: x }))} />
         </Field>
+      ) : p.type === 'plc' ? (
+        <PlcProps p={p} set={set} model={model} />
       ) : p.type === 'src3' ? (
         <p className="muted small">{tr('3상 전원 L1 · L2 · L3. 전동기 U·V·W 에 L1→L2→L3 순서로 닿으면 정회전, 두 상을 바꾸면 역회전.', '3-phase supply. L1→L2→L3 on U·V·W runs forward; swapping two phases reverses.')}</p>
       ) : (
@@ -702,6 +711,47 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
         </button>
       </div>
     </div>
+  );
+}
+
+function PlcProps({ p, set, model }: { p: Part; set: (patch: Partial<Part>) => void; model: CircuitModel }) {
+  const plc = useStore((s) => s.project.plc);
+  const { ins, outs } = plcAddresses(p);
+  return (
+    <>
+      <div className="grid2">
+        <Field label={tr('기호', 'Tag')}>
+          <TagInput value={p.tag} onChange={(v) => set({ tag: v.trim() })} />
+        </Field>
+        <Field label={tr('설명', 'Description')}>
+          <TagInput value={p.name ?? ''} onChange={(v) => set({ name: v || undefined })} placeholder="FX3U, XGB …" />
+        </Field>
+        <Field label={tr('입력 첫 주소', 'First input')} hint={`${ins[0]} ~ ${ins[7]}`}>
+          <TagInput value={p.inBase ?? ''} onChange={(v) => set({ inBase: v.trim() || undefined })} placeholder="X0" />
+        </Field>
+        <Field label={tr('출력 첫 주소', 'First output')} hint={`${outs[0]} ~ ${outs[7]}`}>
+          <TagInput value={p.outBase ?? ''} onChange={(v) => set({ outBase: v.trim() || undefined })} placeholder="Y0" />
+        </Field>
+      </div>
+      <div className="cc-btnrow">
+        {(['mitsubishi', 'ls', 'siemens', 'st'] as PlcDialect[]).map((d) => (
+          <button type="button" key={d} className="btn small" title={dialectName(d)} onClick={() => set({ inBase: plcBases(d).in, outBase: plcBases(d).out })}>
+            {plcBases(d).in} / {plcBases(d).out}
+          </button>
+        ))}
+      </div>
+      <p className="small muted">
+        {tr('입력 단자에 +24V 나 L 이 닿으면 ON. 출력은 공통 C 와 Q 사이의 릴레이 접점입니다. 프로그램은 PLC 시뮬레이션 탭의 것을 스캔마다 실행합니다.', 'An input is ON when +24V or L reaches it. Outputs are relay contacts between C and Q. The PLC tab program runs every scan.')}
+      </p>
+      <p className={`small ${model.prog ? 'muted' : 'cc-bad'}`}>
+        {model.prog && plc
+          ? tr(`프로그램: ${dialectName(plc.dialect)} · ${model.prog.size}개 명령 · 스캔 ${formatTime(plc.sim.scanTime, 'ms')}`, `Program: ${dialectName(plc.dialect)} · ${model.prog.size} instructions · scan ${formatTime(plc.sim.scanTime, 'ms')}`)
+          : tr('PLC 프로그램이 없습니다.', 'No PLC program yet.')}{' '}
+        <button type="button" className="linkish" onClick={() => useStore.getState().setTab('plc')}>
+          {tr('PLC 탭에서 프로그램 열기', 'Open the PLC tab')}
+        </button>
+      </p>
+    </>
   );
 }
 
