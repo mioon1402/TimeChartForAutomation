@@ -137,14 +137,14 @@ export class CircuitModel {
       if (!this.tagLabel.has(tag)) this.tagLabel.set(tag, p.tag.trim() || PARTS[p.type].prefix || '?');
       if (!this.mainPart.has(tag)) this.mainPart.set(tag, p);
       const def = PARTS[p.type];
-      if (p.type === 'coil') {
+      if (p.type === 'coil' || def.selfCoil) {
         setKind(tag, 'coil', p);
         push(this.coilParts, tag, p.id);
       } else if (p.type === 'timer') {
         setKind(tag, 'timer', p);
         push(this.timerParts, tag, p.id);
         if (!this.timerDef.has(tag)) this.timerDef.set(tag, { mode: p.timerMode ?? 'on', preset: Math.max(0, p.preset ?? 3000) });
-      } else if (p.type === 'ol3') setKind(tag, 'thr', p);
+      } else if (p.type === 'ol3' || p.type === 'r_thr') setKind(tag, 'thr', p);
       else if (isLinkedSensor(p)) {
         setKind(tag, 'sensor', p);
         if (!this.sensorDef.has(tag)) this.sensorDef.set(tag, { cyl: normTag(p.cyl!), end: p.end ?? '+' });
@@ -159,13 +159,13 @@ export class CircuitModel {
         push(this.loadParts, tag, p.id);
       }
       if (def.poles) {
-        for (const [i, j] of def.poles) {
+        def.poles.forEach(([i, j], k) => {
           const a = this.net.pinNet.get(`${p.id}:${i}`)!;
           const b = this.net.pinNet.get(`${p.id}:${j}`)!;
-          this.conductors.push({ part: p, a, b, tag, nc: !!def.nc, always: p.type === 'fuse' || p.type === 'fuse3' });
-        }
+          this.conductors.push({ part: p, a, b, tag, nc: def.polesNc?.[k] ?? !!def.nc, always: p.type === 'fuse' || p.type === 'fuse3' });
+        });
       }
-      if (p.type === 'src') this.sources.push({ net: this.net.pinNet.get(`${p.id}:0`)!, id: POLE_IDENTITY[p.pole ?? 'L'] });
+      if (p.type === 'src' || p.type === 'r_term') this.sources.push({ net: this.net.pinNet.get(`${p.id}:0`)!, id: POLE_IDENTITY[p.pole ?? 'L'] });
       if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => this.sources.push({ net: this.net.pinNet.get(`${p.id}:${i}`)!, id }));
       const pin = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
       def.pins.forEach((pd, i) => pd.air && this.airNets.add(pin(i)));
@@ -463,9 +463,11 @@ export class CircuitSim {
       return p && p !== 'short' ? p : null;
     };
     for (const p of this.m.loads) {
-      const nets = PARTS[p.type].pins.map((_, i) => this.m.net.pinNet.get(`${p.id}:${i}`));
-      if (p.type === 'motor3') {
-        const ph = nets.map(live);
+      const def = PARTS[p.type];
+      let nets = def.pins.map((_, i) => this.m.net.pinNet.get(`${p.id}:${i}`));
+      if (def.selfCoil) nets = def.selfCoil.map((i) => nets[i]);
+      if (p.type === 'motor3' || p.type === 'r_motor3') {
+        const ph = nets.slice(0, 3).map(live);
         const idx = ph.map((x) => (x === 'L1' ? 0 : x === 'L2' ? 1 : x === 'L3' ? 2 : -1));
         const distinct = new Set(idx.filter((i) => i >= 0));
         if (distinct.size === 3) {
@@ -731,7 +733,7 @@ export class CircuitSim {
       const k = m.tagKind.get(tag);
       if (k === 'coil' || k === 'timer') continue;
       const types = new Set(ids.map((id) => m.circuit.parts.find((p) => p.id === id)!.type));
-      const motor = types.has('motor3') || types.has('motor');
+      const motor = types.has('motor3') || types.has('motor') || types.has('r_motor3');
       const t = this.tracks.length;
       add(`${motor ? 'mot' : 'load'}:${tag}`, tag, motor ? 'motor' : 'load');
       this.tracks[t].part = m.circuit.parts.find((p) => p.id === ids[0])!;

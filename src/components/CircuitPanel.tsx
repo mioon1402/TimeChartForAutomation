@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project } from '../model/types';
-import { emptyCircuit, type Circuit, type LampColor, type OpStep, type Part, type Pole, type Wire } from '../circuit/types';
+import { emptyCircuit, type Circuit, type LampColor, type OpStep, type Part, type Pole, type Wire, type WireColor } from '../circuit/types';
 import { FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partKindName, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
@@ -21,6 +21,8 @@ import * as F from './fileActions';
 import { circuitExamples } from '../circuit/examples';
 import { tr } from '../i18n';
 import { WEB_TRIAL } from '../env';
+import { WIRE_HEX } from '../render/RealSymbols';
+import { storageGet, storageSet } from '../storage';
 
 const EMPTY = emptyCircuit();
 let lastZoom = 1;
@@ -47,7 +49,7 @@ export function makePart(c: Circuit, item: PaletteItem, x: number, y: number, id
       const coils = c.parts.filter((q) => (q.type === 'coil' || q.type === 'timer') && q.tag.trim() && (item.type !== 'km3' || /^(MC|KM)/i.test(q.tag)));
       p.tag = coils.length ? coils[coils.length - 1].tag : item.type === 'km3' ? 'MC1' : 'X1';
     } else {
-      const prefix = item.type === 'lamp' ? LAMP_PREFIX[p.color ?? 'red'] : item.prefix ?? def.prefix;
+      const prefix = item.type === 'lamp' || item.type === 'r_lamp' ? LAMP_PREFIX[p.color ?? 'red'] : item.prefix ?? def.prefix;
       p.tag = nextTag(c.parts, prefix);
     }
   }
@@ -470,7 +472,22 @@ export function CircuitPanel() {
             </button>
           </div>
           <div className="cc-side-body">
-            {side === 'props' && <PropsPane circuit={circuit} model={model} sel={sel} part={selected} colors={colors} update={updatePart} remove={deleteSel} rotate={rotateSel} />}
+            {side === 'props' && (
+              <PropsPane
+                circuit={circuit}
+                model={model}
+                sel={sel}
+                part={selected}
+                colors={colors}
+                update={updatePart}
+                remove={deleteSel}
+                rotate={rotateSel}
+                setWireColor={(color) => {
+                  const ws = new Set(sel.wires);
+                  commitCircuit({ ...circuit, wires: circuit.wires.map((w) => (ws.has(w.id) ? (color ? { ...w, color } : { id: w.id, a: w.a, b: w.b }) : w)) });
+                }}
+              />
+            )}
             {side === 'ops' && <OpsPane circuit={circuit} model={model} res={preview?.res ?? null} onChange={commitCircuit} />}
             {side === 'bom' && <BomPane circuit={circuit} title={project.meta.title} />}
             {side === 'check' && <CheckPane issues={issues} onPick={(ids) => (setSel({ parts: ids, wires: [] }), setSide('props'))} />}
@@ -528,10 +545,27 @@ function MiniGlyph({ item, c }: { item: PaletteItem; c: CircuitColors }) {
   );
 }
 
+const PALETTE_KEY = 'timechart-studio.circuit-palette.v1';
+
 function Palette({ c, placing, onPick, disabled }: { c: CircuitColors; placing: PaletteItem | null; onPick: (it: PaletteItem) => void; disabled: boolean }) {
+  const [mode, setMode] = useState<'real' | 'symbol'>(() => (storageGet(PALETTE_KEY) === 'symbol' ? 'symbol' : 'real'));
+  const pick = (m: 'real' | 'symbol') => {
+    setMode(m);
+    storageSet(PALETTE_KEY, m);
+  };
   return (
     <nav className={`cc-palette ${disabled ? 'off' : ''}`} aria-label={tr('부품', 'Parts')} data-tour="cc-palette">
-      {palette().map((g) => (
+      <div className="seg cc-pal-mode" role="radiogroup">
+        <button type="button" role="radio" aria-checked={mode === 'real'} className={mode === 'real' ? 'on' : ''} onClick={() => pick('real')} title={tr('실제 기기 모양과 단자 번호로 배선 (실체 배선도)', 'Real devices with terminal numbers (wiring diagram)')}>
+          {tr('실물 배선', 'Wiring')}
+        </button>
+        <button type="button" role="radio" aria-checked={mode === 'symbol'} className={mode === 'symbol' ? 'on' : ''} onClick={() => pick('symbol')} title={tr('전기 기호로 그리는 시퀀스도 (전개 접속도)', 'Schematic symbols (ladder style)')}>
+          {tr('회로 기호', 'Symbols')}
+        </button>
+      </div>
+      {palette()
+        .filter((g) => !g.mode || g.mode === mode)
+        .map((g) => (
         <div key={g.title} className="cc-pal-group">
           <div className="cc-pal-title">{g.title}</div>
           {g.items.map((it) => (
@@ -541,7 +575,7 @@ function Palette({ c, placing, onPick, disabled }: { c: CircuitColors; placing: 
             </button>
           ))}
         </div>
-      ))}
+        ))}
     </nav>
   );
 }
@@ -570,7 +604,36 @@ function TagInput({ value, onChange, list, placeholder }: { value: string; onCha
   );
 }
 
-function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotate }: { circuit: Circuit; model: CircuitModel; sel: Sel; part: Part | null; colors: CircuitColors; update: (id: string, patch: Partial<Part>) => void; remove: () => void; rotate: () => void }) {
+const WIRE_CHOICES: [WireColor, string, string][] = [
+  ['brown', '갈색 (L1)', 'Brown (L1)'],
+  ['black', '검정 (L2)', 'Black (L2)'],
+  ['grey', '회색 (L3 · 제어)', 'Grey (L3 / control)'],
+  ['blue', '파랑 (N · 0V)', 'Blue (N / 0V)'],
+  ['gy', '녹황 (PE)', 'Green-yellow (PE)'],
+  ['red', '빨강 (+24V)', 'Red (+24V)'],
+  ['yellow', '노랑', 'Yellow'],
+  ['white', '흰색', 'White'],
+  ['orange', '주황', 'Orange'],
+];
+
+function WireColorPicker({ circuit, ids, onPick }: { circuit: Circuit; ids: string[]; onPick: (c: WireColor | undefined) => void }) {
+  const cur = new Set(circuit.wires.filter((w) => ids.includes(w.id)).map((w) => w.color ?? ''));
+  return (
+    <div className="cc-wirecolors">
+      <span className="field-label">{tr('전선 색', 'Wire colour')}</span>
+      <div className="cc-swatches">
+        {WIRE_CHOICES.map(([k, ko, en]) => (
+          <button type="button" key={k} className={`cc-swatch ${cur.size === 1 && cur.has(k) ? 'on' : ''}`} title={tr(ko, en)} aria-label={tr(ko, en)} onClick={() => onPick(k)} style={{ background: k === 'gy' ? 'repeating-linear-gradient(135deg,#16a34a 0 5px,#facc15 5px 10px)' : WIRE_HEX[k] }} />
+        ))}
+        <button type="button" className={`btn small ${cur.size === 1 && cur.has('') ? 'on' : ''}`} onClick={() => onPick(undefined)} title={tr('색 없이 회로도처럼 (시뮬레이션 중 극 색)', 'No colour (schematic style)')}>
+          {tr('기호선', 'Plain')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotate, setWireColor }: { circuit: Circuit; model: CircuitModel; sel: Sel; part: Part | null; colors: CircuitColors; update: (id: string, patch: Partial<Part>) => void; remove: () => void; rotate: () => void; setWireColor: (c: WireColor | undefined) => void }) {
   const bom = useMemo(() => partsList(circuit), [circuit]);
   if (!p) {
     const n = sel.parts.length + sel.wires.length;
@@ -580,6 +643,7 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
           <p>
             {tr(`부품 ${sel.parts.length}개, 선 ${sel.wires.length}개 선택`, `${sel.parts.length} parts, ${sel.wires.length} wires selected`)}
           </p>
+          {sel.wires.length > 0 && <WireColorPicker circuit={circuit} ids={sel.wires} onPick={setWireColor} />}
           <div className="cc-btnrow">
             {sel.parts.length > 0 && (
               <button type="button" className="btn small" onClick={rotate}>
@@ -607,8 +671,12 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
   return (
     <div className="cc-props">
       <div className="cc-props-head">
-        <svg width={34} height={34} viewBox="-50 -50 100 100" aria-hidden="true">
-          <g fill="none" strokeWidth={2.6} transform={p.type === 'cyl' ? 'translate(-46,0) scale(0.38)' : p.type === 'plc' ? 'scale(0.25)' : PARTS[p.type].box[2] - PARTS[p.type].box[0] > 3 ? 'scale(0.75)' : undefined}>
+        <svg width={34} height={34} viewBox={(() => {
+          const [x0, y0, x1, y1] = PARTS[p.type].box;
+          const s = Math.max(x1 - x0, y1 - y0) * 20 + 8;
+          return `${((x0 + x1) / 2) * 20 - s / 2} ${((y0 + y1) / 2) * 20 - s / 2} ${s} ${s}`;
+        })()} aria-hidden="true">
+          <g fill="none" strokeWidth={2.2}>
             <PartGlyph part={{ ...p, rot: 0 }} st={partState(p, model, null)} c={colors} />
           </g>
         </svg>
@@ -618,9 +686,9 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
         <Field label={tr('글자', 'Text')} wide>
           <TagInput value={p.text ?? ''} onChange={(v) => set({ text: v })} />
         </Field>
-      ) : p.type === 'src' ? (
-        <Field label={tr('전원 극', 'Supply pole')} wide hint={tr('같은 계통끼리 동작: +24V↔0V, L(L1)·L2·L3↔N', 'Works within a system: +24V↔0V, L/L1/L2/L3↔N')}>
-          <Select value={p.pole ?? 'L'} onChange={(v: Pole) => set({ pole: v })} options={(['L', 'N', '+24V', '0V', 'L1', 'L2', 'L3'] as Pole[]).map((x) => ({ value: x, label: x }))} />
+      ) : p.type === 'src' || p.type === 'r_term' ? (
+        <Field label={tr('전원 극', 'Supply pole')} wide hint={tr('같은 계통끼리 동작: +24V↔0V, L(L1)·L2·L3↔N. PE 는 접지 (L 과 닿으면 지락)', 'Works within a system: +24V↔0V, L/L1/L2/L3↔N. PE is earth')}>
+          <Select value={p.pole ?? 'L'} onChange={(v: Pole) => set({ pole: v })} options={(['L', 'N', '+24V', '0V', 'L1', 'L2', 'L3', 'PE'] as Pole[]).map((x) => ({ value: x, label: x }))} />
         </Field>
       ) : p.type === 'plc' ? (
         <PlcProps p={p} set={set} model={model} />
@@ -664,9 +732,9 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
               </Field>
             </div>
           )}
-          {(p.type === 'lamp' || p.type === 'pb_no' || p.type === 'pb_nc') && (
+          {(p.type === 'lamp' || p.type === 'pb_no' || p.type === 'pb_nc' || p.type === 'r_lamp' || p.type === 'r_pb') && (
             <Field label={tr('색', 'Colour')} wide>
-              <Select value={p.color ?? (p.type === 'lamp' ? 'red' : '')} onChange={(v) => set({ color: (v || undefined) as LampColor | undefined })} options={[...(p.type !== 'lamp' ? [{ value: '', label: '—' }] : []), ...(['red', 'green', 'yellow', 'white', 'blue'] as LampColor[]).map((x) => ({ value: x, label: lampColorName(x) }))]} />
+              <Select value={p.color ?? (p.type === 'lamp' || p.type === 'r_lamp' ? 'red' : '')} onChange={(v) => set({ color: (v || undefined) as LampColor | undefined })} options={[...(p.type !== 'lamp' && p.type !== 'r_lamp' ? [{ value: '', label: '—' }] : []), ...(['red', 'green', 'yellow', 'white', 'blue'] as LampColor[]).map((x) => ({ value: x, label: lampColorName(x) }))]} />
             </Field>
           )}
           {p.type === 'prox' && (

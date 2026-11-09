@@ -1,7 +1,7 @@
 /** 회로도 (CADe SIMU 처럼 그리는 릴레이·전동기·공압 제어 회로) */
 
 /** 전원 극: 직류 +24V/0V, 교류 L/N, 3상 L1/L2/L3 (L 은 L1 과 같은 상) */
-export type Pole = '+24V' | '0V' | 'L' | 'N' | 'L1' | 'L2' | 'L3';
+export type Pole = '+24V' | '0V' | 'L' | 'N' | 'L1' | 'L2' | 'L3' | 'PE';
 
 export type PartType =
   | 'src' // 전원 단자 하나 (극 선택)
@@ -39,6 +39,16 @@ export type PartType =
   | 'v52' // 5/2 밸브 편솔 · 스프링 복귀
   | 'v52d' // 5/2 밸브 양솔 (위치 유지)
   | 'v53' // 5/3 밸브 양솔 · 올포트 블록 (스프링 센터)
+  // 실물 배선도용 기기 (단자 번호가 붙은 실제 모양, 기기 하나에 코일·접점이 함께)
+  | 'r_term' // 전원 단자 (L1 L2 L3 N PE …)
+  | 'r_mcb1' // 차단기 1P · 2P · 3P (레버 클릭 ON/OFF)
+  | 'r_mcb2'
+  | 'r_mcb3'
+  | 'r_mc' // 전자접촉기: A1·A2, 주접점 1/L1~6/T3, 보조 13-14 NO · 21-22 NC
+  | 'r_thr' // 열동형 과부하 계전기: 주회로, 95-96 NC · 97-98 NO
+  | 'r_pb' // 푸시버튼 유닛: 11-12 NC · 23-24 NO (누르는 동안)
+  | 'r_lamp' // 파일럿 램프 X1 · X2
+  | 'r_motor3' // 3상 전동기 U V W + PE
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -88,10 +98,15 @@ export interface Part {
   speed?: number;
 }
 
+/** 전선 색: 갈색 L1, 검정 L2, 회색 L3, 파랑 N, 녹황 PE, 그 밖 제어선 */
+export type WireColor = 'brown' | 'black' | 'grey' | 'blue' | 'gy' | 'red' | 'yellow' | 'white' | 'orange';
+
 export interface Wire {
   id: string;
   a: [number, number];
   b: [number, number];
+  /** 실제 전선 색 (없으면 회로도처럼 검은 선, 시뮬레이션 중 극 색) */
+  color?: WireColor;
 }
 
 /** 조작 순서 한 줄: 앞 줄 조작 시각에서 wait 뒤에 이 기기를 조작 */

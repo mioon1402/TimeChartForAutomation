@@ -11,7 +11,7 @@ import { tr as t_ } from '../i18n';
 /** 대표 부품이 전자접촉기인가 (MC/KM 기호이거나 주접점이 있음) */
 export function isContactor(c: Circuit, tag: string): boolean {
   const t = normTag(tag);
-  return /^(MC|KM)/.test(t) || c.parts.some((p) => p.type === 'km3' && normTag(p.tag) === t);
+  return /^(MC|KM)/.test(t) || c.parts.some((p) => (p.type === 'km3' || p.type === 'r_mc') && normTag(p.tag) === t);
 }
 
 interface RowSpec {
@@ -31,6 +31,20 @@ interface RowSpec {
 
 function defaultName(p: Part): string {
   switch (p.type) {
+    case 'r_mcb1':
+    case 'r_mcb2':
+    case 'r_mcb3':
+      return t_('차단기', 'Breaker');
+    case 'r_mc':
+      return t_('전자접촉기', 'Contactor');
+    case 'r_thr':
+      return t_('THR 트립', 'THR trip');
+    case 'r_pb':
+      return t_('푸시버튼', 'Push button');
+    case 'r_lamp':
+      return t_('표시등', 'Lamp');
+    case 'r_motor3':
+      return t_('전동기', 'Motor');
     case 'pb_no':
     case 'pb_nc':
       return t_('푸시버튼', 'Push button');
@@ -164,7 +178,7 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
       const rev = t_('역회전', 'REV');
       if (both) out.push({ ...bit(tr, 'output', G.out), kind: 'bus', points: normalize(p.map((q) => ({ t: q.t, v: q.v === 'FWD' ? fwd : q.v === 'REV' ? rev : '0' })), 'bus', '0') });
       else out.push(bit(tr, 'output', G.out, { points: normalize(p.map((q) => ({ t: q.t, v: q.v === '0' ? 0 : 1 })), 'bit', 0), onLabel: p.some((q) => q.v === 'REV') ? rev : t_('운전', 'RUN'), offLabel: t_('정지', 'STOP') }));
-    } else out.push(bit(tr, 'output', G.out, tr.part.type === 'lamp' ? { onLabel: t_('점등', 'ON'), offLabel: t_('소등', 'OFF') } : {}));
+    } else out.push(bit(tr, 'output', G.out, tr.part.type === 'lamp' || tr.part.type === 'r_lamp' ? { onLabel: t_('점등', 'ON'), offLabel: t_('소등', 'OFF') } : {}));
   }
   out.push(...pneu);
   return out;

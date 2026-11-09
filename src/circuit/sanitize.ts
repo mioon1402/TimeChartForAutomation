@@ -1,8 +1,9 @@
-import type { Circuit, LampColor, OpStep, Part, PartType, Pole, Rot, Wire } from './types';
+import type { Circuit, LampColor, OpStep, Part, PartType, Pole, Rot, Wire, WireColor } from './types';
 import { PARTS } from './parts';
 import { uid } from '../model/wave';
 
-const POLES: Pole[] = ['+24V', '0V', 'L', 'N', 'L1', 'L2', 'L3'];
+const POLES: Pole[] = ['+24V', '0V', 'L', 'N', 'L1', 'L2', 'L3', 'PE'];
+const WIRE_COLORS: WireColor[] = ['brown', 'black', 'grey', 'blue', 'gy', 'red', 'yellow', 'white', 'orange'];
 const COLORS: LampColor[] = ['red', 'green', 'yellow', 'white', 'blue'];
 
 const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -55,7 +56,9 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     const a = pt(q.a);
     const b = pt(q.b);
     if (!a || !b || (a[0] === b[0] && a[1] === b[1])) continue;
-    wires.push({ id: str(q.id) || uid('cw'), a, b });
+    const w: Wire = { id: str(q.id) || uid('cw'), a, b };
+    if (WIRE_COLORS.includes(q.color as WireColor)) w.color = q.color as WireColor;
+    wires.push(w);
   }
   const ops: OpStep[] = [];
   for (const r of Array.isArray(o.ops) ? o.ops : []) {

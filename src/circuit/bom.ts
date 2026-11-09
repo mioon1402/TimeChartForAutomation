@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, PARTS, plcAddresses, VALVES } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, PARTS, plcAddresses, REAL, VALVES } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatTime } from '../model/format';
@@ -52,6 +52,14 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   plc: 3,
   smps: 0,
   prox: 7,
+  r_mcb3: 0,
+  r_mcb2: 0,
+  r_mcb1: 0,
+  r_thr: 2,
+  r_mc: 3,
+  r_pb: 5,
+  r_lamp: 8,
+  r_motor3: 9,
   frl: 10,
   v32: 10,
   v52: 10,
@@ -69,7 +77,16 @@ const VALVE_KIND: Partial<Record<PartType, [string, string]>> = {
 
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
 function mainOf(parts: Part[]): Part {
-  const rank = (p: Part) => (p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' ? 0 : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' ? 1 : OPERATOR.has(p.type) || PARTS[p.type].load ? 2 : p.type === 'km3' ? 3 : 4);
+  const rank = (p: Part) =>
+    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc'
+      ? 0
+      : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3'
+        ? 1
+        : OPERATOR.has(p.type) || PARTS[p.type].load
+          ? 2
+          : p.type === 'km3'
+            ? 3
+            : 4;
   return [...parts].sort((x, y) => rank(x) - rank(y))[0];
 }
 
@@ -81,6 +98,7 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
   const ab = contactText(a, b);
   switch (p.type) {
     case 'coil':
+    case 'r_mc':
     case 'km3': {
       if (isContactor(c, tag)) return { kind: tr('전자접촉기', 'Magnetic contactor'), spec: [main ? tr(`주접점 ${main}P`, `${main}P main`) : '', ab ? tr(`보조 ${ab}`, `aux ${ab}`) : ''].filter(Boolean).join(', ') };
       return { kind: tr('릴레이', 'Relay'), spec: ab };
@@ -131,6 +149,18 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'mcb3':
     case 'mcb':
       return { kind: tr('배선용 차단기', 'Circuit breaker'), spec: p.type === 'mcb3' ? '3P' : '1P' };
+    case 'r_mcb1':
+    case 'r_mcb2':
+    case 'r_mcb3':
+      return { kind: tr('배선용 차단기', 'Circuit breaker'), spec: `${p.type.slice(-1)}P` };
+    case 'r_thr':
+      return { kind: tr('열동형 과부하 계전기', 'Thermal overload relay'), spec: ab };
+    case 'r_pb':
+      return { kind: tr('푸시버튼', 'Push button'), spec: [p.color ? lampColorName(p.color) : '', ab].filter(Boolean).join(' ') };
+    case 'r_lamp':
+      return { kind: tr('파일럿 램프', 'Pilot lamp'), spec: lampColorName(p.color) };
+    case 'r_motor3':
+      return { kind: tr('3상 유도 전동기', '3-phase induction motor'), spec: '' };
     case 'fuse3':
     case 'fuse':
       return { kind: tr('퓨즈', 'Fuse'), spec: p.type === 'fuse3' ? '3P' : '1P' };
@@ -165,7 +195,7 @@ export function partsList(c: Circuit): BomRow[] {
   // 밸브에 붙은 솔레노이드는 밸브 한 줄에 함께 적는다
   const valveSols = new Set(c.parts.filter((p) => VALVES.has(p.type)).flatMap((p) => [normTag(p.solA ?? ''), p.type === 'v52d' || p.type === 'v53' ? normTag(p.solB ?? '') : '']).filter(Boolean));
   for (const p of c.parts) {
-    if (p.type === 'src' || p.type === 'src3' || p.type === 'text' || p.type === 'air') continue;
+    if (p.type === 'src' || p.type === 'src3' || p.type === 'text' || p.type === 'air' || p.type === 'r_term') continue;
     if (p.type === 'sol' && valveSols.has(normTag(p.tag))) continue;
     const k = tagKey(p);
     groups.set(k, [...(groups.get(k) ?? []), p]);
@@ -173,9 +203,11 @@ export function partsList(c: Circuit): BomRow[] {
   const rows: BomRow[] = [];
   for (const [k, parts] of groups) {
     const main = mainOf(parts);
-    const a = parts.filter((p) => CONTACT_A.has(p.type)).length;
-    const b = parts.filter((p) => CONTACT_B.has(p.type)).length;
-    const poles = parts.filter((p) => p.type === 'km3').length * 3;
+    // 실물 기기는 몸 안의 보조 접점(1a1b)도 센다
+    const inside = parts.filter((p) => p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr').length;
+    const a = parts.filter((p) => CONTACT_A.has(p.type)).length + inside;
+    const b = parts.filter((p) => CONTACT_B.has(p.type)).length + inside;
+    const poles = (parts.filter((p) => p.type === 'km3').length + parts.filter((p) => p.type === 'r_mc').length) * 3;
     const ks = kindAndSpec(c, k, main, a, b, poles);
     const named = parts.find((p) => p.name?.trim());
     const spec = parts.find((p) => p.spec?.trim())?.spec?.trim() ?? ks.spec;
@@ -251,7 +283,8 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   }
   for (const p of c.parts) {
     const pins = PARTS[p.type].pins;
-    if (!pins.length || p.type === 'src' || p.type === 'plc' || p.type === 'cyl') continue;
+    // 단자가 많은 실물 기기는 안 쓰는 단자(예비 접점, 남는 극)가 있는 게 보통
+    if (!pins.length || p.type === 'src' || p.type === 'plc' || p.type === 'cyl' || (REAL.has(p.type) && p.type !== 'r_lamp')) continue;
     const nets = pins.map((_, i) => model.net.pinNet.get(`${p.id}:${i}`)!);
     // 공압 포트는 안 쓰는 것이 있어도 정상 (5/2 밸브로 단동 실린더 등)
     const floating = nets.filter((n, i) => !pins[i].air && model.net.pinCount[n] <= 1 && !model.net.hasWire[n]).length;
@@ -301,7 +334,7 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   }
   const plcParts = c.parts.filter((p) => p.type === 'plc').map((p) => p.id);
   for (const msg of model.plcIssues) out.push({ level: model.prog ? 'error' : 'warn', msg, partIds: plcParts });
-  if (c.parts.some((p) => PARTS[p.type].pins.length) && !c.parts.some((p) => p.type === 'src' || p.type === 'src3')) {
+  if (c.parts.some((p) => PARTS[p.type].pins.length) && !c.parts.some((p) => p.type === 'src' || p.type === 'src3' || p.type === 'r_term')) {
     out.push({ level: 'error', msg: tr('전원(L·N, +24V·0V, 3상)이 없습니다', 'No supply (L/N, +24V/0V or 3-phase)'), partIds: [] });
   }
   return out;

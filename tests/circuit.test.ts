@@ -474,3 +474,62 @@ describe('electro-pneumatic example', () => {
     expect(rows.find((r) => r.tag === 'SC1')?.kind).toBe('속도 제어 밸브');
   });
 });
+
+describe('real wiring diagram devices', () => {
+  it('runs the wiring-diagram example: one contactor body holds its own coil, main poles and aux contact', () => {
+    const c = circuitExamples().find((e) => e.id === 'real')!.build();
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    expect(res.warnings).toEqual([]);
+    expect(edges(res, 'coil:MC1').map((e) => e.t)).toEqual([0, 500, 3500]);
+    expect(edges(res, 'mot:M1')).toEqual([
+      { t: 0, v: '0' },
+      { t: 500, v: 'FWD' },
+      { t: 3500, v: '0' },
+    ]);
+    const rows = partsList(c);
+    expect(rows.find((r) => r.tag === 'MC1')).toMatchObject({ kind: '전자접촉기', spec: '코일 AC 220V' });
+    expect(rows.find((r) => r.tag === 'PB0')).toMatchObject({ kind: '푸시버튼', spec: '적색 1a1b' });
+    expect(rows.find((r) => r.tag === 'MCB1')).toMatchObject({ kind: '배선용 차단기', spec: 'AC/25A' });
+  });
+
+  it('opening the breaker lever stops everything, tripping is an operator action', () => {
+    const c = circuitExamples().find((e) => e.id === 'real')!.build();
+    c.ops = [
+      { id: 'a', wait: 500, tag: 'PB1', action: 'press', hold: 300 },
+      { id: 'b', wait: 1000, tag: 'MCB2', action: 'off', hold: 0 },
+    ];
+    expect(edges(runScenario(c), 'coil:MC1').map((e) => e.t)).toEqual([0, 500, 1500]);
+  });
+
+  it('reports an earth fault when a live wire touches PE', () => {
+    const c: Circuit = {
+      parts: [part('r_term', 0, 0, '', { pole: 'L1' }), part('r_term', 6, 0, '', { pole: 'PE' }), part('r_mcb1', 3, 4, 'MCB1')],
+      wires: [wire([0, 0], [3, 0]), wire([3, 8], [6, 8]), wire([6, 8], [6, 0])],
+      ops: [],
+    };
+    expect(runScenario(c).warnings.some((w) => w.includes('단락') && w.includes('PE'))).toBe(true);
+  });
+
+  it('keeps wire colours through saving', () => {
+    const c = circuitExamples().find((e) => e.id === 'real')!.build();
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify(c)))!;
+    expect(back.wires.filter((w) => w.color === 'gy')).toHaveLength(1);
+    expect(back.wires.every((w) => w.color)).toBe(true);
+  });
+});
+
+describe('wire colours when drawing', () => {
+  it('follows the phase through a breaker, and leaves schematic wires plain', async () => {
+    const { autoWireColor } = await import('../src/circuit/wires');
+    const c: Circuit = {
+      parts: [part('r_term', 0, 0, '', { pole: 'L2' }), part('r_mcb1', 0, 6, 'MCB1'), part('r_lamp', 0, 14, 'PL1', { color: 'red' })],
+      wires: [{ id: 'w1', a: [0, 0], b: [0, 2], color: 'black' }],
+      ops: [],
+    };
+    // 차단기 아래 단자 (0,10) 에서 램프 X1 (-1,15) 로: 차단기 극을 따라가면 L2 → 검정
+    expect(autoWireColor(c, new CircuitModel(c), [0, 10], [-1, 15])).toBe('black');
+    const plain: Circuit = { parts: [part('src', 0, 0, '', { pole: 'L' }), part('pb_no', 0, 4, 'PB1')], wires: [], ops: [] };
+    expect(autoWireColor(plain, new CircuitModel(plain), [0, 0], [0, 2])).toBeUndefined();
+  });
+});

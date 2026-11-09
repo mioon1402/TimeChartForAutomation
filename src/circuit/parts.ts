@@ -19,6 +19,10 @@ export interface PartDef {
   pins: PinDef[];
   /** 서로 이어지는 단자 쌍 (접점·퓨즈·차단기) */
   poles?: [number, number][];
+  /** 단자 쌍마다 b접점인가 (없으면 nc 를 따름) - 실물 기기의 a·b 접점이 섞일 때 */
+  polesNc?: boolean[];
+  /** 기기 안의 코일 단자 (A1, A2) - 이 기기의 접점이 이 코일을 따른다 */
+  selfCoil?: [number, number];
   /** 부하: 두 단자 사이에 전압이 걸리면 동작 */
   load?: boolean;
   /** 접점이 평상시 닫혀 있음 (b접점) */
@@ -57,6 +61,8 @@ const VALVE5: PinDef[] = [
 const BOX2: [number, number, number, number] = [-1, -2, 1, 2];
 const BOX2W: [number, number, number, number] = [-1.6, -2, 1, 2];
 const BOX3: [number, number, number, number] = [-3, -2, 3, 2];
+
+const pin = (x: number, y: number, label: string): PinDef => ({ x, y, label });
 
 const pins2 = (a: string, b: string): PinDef[] => [
   { ...V2[0], label: a },
@@ -191,8 +197,98 @@ export const PARTS: Record<PartType, PartDef> = {
     box: [-10, -3, 9, 3],
     prefix: 'PLC',
   },
+  // ── 실물 배선도 기기 ──
+  r_term: { type: 'r_term', cat: 'power', pins: [{ x: 0, y: 0, label: '' }], box: [-1, -2, 1, 1], prefix: '' },
+  r_mcb1: { type: 'r_mcb1', cat: 'protect', pins: [pin(0, -4, '1'), pin(0, 4, '2')], poles: [[0, 1]], operate: 'toggle', defaultOn: true, box: [-1.3, -5, 1.3, 5], prefix: 'MCB' },
+  r_mcb2: {
+    type: 'r_mcb2',
+    cat: 'protect',
+    pins: [pin(-1, -4, '1'), pin(1, -4, '3'), pin(-1, 4, '2'), pin(1, 4, '4')],
+    poles: [
+      [0, 2],
+      [1, 3],
+    ],
+    operate: 'toggle',
+    defaultOn: true,
+    box: [-2.3, -5, 2.3, 5],
+    prefix: 'MCB',
+  },
+  r_mcb3: {
+    type: 'r_mcb3',
+    cat: 'protect',
+    pins: [pin(-2, -4, '1'), pin(0, -4, '3'), pin(2, -4, '5'), pin(-2, 4, '2'), pin(0, 4, '4'), pin(2, 4, '6')],
+    poles: POLES3,
+    operate: 'toggle',
+    defaultOn: true,
+    box: [-3.3, -5, 3.3, 5],
+    prefix: 'MCB',
+  },
+  r_mc: {
+    type: 'r_mc',
+    cat: 'relay',
+    pins: [
+      pin(-2, -6, 'A1'),
+      pin(2, 6, 'A2'),
+      pin(-3, -4, '1/L1'),
+      pin(-1, -4, '3/L2'),
+      pin(1, -4, '5/L3'),
+      pin(3, -4, '13NO'),
+      pin(5, -4, '21NC'),
+      pin(-3, 4, '2/T1'),
+      pin(-1, 4, '4/T2'),
+      pin(1, 4, '6/T3'),
+      pin(3, 4, '14NO'),
+      pin(5, 4, '22NC'),
+    ],
+    poles: [
+      [2, 7],
+      [3, 8],
+      [4, 9],
+      [5, 10],
+      [6, 11],
+    ],
+    polesNc: [false, false, false, false, true],
+    selfCoil: [0, 1],
+    load: true,
+    box: [-4.3, -6.8, 6.3, 6.8],
+    prefix: 'MC',
+  },
+  r_thr: {
+    type: 'r_thr',
+    cat: 'protect',
+    pins: [pin(-2, -3, '1/L1'), pin(0, -3, '3/L2'), pin(2, -3, '5/L3'), pin(-2, 3, '2/T1'), pin(0, 3, '4/T2'), pin(2, 3, '6/T3'), pin(4, -3, '95'), pin(4, 3, '96'), pin(6, -3, '97'), pin(6, 3, '98')],
+    poles: [
+      [0, 3],
+      [1, 4],
+      [2, 5],
+      [6, 7],
+      [8, 9],
+    ],
+    polesNc: [true, true, true, true, false],
+    operate: 'toggle',
+    box: [-3.3, -3.8, 7.3, 3.8],
+    prefix: 'THR',
+  },
+  r_pb: {
+    type: 'r_pb',
+    cat: 'switch',
+    pins: [pin(-1, 0, '11'), pin(1, 0, '12'), pin(-1, 2, '23'), pin(1, 2, '24')],
+    poles: [
+      [0, 1],
+      [2, 3],
+    ],
+    polesNc: [true, false],
+    operate: 'momentary',
+    box: [-2.2, -4, 2.2, 3],
+    prefix: 'PB',
+  },
+  r_lamp: { type: 'r_lamp', cat: 'output', pins: [pin(-1, 1, 'X1'), pin(1, 1, 'X2')], load: true, box: [-1.8, -2.8, 1.8, 1.8], prefix: 'PL' },
+  r_motor3: { type: 'r_motor3', cat: 'output', pins: [pin(-2, -3, 'U'), pin(0, -3, 'V'), pin(2, -3, 'W'), pin(4, 1, 'PE')], load: true, box: [-6.5, -3.8, 5, 4.8], prefix: 'M' },
   text: { type: 'text', cat: 'misc', pins: [], box: [0, -0.8, 4, 0.4], prefix: '' },
 };
+
+/** 실물 배선도 기기 */
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3']);
 
 export const PLC_IO = 8;
 
@@ -323,6 +419,24 @@ export function partKindName(type: PartType): string {
       return tr('5/2 밸브 (양솔)', '5/2 valve (double solenoid)');
     case 'v53':
       return tr('5/3 밸브 (올포트 블록)', '5/3 valve (closed centre)');
+    case 'r_term':
+      return tr('전원 단자', 'Supply terminal');
+    case 'r_mcb1':
+      return tr('차단기 1P', 'Circuit breaker 1P');
+    case 'r_mcb2':
+      return tr('차단기 2P', 'Circuit breaker 2P');
+    case 'r_mcb3':
+      return tr('차단기 3P', 'Circuit breaker 3P');
+    case 'r_mc':
+      return tr('전자접촉기 (코일 · 주접점 · 보조 1a1b)', 'Magnetic contactor');
+    case 'r_thr':
+      return tr('열동형 과부하 계전기 (THR)', 'Thermal overload relay');
+    case 'r_pb':
+      return tr('푸시버튼 (1a1b)', 'Push button (1 NO 1 NC)');
+    case 'r_lamp':
+      return tr('파일럿 램프', 'Pilot lamp');
+    case 'r_motor3':
+      return tr('3상 유도 전동기', '3-phase motor');
     case 'text':
       return tr('글자', 'Text');
   }
@@ -340,13 +454,45 @@ export interface PaletteItem {
 export interface PaletteGroup {
   title: string;
   items: PaletteItem[];
+  /** real = 실물 배선도 목록에만, symbol = 회로 기호 목록에만, 없으면 둘 다 */
+  mode?: 'real' | 'symbol';
 }
 
 export function palette(): PaletteGroup[] {
   const it = (type: PartType, label: string, init?: Partial<Part>, key?: string, prefix?: string): PaletteItem => ({ key: key ?? type, type, label, init, prefix });
   return [
     {
+      title: tr('전원 단자', 'Supply terminals'),
+      mode: 'real',
+      items: (['L1', 'L2', 'L3', 'N', 'PE', '+24V', '0V'] as Pole[]).map((pole) => it('r_term', pole, { pole }, `rt-${pole}`)),
+    },
+    {
+      title: tr('차단기 · 계전기', 'Breakers & relays'),
+      mode: 'real',
+      items: [
+        it('r_mcb3', tr('차단기 3P', 'Breaker 3P')),
+        it('r_mcb2', tr('차단기 2P', 'Breaker 2P')),
+        it('r_mcb1', tr('차단기 1P', 'Breaker 1P')),
+        it('r_mc', tr('전자접촉기', 'Contactor')),
+        it('r_thr', tr('열동 계전기 THR', 'Overload THR')),
+      ],
+    },
+    {
+      title: tr('조작 · 표시', 'Buttons & lamps'),
+      mode: 'real',
+      items: [
+        it('r_pb', tr('푸시버튼 (녹 · 기동)', 'Push button (green)'), { color: 'green' }, 'rpb-g'),
+        it('r_pb', tr('푸시버튼 (적 · 정지)', 'Push button (red)'), { color: 'red' }, 'rpb-r'),
+        it('r_pb', tr('푸시버튼 (황)', 'Push button (yellow)'), { color: 'yellow' }, 'rpb-y'),
+        it('r_lamp', tr('램프 (녹)', 'Lamp (green)'), { color: 'green' }, 'rl-g'),
+        it('r_lamp', tr('램프 (적)', 'Lamp (red)'), { color: 'red' }, 'rl-r'),
+        it('r_lamp', tr('램프 (황)', 'Lamp (yellow)'), { color: 'yellow' }, 'rl-y'),
+      ],
+    },
+    { title: tr('전동기', 'Motors'), mode: 'real', items: [it('r_motor3', tr('3상 전동기', '3-ph motor'))] },
+    {
       title: tr('전원', 'Supply'),
+      mode: 'symbol',
       items: [
         it('src', 'L (220V)', { pole: 'L' }, 'src-L'),
         it('src', 'N', { pole: 'N' }, 'src-N'),
@@ -358,10 +504,12 @@ export function palette(): PaletteGroup[] {
     },
     {
       title: tr('보호 기기', 'Protection'),
+      mode: 'symbol',
       items: [it('mcb3', 'MCCB 3P'), it('mcb', tr('차단기 1P', 'Breaker 1P')), it('fuse', tr('퓨즈', 'Fuse')), it('fuse3', tr('퓨즈 3P', 'Fuse 3P')), it('ol3', 'THR 3P')],
     },
     {
       title: tr('조작 스위치', 'Switches'),
+      mode: 'symbol',
       items: [
         it('pb_no', tr('푸시버튼 a (기동)', 'Push button NO'), { color: 'green' }),
         it('pb_nc', tr('푸시버튼 b (정지)', 'Push button NC'), { color: 'red' }),
@@ -385,6 +533,7 @@ export function palette(): PaletteGroup[] {
     },
     {
       title: tr('릴레이 · 타이머', 'Relays & timers'),
+      mode: 'symbol',
       items: [
         it('coil', tr('릴레이 코일 X', 'Relay coil'), undefined, 'coil-x'),
         it('coil', tr('전자접촉기 코일 MC', 'Contactor coil'), undefined, 'coil-mc', 'MC'),
@@ -397,6 +546,7 @@ export function palette(): PaletteGroup[] {
     },
     {
       title: tr('출력', 'Outputs'),
+      mode: 'symbol',
       items: [
         it('lamp', tr('램프 (적색)', 'Lamp (red)'), { color: 'red' }, 'lamp-r'),
         it('lamp', tr('램프 (녹색)', 'Lamp (green)'), { color: 'green' }, 'lamp-g'),
@@ -464,12 +614,13 @@ export function partBox(p: Part): [number, number, number, number] {
   return [p.x + Math.min(...xs), p.y + Math.min(...ys), p.x + Math.max(...xs), p.y + Math.max(...ys)];
 }
 
-export const POLE_IDENTITY: Record<Pole, string> = { '+24V': '+24V', '0V': '0V', L: 'L1', N: 'N', L1: 'L1', L2: 'L2', L3: 'L3' };
-export const POLE_SYSTEM: Record<string, 'dc' | 'ac'> = { '+24V': 'dc', '0V': 'dc', L1: 'ac', L2: 'ac', L3: 'ac', N: 'ac' };
+export const POLE_IDENTITY: Record<Pole, string> = { '+24V': '+24V', '0V': '0V', L: 'L1', N: 'N', L1: 'L1', L2: 'L2', L3: 'L3', PE: 'PE' };
+/** PE(보호 접지)는 혼자인 계통이라 부하를 움직이지 않고, L 과 닿으면 단락(지락)으로 잡힌다 */
+export const POLE_SYSTEM: Record<string, 'dc' | 'ac' | 'pe'> = { '+24V': 'dc', '0V': 'dc', L1: 'ac', L2: 'ac', L3: 'ac', N: 'ac', PE: 'pe' };
 
 /** 기호를 따라 움직이는 접점 (코일·타이머·THR·스위치) */
 export const FOLLOWER: ReadonlySet<PartType> = new Set(['no', 'nc', 'km3']);
-export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox']);
+export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_pb', 'r_thr']);
 export const VALVES: ReadonlySet<PartType> = new Set(['v32', 'v52', 'v52d', 'v53']);
 export const CONTACT_A: ReadonlySet<PartType> = new Set(['no', 'pb_no', 'sw_no', 'ls_no']);
 export const CONTACT_B: ReadonlySet<PartType> = new Set(['nc', 'pb_nc', 'sw_nc', 'ls_nc', 'estop']);
