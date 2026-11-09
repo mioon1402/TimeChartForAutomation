@@ -16,7 +16,8 @@ import { storageGet, storageSet } from '../storage';
 import { WEB_TRIAL } from '../env';
 import { CircuitSvg } from '../render/CircuitSvg';
 import { bomSummary, contactsLabel, partsList } from '../circuit/bom';
-import { opTimes } from '../circuit/engine';
+import { termText, wireColorName, wiringList } from '../circuit/wiring';
+import { CircuitModel, opTimes } from '../circuit/engine';
 
 export interface ReportOpts {
   paper: 'A4' | 'A3';
@@ -47,6 +48,8 @@ export interface ReportOpts {
   circuit: boolean;
   /** 회로도에서 만든 부품 리스트 */
   bom: boolean;
+  /** 회로도에서 만든 결선표 (단자 → 단자) */
+  wiring: boolean;
 }
 
 const OPTS_KEY = 'timechart-studio.report.v1';
@@ -100,6 +103,7 @@ export const DEFAULT_REPORT_OPTS: ReportOpts = {
   titleBlock: true,
   circuit: true,
   bom: true,
+  wiring: true,
 };
 
 function loadOpts(): ReportOpts {
@@ -343,6 +347,7 @@ export function ReportPanel() {
                 <>
                   <Check checked={o.circuit} onChange={(v) => set({ circuit: v })} label={tr('회로도 · 조작 순서', 'Circuit diagram & operations')} />
                   <Check checked={o.bom} onChange={(v) => set({ bom: v })} label={tr('부품 리스트 (회로도에서 자동)', 'Parts list (from the circuit)')} />
+                  <Check checked={o.wiring} onChange={(v) => set({ wiring: v })} label={tr('결선표 (단자 → 단자, 체크 칸)', 'Wiring list (terminal to terminal)')} />
                 </>
               )}
               {project.sequence && <Check checked={o.sequence} onChange={(v) => set({ sequence: v })} label={tr('동작 순서표 (설계: 기기 · 순서 · I/O)', 'Sequence table (design)')} />}
@@ -1432,6 +1437,35 @@ function circuitBlocks(project: Project, o: ReportOpts): Block[] {
         </tr>
       )),
     });
+  }
+  if (o.wiring && c.wires.length) {
+    const rows = wiringList(c, new CircuitModel(c, project.plc));
+    const done = new Set(c.wired ?? []);
+    if (rows.length)
+      blocks.push({
+        id: 'wiring',
+        title: tr('결선표 (단자 → 단자)', 'Wiring list'),
+        head: (
+          <tr>
+            <th>No</th>
+            <th>{tr('선번호', 'Wire')}</th>
+            <th>{tr('출발', 'From')}</th>
+            <th>{tr('도착', 'To')}</th>
+            <th>{tr('전선 색', 'Colour')}</th>
+            <th>{tr('확인', 'Check')}</th>
+          </tr>
+        ),
+        rows: rows.map((r, i) => (
+          <tr key={r.key}>
+            <td>{i + 1}</td>
+            <td className="mono">{r.no}</td>
+            <td className="mono">{termText(r.from)}</td>
+            <td className="mono">{termText(r.to)}</td>
+            <td>{wireColorName(r.color)}</td>
+            <td>{done.has(r.key) ? '☑' : '☐'}</td>
+          </tr>
+        )),
+      });
   }
   return blocks;
 }

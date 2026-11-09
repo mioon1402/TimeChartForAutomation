@@ -357,6 +357,74 @@ function realWiring(): Circuit {
   return b.done();
 }
 
+/**
+ * 제어반 실물 배선: 문(도어)에 붙는 기기 ↔ 단자대 TB1 ↔ 판넬 안 기기.
+ *  - 비상정지 EMS (11-12 b) → 셀렉터 SS (23-24 a, 운전 선택) → 정지 PB0 (11-12 b) → 기동 PB1 (23-24 a) ∥ X1 1-3 → X1 코일 2-7
+ *  - X1 8-6 a → T1 전원 2 · 공통 1 (타이머가 돌기 시작), T1 1-3 한시 a → 운전 GL, T1 1-4 한시 b → 대기 YL
+ *  - X1 1-4 b → 정지 RL, N 은 TB1-8 로 램프 X2 에 이어 돌린다
+ * 전선 색: 전원 L 갈색, N 파랑, 교류 제어선 빨강 (KS C IEC 60204-1)
+ */
+function controlPanel(): Circuit {
+  const b = new Builder();
+  // ── 문 (도어): 위 줄
+  b.part('r_estop', 4, 3, 'EMS', { name: tr('비상정지', 'E-stop') });
+  b.part('r_ss', 10, 3, 'SS', { name: tr('운전 선택', 'Run select') });
+  b.part('r_pb', 17, 3, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('r_pb', 24, 3, 'PB1', { name: tr('기동', 'Start'), color: 'green' });
+  b.part('r_lamp', 30, 4, 'RL', { name: tr('정지', 'Stopped'), color: 'red' });
+  b.part('r_lamp', 36, 4, 'GL', { name: tr('운전', 'Running'), color: 'green' });
+  b.part('r_lamp', 42, 4, 'YL', { name: tr('대기', 'Waiting'), color: 'yellow' });
+  // ── 단자대 TB1: 1 L · 2 기동 앞 · 3 기동 뒤 · 4 예비 · 5 RL · 6 GL · 7 YL · 8 N
+  b.part('r_tb', 11, 14, 'TB1', { name: tr('도어 단자', 'Door terminals'), n: 8 });
+  // 문 쪽 배선 (단자대 위 나사 → 문 기기)
+  b.cable('red', [11, 12], [11, 8], [1, 8], [1, 3], [3, 3]);
+  b.cable('red', [5, 3], [7, 3], [7, 5], [9, 5]);
+  b.cable('red', [11, 5], [14, 5], [14, 3], [16, 3]);
+  b.cable('red', [18, 3], [21, 3], [21, 5], [23, 5]);
+  b.cable('red', [13, 12], [13, 6], [21, 6], [21, 5]);
+  b.cable('red', [15, 12], [15, 7], [25, 7], [25, 5]);
+  b.cable('red', [19, 12], [19, 8], [29, 8], [29, 5]);
+  b.cable('red', [21, 12], [21, 9], [35, 9], [35, 5]);
+  b.cable('red', [23, 12], [23, 10], [41, 10], [41, 5]);
+  b.cable('blue', [25, 12], [25, 11], [46, 11], [46, 0], [33, 0]);
+  b.cable('blue', [33, 0], [33, 5], [31, 5]);
+  b.cable('blue', [39, 0], [39, 5], [37, 5]);
+  b.cable('blue', [43, 5], [46, 5]);
+  // ── 판넬 안: 차단기 1P, 8핀 릴레이 X1, 8핀 타이머 T1
+  b.part('r_term', 6, 14, '', { pole: 'L' });
+  b.part('r_term', 39, 13, '', { pole: 'N' });
+  b.part('r_mcb1', 6, 22, 'MCB1', { name: tr('조작 전원', 'Control supply'), spec: 'AC/10A' });
+  b.part('r_relay8', 16, 23, 'X1', { name: tr('운전 기억', 'Run memory'), spec: 'AC 220V' });
+  b.part('r_timer8', 30, 23, 'T1', { name: tr('기동 지연', 'Start delay'), timerMode: 'on', preset: 3000 });
+  b.cable('brown', [6, 14], [6, 18]);
+  // L: 차단기 2 → 아래 모선 → X1 8 (공통), TB1-1 (문으로)
+  b.cable('red', [6, 26], [6, 29], [13, 29], [13, 26]);
+  b.cable('red', [11, 16], [11, 29]);
+  // 단자대 아래 나사 → X1: 2 = 1(기동 앞), 3 = 2(코일, 3 과 점퍼), 5 = 4(b → RL)
+  b.cable('red', [13, 16], [13, 20]);
+  b.cable('red', [15, 16], [15, 20]);
+  b.cable('red', [17, 20], [17, 19], [15, 19]);
+  b.cable('red', [19, 16], [19, 20]);
+  // TB1 6 · 7 → T1 3 (한시 a, GL), T1 4 (한시 b, YL)
+  b.cable('red', [21, 16], [21, 18], [31, 18], [31, 20]);
+  b.cable('red', [23, 16], [23, 17], [33, 17], [33, 20]);
+  // X1 8-6 (a) → T1 전원 2 와 공통 1
+  b.cable('red', [17, 26], [17, 28], [25, 28], [25, 19], [29, 19], [29, 20]);
+  b.cable('red', [27, 19], [27, 20]);
+  // N: 오른쪽 단자 → TB1-8, 아래 모선 → X1 7, T1 7
+  b.cable('blue', [39, 13], [39, 16], [25, 16]);
+  b.cable('blue', [39, 16], [39, 30], [15, 30], [15, 26]);
+  b.cable('blue', [29, 26], [29, 30]);
+  b.part('text', 1, -3, '', { text: tr('제어반 실물 배선: 비상정지 · 셀렉터 · 8핀 릴레이 · 타이머 · 단자대', 'Control panel wiring: E-stop, selector, 8-pin relay & timer, terminal block') });
+  b.op(500, 'SS', 'on', tr('운전 선택', 'Select run'));
+  b.op(500, 'PB1', 'press', tr('기동', 'Start'));
+  b.op(5000, 'PB0', 'press', tr('정지', 'Stop'));
+  b.op(1000, 'PB1', 'press', tr('다시 기동', 'Restart'));
+  b.op(1500, 'EMS', 'on', tr('비상정지', 'E-stop'));
+  b.op(1000, 'EMS', 'off', tr('비상정지 해제', 'Release E-stop'));
+  return b.done();
+}
+
 /** PLC 자기유지: 기동 PB → X0, 정지 PB → X1, Y0 운전 램프, T0(3초) 뒤 Y1 램프 */
 function plcSelfHold(): Circuit {
   const b = new Builder();
@@ -410,6 +478,7 @@ export interface CircuitExample {
 
 export function circuitExamples(): CircuitExample[] {
   return [
+    { id: 'panel', name: tr('제어반 실물 배선: 릴레이 · 타이머 · 단자대', 'Control panel: relay, timer, terminal block'), desc: tr('비상정지 · 셀렉터 · 푸시버튼 · 램프 (문) ↔ 단자대 ↔ 8핀 릴레이 · 타이머 (판넬). 결선표를 따라 배선 연습', 'Door devices ↔ terminal block ↔ 8-pin relay and timer; follow the wiring list'), build: controlPanel },
     { id: 'real', name: tr('실물 배선도: 전동기 기동·정지', 'Wiring diagram: motor start/stop'), desc: tr('차단기 3P·2P, 전자접촉기, 푸시버튼 유닛, 전동기를 실제 단자 번호와 전선 색으로', 'Real devices with terminal numbers and wire colours'), build: realWiring },
     { id: 'self-hold', name: tr('자기유지 (전동기 기동·정지)', 'Self-holding (motor start/stop)'), desc: tr('기동 PB로 MC1 자기유지, 정지 PB로 해제. 주회로와 표시등 포함', 'Start latches MC1, stop releases it; power circuit and lamps'), build: selfHold },
     { id: 'reversing', name: tr('정역 운전 (인터록)', 'Forward / reverse (interlock)'), desc: tr('MC1·MC2 서로 b접점 인터록, 주회로에서 L1·L3 교체', 'MC1/MC2 interlocked, L1 and L3 swapped'), build: reversing },

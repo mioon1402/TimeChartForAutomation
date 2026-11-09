@@ -47,6 +47,8 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (optStr(q.solA)) p.solA = str(q.solA);
     if (optStr(q.solB)) p.solB = str(q.solB);
     if (typeof q.speed === 'number' && q.speed > 0) p.speed = Math.min(100, q.speed);
+    if (typeof q.n === 'number' && q.n >= 1) p.n = Math.min(40, Math.round(q.n));
+    if (q.inst13 === true) p.inst13 = true;
     parts.push(p);
   }
   const wires: Wire[] = [];
@@ -73,5 +75,9 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   if (typeof o.duration === 'number' && o.duration > 0) c.duration = o.duration;
   if (o.autoChart === false) c.autoChart = false;
   if (typeof o.applied === 'string') c.applied = o.applied;
+  if (Array.isArray(o.wired)) {
+    const wired = o.wired.filter((x): x is string => typeof x === 'string' && x.length < 200);
+    if (wired.length) c.wired = wired;
+  }
   return c;
 }

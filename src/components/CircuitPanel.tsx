@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project } from '../model/types';
 import { emptyCircuit, type Circuit, type LampColor, type OpStep, type Part, type Pole, type Wire, type WireColor } from '../circuit/types';
-import { FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partKindName, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
+import { FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -22,6 +22,7 @@ import { circuitExamples } from '../circuit/examples';
 import { tr } from '../i18n';
 import { WEB_TRIAL } from '../env';
 import { WIRE_HEX } from '../render/RealSymbols';
+import { wireColorName, wiringCsv, wiringList, type WiringRow } from '../circuit/wiring';
 import { storageGet, storageSet } from '../storage';
 
 const EMPTY = emptyCircuit();
@@ -29,7 +30,7 @@ let lastZoom = 1;
 let clip: { parts: Part[]; wires: Wire[] } | null = null;
 let pasteCount = 0;
 
-type Side = 'props' | 'ops' | 'bom' | 'check';
+type Side = 'props' | 'ops' | 'bom' | 'wiring' | 'check';
 
 interface Running {
   sim: CircuitSim;
@@ -101,6 +102,8 @@ export function CircuitPanel() {
   const circuit = project.circuit ?? EMPTY;
   const model = useMemo(() => new CircuitModel(circuit, project.plc), [circuit, project.plc]);
   const issues = useMemo(() => checkCircuit(circuit, model), [circuit, model]);
+  const wiring = useMemo(() => wiringList(circuit, model), [circuit.parts, circuit.wires, model]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [wirePick, setWirePick] = useState<string | null>(null);
   const colors: CircuitColors = theme === 'dark' ? CIRCUIT_DARK : CIRCUIT_LIGHT;
   const [sel, setSel] = useState<Sel>(NO_SEL);
   const [tool, setTool] = useState<'select' | 'wire'>('select');
@@ -429,6 +432,7 @@ export function CircuitPanel() {
               { label: tr('회로도 PNG 이미지', 'Circuit PNG'), icon: 'image', onClick: () => void F.exportCircuitImage('png') },
               { label: tr('회로도 SVG (벡터)', 'Circuit SVG'), icon: 'image', onClick: () => void F.exportCircuitImage('svg') },
               { label: tr('부품 리스트 CSV (엑셀)', 'Parts list CSV'), icon: 'table', onClick: () => downloadText(`${safeFileName(project.meta.title || 'circuit')}_${tr('부품리스트', 'parts')}.csv`, bomCsv(circuit), 'text/csv;charset=utf-8') },
+              { label: tr('결선표 CSV (엑셀)', 'Wiring list CSV'), icon: 'table', onClick: () => downloadText(`${safeFileName(project.meta.title || 'circuit')}_${tr('결선표', 'wiring')}.csv`, wiringCsv(wiring, new Set(circuit.wired ?? [])), 'text/csv;charset=utf-8') },
             ]}
           />
         )}
@@ -455,6 +459,7 @@ export function CircuitPanel() {
           flagged={flagged}
           ghostPart={(item, x, y) => makePart(circuit, item, x, y, 'ghost', project.plc?.dialect)}
           fitKey={fitKey}
+          highlight={side === 'wiring' ? wireHighlight(wiring.find((r) => r.key === wirePick)) : null}
         />
         <aside className="cc-side">
           <div className="seg cc-tabs">
@@ -466,6 +471,9 @@ export function CircuitPanel() {
             </button>
             <button type="button" className={side === 'bom' ? 'on' : ''} onClick={() => setSide('bom')}>
               {tr('부품 리스트', 'Parts list')}
+            </button>
+            <button type="button" className={side === 'wiring' ? 'on' : ''} onClick={() => setSide('wiring')}>
+              {tr('결선표', 'Wiring')}
             </button>
             <button type="button" className={side === 'check' ? 'on' : ''} onClick={() => setSide('check')}>
               {tr('검사', 'Check')} {issues.length ? <b className={errCount ? 'bad' : ''}>{issues.length}</b> : null}
@@ -490,6 +498,16 @@ export function CircuitPanel() {
             )}
             {side === 'ops' && <OpsPane circuit={circuit} model={model} res={preview?.res ?? null} onChange={commitCircuit} />}
             {side === 'bom' && <BomPane circuit={circuit} title={project.meta.title} />}
+            {side === 'wiring' && (
+              <WiringPane
+                rows={wiring}
+                done={circuit.wired ?? []}
+                title={project.meta.title}
+                pick={wirePick}
+                onPick={setWirePick}
+                onDone={(wired) => commitCircuit(wired.length ? { ...circuit, wired } : { ...circuit, wired: undefined }, 'wired', false)}
+              />
+            )}
             {side === 'check' && <CheckPane issues={issues} onPick={(ids) => (setSel({ parts: ids, wires: [] }), setSide('props'))} />}
           </div>
         </aside>
@@ -532,7 +550,7 @@ export function CircuitPanel() {
 
 function MiniGlyph({ item, c }: { item: PaletteItem; c: CircuitColors }) {
   const p = makePart(emptyCircuit(), item, 0, 0, 'mini');
-  const [x0, y0, x1, y1] = PARTS[p.type].box;
+  const [x0, y0, x1, y1] = partBox(p);
   const w = Math.max((x1 - x0) * 20, 20);
   const h = Math.max((y1 - y0) * 20, 20);
   const model = useMemo(() => new CircuitModel(emptyCircuit()), []);
@@ -722,7 +740,7 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
                       : tr(`같은 기호(${p.tag || '?'})의 코일이 없습니다`, `No coil with tag ${p.tag || '?'}`)}
             </p>
           )}
-          {p.type === 'timer' && (
+          {(p.type === 'timer' || p.type === 'r_timer8') && (
             <div className="grid2">
               <Field label={tr('동작', 'Mode')}>
                 <Select value={p.timerMode ?? 'on'} onChange={(v: 'on' | 'off' | 'flicker') => set({ timerMode: v })} options={[{ value: 'on', label: tr('ON 딜레이 (한시 동작)', 'On-delay') }, { value: 'off', label: tr('OFF 딜레이 (한시 복귀)', 'Off-delay') }, { value: 'flicker', label: tr('플리커 (점멸)', 'Flicker') }]} />
@@ -731,6 +749,18 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
                 <TimeInput value={p.preset ?? 3000} onChange={(v) => v !== undefined && set({ preset: v })} />
               </Field>
             </div>
+          )}
+          {p.type === 'r_timer8' && (
+            <>
+              <Check checked={!!p.inst13} onChange={(v) => set({ inst13: v || undefined })} label={tr('1-3 · 1-4 를 순시 접점으로 (한시 1a1b + 순시 1a1b)', '1-3 / 1-4 instantaneous (timed 1NO1NC + inst. 1NO1NC)')} />
+              <p className="small muted">{tr('2-7 전원 · 8-6 한시 a · 8-5 한시 b · 1-3 a · 1-4 b (모델마다 다르니 기기 옆면 결선도를 확인)', 'Power 2-7 · 8-6 timed NO · 8-5 timed NC · 1-3 NO · 1-4 NC (check the label on your model)')}</p>
+            </>
+          )}
+          {p.type === 'r_relay8' && <p className="small muted">{tr('2-7 코일 · 1-3 a · 1-4 b · 8-6 a · 8-5 b (MK2P · 소켓 PTF08A 꼴)', 'Coil 2-7 · 1-3 NO · 1-4 NC · 8-6 NO · 8-5 NC (MK2P-style, PTF08A socket)')}</p>}
+          {p.type === 'r_tb' && (
+            <Field label={tr('극수', 'Poles')} wide hint={tr('번호마다 위·아래 나사가 이어져 있습니다', 'Top and bottom screws of each number are connected')}>
+              <NumberInput value={p.n ?? 6} min={1} max={40} onChange={(v) => set({ n: v ?? 6 })} />
+            </Field>
           )}
           {(p.type === 'lamp' || p.type === 'pb_no' || p.type === 'pb_nc' || p.type === 'r_lamp' || p.type === 'r_pb') && (
             <Field label={tr('색', 'Colour')} wide>
@@ -822,7 +852,7 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
           <Field label={tr('사양 (부품 리스트)', 'Spec (parts list)')} wide>
             <TagInput value={p.spec ?? ''} onChange={(v) => set({ spec: v || undefined })} placeholder={row?.spec || tr('예: AC220V, 22mm', 'e.g. AC220V, 22mm')} />
           </Field>
-          {(p.type === 'coil' || p.type === 'timer' || p.type === 'ol3' || def.operate) && row && (
+          {(p.type === 'coil' || p.type === 'timer' || p.type === 'ol3' || def.operate || def.selfCoil) && row && (
             <p className="small muted">
               {tr('같은 기호의 접점', 'Contacts with this tag')}: <b>{contactsLabel(row) || tr('없음', 'none')}</b> {sameTag.length ? `(${tr('그림', 'drawn')} ${sameTag.length})` : ''}
             </p>
@@ -1065,6 +1095,76 @@ function BomPane({ circuit, title }: { circuit: Circuit; title: string }) {
       </table>
       {!WEB_TRIAL && (
         <button type="button" className="btn small" onClick={() => downloadText(`${safeFileName(title || 'circuit')}_${tr('부품리스트', 'parts')}.csv`, bomCsv(circuit), 'text/csv;charset=utf-8')}>
+          <Icon name="download" size={13} /> {tr('엑셀 CSV 저장', 'Save Excel CSV')}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function wireHighlight(r: WiringRow | undefined) {
+  return r ? { segs: r.segs, pts: [r.from.at, r.to.at] } : null;
+}
+
+/** 결선표: 단자 → 단자 전선 한 가닥씩, 누르면 그림에서 강조, 배선을 마치면 체크 */
+function WiringPane({ rows, done, title, pick, onPick, onDone }: { rows: WiringRow[]; done: string[]; title: string; pick: string | null; onPick: (key: string | null) => void; onDone: (wired: string[]) => void }) {
+  const doneSet = new Set(done);
+  if (!rows.length) return <p className="muted">{tr('선으로 이어진 단자가 없습니다.', 'No wired terminals yet.')}</p>;
+  const n = rows.filter((r) => doneSet.has(r.key)).length;
+  const toggle = (key: string, on: boolean) => onDone(on ? [...done.filter((k) => k !== key), key] : done.filter((k) => k !== key));
+  return (
+    <div className="cc-wiring">
+      <p className="muted small hint">
+        {tr(
+          '회로도의 선을 실제 전선 한 가닥씩 (단자 → 단자) 풀어 쓴 표입니다. 줄을 누르면 그림에서 그 전선이 강조됩니다. 배선을 마친 줄은 체크하세요. 선번호가 같으면 같은 전위 (마크 튜브 번호로 쓰면 됩니다).',
+          'Each row is one real wire from terminal to terminal. Click a row to highlight it; tick it when wired. Same wire number = same potential.',
+        )}
+      </p>
+      <div className="cc-wiring-head">
+        <div className="cc-wiring-bar" aria-hidden>
+          <i style={{ width: `${(100 * n) / rows.length}%` }} />
+        </div>
+        <span className="small">
+          {tr('완료', 'Done')} <b>{n}</b> / {rows.length}
+        </span>
+        {n > 0 && (
+          <button type="button" className="btn small ghost" onClick={() => onDone([])}>
+            {tr('체크 지우기', 'Clear ticks')}
+          </button>
+        )}
+      </div>
+      <table className="tbl compact cc-wiring-tbl">
+        <thead>
+          <tr>
+            <th aria-label={tr('완료', 'Done')}>✓</th>
+            <th title={tr('선번호 (같은 전위)', 'Wire number')}>{tr('번호', 'No.')}</th>
+            <th>{tr('출발', 'From')}</th>
+            <th>{tr('도착', 'To')}</th>
+            <th>{tr('색', 'Colour')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.key} className={`${pick === r.key ? 'on' : ''} ${doneSet.has(r.key) ? 'done' : ''} ${i > 0 && rows[i - 1].no !== r.no ? 'grp' : ''}`} onClick={() => onPick(pick === r.key ? null : r.key)}>
+              <td onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" checked={doneSet.has(r.key)} onChange={(e) => toggle(r.key, e.target.checked)} aria-label={tr('배선 완료', 'Wired')} />
+              </td>
+              <td className="num mono">{r.no}</td>
+              <td className="mono">
+                <b>{r.from.dev}</b> {r.from.label}
+              </td>
+              <td className="mono">
+                <b>{r.to.dev}</b> {r.to.label}
+              </td>
+              <td className="small">
+                {r.color && <span className="cc-wsw" style={{ background: WIRE_HEX[r.color] }} />} {wireColorName(r.color)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!WEB_TRIAL && (
+        <button type="button" className="btn small" onClick={() => downloadText(`${safeFileName(title || 'circuit')}_${tr('결선표', 'wiring')}.csv`, wiringCsv(rows, doneSet), 'text/csv;charset=utf-8')}>
           <Icon name="download" size={13} /> {tr('엑셀 CSV 저장', 'Save Excel CSV')}
         </button>
       )}

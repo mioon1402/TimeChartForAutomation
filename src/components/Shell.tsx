@@ -316,12 +316,19 @@ function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primar
   );
 }
 
-const WHATS_NEW_KEY = 'timechart-studio.whats-new.v3';
+const WHATS_NEW_KEY = 'timechart-studio.whats-new.v4';
 
 /** 이전 버전을 쓰던 사람에게 한 번만: 새로 생긴 기능 */
 export function WhatsNew({ onClose }: { onClose: () => void }) {
   const setTab = useStore((s) => s.setTab);
   const items: { icon: string; title: string; desc: string; go?: () => void; goLabel?: string }[] = [
+    {
+      icon: 'wire',
+      title: tr('제어반 실물 배선 · 결선표', 'Control panel wiring & wiring list'),
+      desc: tr('8핀 릴레이·타이머 소켓, 셀렉터, 비상정지, 단자대를 실제 모양과 단자 번호로 그립니다. [결선표] 탭은 "MCB1 2 → X1 8" 처럼 전선 한 가닥씩 보여 주고, 누르면 그림에서 강조, 배선한 줄은 체크합니다.', '8-pin relay and timer sockets, selector, E-stop and terminal blocks drawn as the real thing. The Wiring tab lists every wire terminal to terminal; click to highlight, tick when done.'),
+      go: () => F.openCircuitExample('panel'),
+      goLabel: tr('예제 열기', 'Open example'),
+    },
     {
       icon: 'circuit',
       title: tr('회로도 탭 (CADe SIMU 처럼 그리고 시뮬레이션)', 'Circuit tab (draw and simulate like CADe SIMU)'),

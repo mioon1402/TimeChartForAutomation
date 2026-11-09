@@ -4653,6 +4653,69 @@ button.seq-kpi {
   width: 100%;
 }
 
+/* 결선표 */
+.cc-wiring table {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.cc-wiring-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+
+.cc-wiring-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.cc-wiring-bar i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transition: width 0.2s;
+}
+
+.cc-wiring-tbl tbody tr {
+  cursor: pointer;
+}
+
+.cc-wiring-tbl tbody tr:hover td {
+  background: var(--accent-soft);
+}
+
+.cc-wiring-tbl tbody tr.on td {
+  background: #fde68a;
+  color: #111827;
+}
+
+.cc-wiring-tbl tbody tr.grp td {
+  border-top: 2px solid var(--border);
+}
+
+.cc-wiring-tbl tbody tr.done td:not(:first-child) {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.cc-wiring-tbl td {
+  white-space: nowrap;
+}
+
+.cc-wsw {
+  display: inline-block;
+  width: 14px;
+  height: 6px;
+  border-radius: 2px;
+  vertical-align: middle;
+  box-shadow: 0 0 0 1px #0003;
+}
+
 .cc-preview {
   flex: none;
   display: flex;

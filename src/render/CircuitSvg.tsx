@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react';
-import type { Circuit, Part } from '../circuit/types';
+import type { ReactNode, JSX } from 'react';
+import type { Circuit, Part, WireColor } from '../circuit/types';
 import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { McbGlyph, McGlyph, PbGlyph, RLampGlyph, RMotorGlyph, TermGlyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { EstopGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { FONT } from './layout';
 
@@ -74,7 +74,7 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     on: sim.energized.has(p.id),
     dir: sim.motorDir.get(p.id) ?? 0,
     openPhase: sim.openPhase.has(p.id),
-    timer: p.type === 'timer' ? sim.timerView(tag) : null,
+    timer: p.type === 'timer' || p.type === 'r_timer8' ? sim.timerView(tag) : null,
     pos: p.type === 'cyl' ? sim.cylPos(tag) : 0,
     link: model.tagKind.get(tag),
     plcIn: p.type === 'plc' ? sim.plcIn.get(p.id) : undefined,
@@ -444,6 +444,16 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <RLampGlyph p={p} st={st} c={c} />;
     case 'r_motor3':
       return <RMotorGlyph p={p} st={st} c={c} />;
+    case 'r_relay8':
+      return <Relay8Glyph p={p} st={st} c={c} />;
+    case 'r_timer8':
+      return <Timer8Glyph p={p} st={st} c={c} />;
+    case 'r_ss':
+      return <SsGlyph p={p} st={st} c={c} />;
+    case 'r_estop':
+      return <EstopGlyph p={p} st={st} c={c} />;
+    case 'r_tb':
+      return <TbGlyph p={p} c={c} />;
     case 'text':
       return (
         <text y={0} fontSize={14} fontWeight={600} fill={c.ink} stroke="none">
@@ -539,6 +549,8 @@ export interface LayerOptions {
   /** 문제가 있는 부품 */
   flagged?: Set<string>;
   showPins?: boolean;
+  /** 결선표에서 고른 전선: 그림의 토막과 두 단자 */
+  highlight?: { segs: [[number, number], [number, number]][]; pts: [number, number][] } | null;
 }
 
 /** 선·점·부품·글자 (편집기와 인쇄 공용) */
@@ -565,18 +577,11 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         const sel = o.selected?.has(w.id);
         const n = model.net.wireNet.get(w.id);
         if (w.color && !(n !== undefined && model.airNets.has(n))) {
-          // 실제 전선: 색 + 얇은 테두리, 전압이 닿으면 흰 점선이 흐른다
           const pole = sim && n !== undefined ? sim.netPole[n] : null;
-          const live = !!pole && pole !== 'short' && pole !== 'PE';
-          const L = { x1: w.a[0] * G, y1: w.a[1] * G, x2: w.b[0] * G, y2: w.b[1] * G };
           return (
             <g key={w.id}>
-              {sel && <line {...L} stroke={c.select} strokeWidth={9} opacity={0.5} />}
-              <line {...L} stroke={c.bg === CIRCUIT_DARK.bg ? '#ffffff55' : '#00000045'} strokeWidth={5.6} />
-              <line {...L} stroke={WIRE_HEX[w.color]} strokeWidth={3.8} />
-              {w.color === 'gy' && <line {...L} stroke="#facc15" strokeWidth={3.8} strokeDasharray="7 7" strokeLinecap="butt" />}
-              {live && <line {...L} stroke="#ffffff" strokeWidth={1.6} strokeDasharray="5 5" className="cc-flow" />}
-              {pole === 'short' && <line {...L} stroke={POLE_COLOR.short} strokeWidth={2.4} className="cc-short" />}
+              {sel && <line x1={w.a[0] * G} y1={w.a[1] * G} x2={w.b[0] * G} y2={w.b[1] * G} stroke={c.select} strokeWidth={9} opacity={0.5} />}
+              <Cable a={w.a} b={w.b} color={w.color} pole={pole} c={c} />
             </g>
           );
         }
@@ -615,8 +620,67 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
           </g>
         );
       })}
+      <WireEnds circuit={circuit} model={model} sim={sim} c={c} />
+      {o.highlight && (
+        <g pointerEvents="none">
+          {o.highlight.segs.map(([a, b], i) => (
+            <line key={i} x1={a[0] * G} y1={a[1] * G} x2={b[0] * G} y2={b[1] * G} stroke="#f59e0b" strokeWidth={12} opacity={0.5} />
+          ))}
+          {o.highlight.pts.map(([x, y], i) => (
+            <circle key={`p${i}`} cx={x * G} cy={y * G} r={13} fill="none" stroke="#f59e0b" strokeWidth={3.5} />
+          ))}
+        </g>
+      )}
     </g>
   );
+}
+
+/** 실제 전선 한 토막: 색 + 얇은 테두리, 녹황은 줄무늬, 전압이 닿으면 흰 점선이 흐른다 */
+function Cable({ a, b, color, pole, c }: { a: [number, number]; b: [number, number]; color: WireColor; pole: string | null; c: CircuitColors }) {
+  const live = !!pole && pole !== 'short' && pole !== 'PE';
+  const L = { x1: a[0] * G, y1: a[1] * G, x2: b[0] * G, y2: b[1] * G };
+  return (
+    <g>
+      <line {...L} stroke={c.bg === CIRCUIT_DARK.bg ? '#ffffff55' : '#00000045'} strokeWidth={5.6} />
+      <line {...L} stroke={WIRE_HEX[color]} strokeWidth={3.8} />
+      {color === 'gy' && <line {...L} stroke="#facc15" strokeWidth={3.8} strokeDasharray="7 7" strokeLinecap="butt" />}
+      {live && <line {...L} stroke="#ffffff" strokeWidth={1.6} strokeDasharray="5 5" className="cc-flow" />}
+      {pole === 'short' && <line {...L} stroke={POLE_COLOR.short} strokeWidth={2.4} className="cc-short" />}
+    </g>
+  );
+}
+
+/**
+ * 실물 기기의 나사에 닿는 전선 끝: 몸통 그림이 선을 덮으므로 끝부분만 위에 다시 그려
+ * 전선이 어느 나사로 들어가는지 보이게 한다.
+ */
+function WireEnds({ circuit, model, sim, c }: { circuit: Circuit; model: CircuitModel; sim: CircuitSim | null; c: CircuitColors }) {
+  const real = new Set<string>();
+  for (const p of circuit.parts) if (REAL.has(p.type)) pinPositions(p).forEach(([x, y]) => real.add(`${x},${y}`));
+  if (!real.size) return null;
+  const out: JSX.Element[] = [];
+  for (const w of circuit.wires) {
+    const n = model.net.wireNet.get(w.id);
+    if (n !== undefined && model.airNets.has(n)) continue;
+    for (const [end, other] of [
+      [w.a, w.b],
+      [w.b, w.a],
+    ] as const) {
+      if (!real.has(`${end[0]},${end[1]}`)) continue;
+      const len = Math.abs(other[0] - end[0]) + Math.abs(other[1] - end[1]);
+      const s = Math.min(len, 1.6);
+      if (s <= 0.5) continue;
+      const dx = Math.sign(other[0] - end[0]);
+      const dy = Math.sign(other[1] - end[1]);
+      const from: [number, number] = [end[0] + dx * s, end[1] + dy * s];
+      const to: [number, number] = [end[0] + dx * 0.35, end[1] + dy * 0.35];
+      const pole = sim && n !== undefined ? sim.netPole[n] : null;
+      const key = `${w.id}:${end[0]},${end[1]}`;
+      if (w.color) out.push(<Cable key={key} a={from} b={to} color={w.color} pole={pole} c={c} />);
+      else out.push(<line key={key} x1={from[0] * G} y1={from[1] * G} x2={to[0] * G} y2={to[1] * G} stroke={(pole && POLE_COLOR[pole]) || c.ink} strokeWidth={1.8} />);
+    }
+  }
+  return <g pointerEvents="none">{out}</g>;
 }
 
 /** 회로 전체의 범위 (격자) */
