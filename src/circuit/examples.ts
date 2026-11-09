@@ -1,4 +1,4 @@
-import type { Circuit, OpStep, Part, PartType, Wire } from './types';
+import type { Circuit, OpStep, Part, PartType, Wire, WireColor } from './types';
 import { uid } from '../model/wave';
 import { tr } from '../i18n';
 import { defaultSimSettings, type PlcConfig } from '../plc/types';
@@ -18,6 +18,11 @@ class Builder {
   /** 꺾인 선: 점을 차례로 잇는다 */
   wire(...pts: [number, number][]): void {
     for (let i = 1; i < pts.length; i++) this.wires.push({ id: uid('cw'), a: pts[i - 1], b: pts[i] });
+  }
+
+  /** 색이 있는 실제 전선 */
+  cable(color: WireColor, ...pts: [number, number][]): void {
+    for (let i = 1; i < pts.length; i++) this.wires.push({ id: uid('cw'), a: pts[i - 1], b: pts[i], color });
   }
 
   op(wait: number, tag: string, action: OpStep['action'] = 'press', note = '', hold = 300): void {
@@ -309,6 +314,49 @@ function electroPneumatic(): Circuit {
   return b.done();
 }
 
+/**
+ * 실물 배선도: 3상 전원 → 차단기 3P → 전자접촉기 → 전동기(PE 접지),
+ * 제어는 L3 · N 을 차단기 2P 로 받아 정지(11-12 b) → 기동(23-24 a) ∥ MC 13-14 → A2, A1 은 N.
+ */
+function realWiring(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 6, 0, '', { pole: 'L1' });
+  b.part('r_term', 8, 0, '', { pole: 'L2' });
+  b.part('r_term', 10, 0, '', { pole: 'L3' });
+  b.part('r_term', 13, 0, '', { pole: 'N' });
+  b.part('r_mcb3', 8, 6, 'MCB1', { name: tr('주 차단기', 'Main breaker'), spec: 'AC/25A' });
+  b.part('r_mcb2', 17, 6, 'MCB2', { name: tr('조작 회로', 'Control'), spec: 'AC/25A' });
+  b.cable('brown', [6, 0], [6, 2]);
+  b.cable('black', [8, 0], [8, 2]);
+  b.cable('grey', [10, 0], [10, 2]);
+  b.cable('blue', [13, 0], [18, 0], [18, 2]);
+  b.cable('grey', [10, 2], [16, 2]);
+  b.part('r_mc', 9, 19, 'MC1', { name: tr('전동기 운전', 'Motor run'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  b.cable('brown', [6, 10], [6, 15]);
+  b.cable('black', [8, 10], [8, 15]);
+  b.cable('grey', [10, 10], [10, 15]);
+  b.cable('blue', [18, 10], [18, 12], [7, 12], [7, 13]);
+  // 조작: 정지 PB0 (11-12 b) → 기동 PB1 (23-24 a) ∥ MC1 13-14 → A2
+  b.part('r_pb', 24, 18, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('r_pb', 24, 26, 'PB1', { name: tr('기동', 'Start'), color: 'green' });
+  b.cable('grey', [16, 10], [16, 18], [23, 18]);
+  b.cable('grey', [25, 18], [27, 18], [27, 28], [25, 28]);
+  b.cable('grey', [12, 15], [12, 13], [27, 13], [27, 18]);
+  b.cable('grey', [23, 28], [23, 30], [11, 30], [11, 25]);
+  b.cable('grey', [12, 23], [12, 30]);
+  // 전동기 U V W, PE 접지
+  b.part('r_motor3', 8, 35, 'M1', { name: tr('3상 전동기', '3-phase motor'), spec: 'AC 380V' });
+  b.cable('brown', [6, 23], [6, 32]);
+  b.cable('black', [8, 23], [8, 32]);
+  b.cable('grey', [10, 23], [10, 32]);
+  b.part('r_term', 18, 36, '', { pole: 'PE' });
+  b.cable('gy', [12, 36], [18, 36]);
+  b.part('text', 1, -3, '', { text: tr('실물 배선도: 전동기 기동 · 정지 (자기유지)', 'Wiring diagram: motor start / stop (self-hold)') });
+  b.op(500, 'PB1', 'press', tr('기동', 'Start'));
+  b.op(3000, 'PB0', 'press', tr('정지', 'Stop'));
+  return b.done();
+}
+
 /** PLC 자기유지: 기동 PB → X0, 정지 PB → X1, Y0 운전 램프, T0(3초) 뒤 Y1 램프 */
 function plcSelfHold(): Circuit {
   const b = new Builder();
@@ -362,6 +410,7 @@ export interface CircuitExample {
 
 export function circuitExamples(): CircuitExample[] {
   return [
+    { id: 'real', name: tr('실물 배선도: 전동기 기동·정지', 'Wiring diagram: motor start/stop'), desc: tr('차단기 3P·2P, 전자접촉기, 푸시버튼 유닛, 전동기를 실제 단자 번호와 전선 색으로', 'Real devices with terminal numbers and wire colours'), build: realWiring },
     { id: 'self-hold', name: tr('자기유지 (전동기 기동·정지)', 'Self-holding (motor start/stop)'), desc: tr('기동 PB로 MC1 자기유지, 정지 PB로 해제. 주회로와 표시등 포함', 'Start latches MC1, stop releases it; power circuit and lamps'), build: selfHold },
     { id: 'reversing', name: tr('정역 운전 (인터록)', 'Forward / reverse (interlock)'), desc: tr('MC1·MC2 서로 b접점 인터록, 주회로에서 L1·L3 교체', 'MC1/MC2 interlocked, L1 and L3 swapped'), build: reversing },
     { id: 'timer', name: tr('타이머 지연 동작', 'Timer delay'), desc: tr('기동 3초 뒤 운전, 기다리는 동안 대기 표시', 'Run 3 s after start, waiting lamp meanwhile'), build: timerDelay },

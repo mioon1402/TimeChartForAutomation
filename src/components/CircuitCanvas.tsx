@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Circuit, Part, Wire } from '../circuit/types';
+import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
+import { autoWireColor } from '../circuit/wires';
 import { OPERATOR, partBox, pinPositions, type PaletteItem } from '../circuit/parts';
 import { tagKey, type CircuitModel, type CircuitSim } from '../circuit/engine';
 import { uid } from '../model/wave';
@@ -45,7 +46,7 @@ export function moveSelection(c: Circuit, parts: Set<string>, wires: Set<string>
 }
 
 /** 두 점 사이에 꺾인 선 (가로→세로 또는 세로→가로), 이미 있는 선은 다시 넣지 않는다 */
-export function addWire(c: Circuit, from: Pt, to: Pt, axis: 'h' | 'v' | null): Circuit {
+export function addWire(c: Circuit, from: Pt, to: Pt, axis: 'h' | 'v' | null, color?: WireColor): Circuit {
   if (from[0] === to[0] && from[1] === to[1]) return c;
   const pts: Pt[] = from[0] === to[0] || from[1] === to[1] ? [from, to] : axis === 'v' ? [from, [from[0], to[1]], to] : [from, [to[0], from[1]], to];
   const wires = [...c.wires];
@@ -54,7 +55,7 @@ export function addWire(c: Circuit, from: Pt, to: Pt, axis: 'h' | 'v' | null): C
     const b = pts[i];
     if (a[0] === b[0] && a[1] === b[1]) continue;
     const dup = wires.some((w) => (k(w.a) === k(a) && k(w.b) === k(b)) || (k(w.a) === k(b) && k(w.b) === k(a)));
-    if (!dup) wires.push({ id: uid('cw'), a, b });
+    if (!dup) wires.push({ id: uid('cw'), a, b, ...(color ? { color } : {}) });
   }
   return { ...c, wires };
 }
@@ -326,7 +327,7 @@ export function CircuitCanvas(props: CanvasProps) {
         props.onEndMerge();
       }
     } else if (d.kind === 'wire') {
-      const next = addWire(circuit, d.from, d.to, d.axis);
+      const next = addWire(circuit, d.from, d.to, d.axis, autoWireColor(circuit, model, d.from, d.to));
       if (next !== circuit) props.onCommit(next);
     } else if (d.kind === 'box') {
       const [ax, bx] = [Math.min(d.from[0], d.to[0]), Math.max(d.from[0], d.to[0])];

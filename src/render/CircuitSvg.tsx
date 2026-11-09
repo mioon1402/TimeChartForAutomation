@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
 import type { Circuit, Part } from '../circuit/types';
-import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, rotate } from '../circuit/parts';
+import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
+import { McbGlyph, McGlyph, PbGlyph, RLampGlyph, RMotorGlyph, TermGlyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { FONT } from './layout';
 
@@ -427,6 +428,22 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
     case 'v52d':
     case 'v53':
       return <ValveGlyph p={p} st={st} c={c} />;
+    case 'r_term':
+      return <TermGlyph p={p} />;
+    case 'r_mcb1':
+    case 'r_mcb2':
+    case 'r_mcb3':
+      return <McbGlyph p={p} st={st} />;
+    case 'r_mc':
+      return <McGlyph p={p} st={st} />;
+    case 'r_thr':
+      return <ThrGlyph p={p} st={st} />;
+    case 'r_pb':
+      return <PbGlyph p={p} st={st} c={c} />;
+    case 'r_lamp':
+      return <RLampGlyph p={p} st={st} c={c} />;
+    case 'r_motor3':
+      return <RMotorGlyph p={p} st={st} c={c} />;
     case 'text':
       return (
         <text y={0} fontSize={14} fontWeight={600} fill={c.ink} stroke="none">
@@ -438,7 +455,8 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
 
 /** 기호·설명·단자 번호 (글자는 돌리지 않는다) */
 export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: CircuitColors }) {
-  if (p.type === 'src' || p.type === 'src3' || p.type === 'text' || p.type === 'plc' || p.type === 'air') return null;
+  // 실물 기기는 기호를 몸에 직접 적는다
+  if (p.type === 'src' || p.type === 'src3' || p.type === 'text' || p.type === 'plc' || p.type === 'air' || REAL.has(p.type)) return null;
   const valve = p.type === 'v32' || p.type === 'v52' || p.type === 'v52d' || p.type === 'v53';
   const X = p.x * G;
   const Y = p.y * G;
@@ -545,6 +563,23 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
       {circuit.wires.map((w) => {
         const col = wireColor(w.id);
         const sel = o.selected?.has(w.id);
+        const n = model.net.wireNet.get(w.id);
+        if (w.color && !(n !== undefined && model.airNets.has(n))) {
+          // 실제 전선: 색 + 얇은 테두리, 전압이 닿으면 흰 점선이 흐른다
+          const pole = sim && n !== undefined ? sim.netPole[n] : null;
+          const live = !!pole && pole !== 'short' && pole !== 'PE';
+          const L = { x1: w.a[0] * G, y1: w.a[1] * G, x2: w.b[0] * G, y2: w.b[1] * G };
+          return (
+            <g key={w.id}>
+              {sel && <line {...L} stroke={c.select} strokeWidth={9} opacity={0.5} />}
+              <line {...L} stroke={c.bg === CIRCUIT_DARK.bg ? '#ffffff55' : '#00000045'} strokeWidth={5.6} />
+              <line {...L} stroke={WIRE_HEX[w.color]} strokeWidth={3.8} />
+              {w.color === 'gy' && <line {...L} stroke="#facc15" strokeWidth={3.8} strokeDasharray="7 7" strokeLinecap="butt" />}
+              {live && <line {...L} stroke="#ffffff" strokeWidth={1.6} strokeDasharray="5 5" className="cc-flow" />}
+              {pole === 'short' && <line {...L} stroke={POLE_COLOR.short} strokeWidth={2.4} className="cc-short" />}
+            </g>
+          );
+        }
         return (
           <g key={w.id}>
             {sel && <line x1={w.a[0] * G} y1={w.a[1] * G} x2={w.b[0] * G} y2={w.b[1] * G} stroke={c.select} strokeWidth={7} opacity={0.5} />}
@@ -568,6 +603,7 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
             </g>
             <PartLabels part={p} st={st} c={c} />
             {o.showPins &&
+              !REAL.has(p.type) &&
               pinPositions(p).map(([x, y], i) => {
                 const n = model.net.pinNet.get(`${p.id}:${i}`)!;
                 // PLC·공압 포트는 안 쓰는 단자가 있는 게 정상

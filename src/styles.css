@@ -4392,6 +4392,16 @@ button.seq-kpi {
   }
 }
 
+.cc-flow {
+  animation: cc-flow 0.5s linear infinite;
+}
+
+@keyframes cc-flow {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
 .cc-short {
   stroke-dasharray: 6 4;
   animation: cc-short 0.4s linear infinite;
@@ -4465,6 +4475,41 @@ button.seq-kpi {
   gap: 6px;
   flex-wrap: wrap;
   margin: 8px 0;
+}
+
+.cc-pal-mode {
+  margin: 4px 0 2px;
+}
+
+.cc-pal-mode button {
+  font-size: 11.5px;
+  padding: 4px 2px;
+}
+
+.cc-wirecolors {
+  margin: 6px 0 10px;
+}
+
+.cc-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+  align-items: center;
+}
+
+.cc-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  cursor: pointer;
+  padding: 0;
+}
+
+.cc-swatch.on {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .cc-span2 {
