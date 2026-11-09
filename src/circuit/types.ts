@@ -30,6 +30,15 @@ export type PartType =
   | 'sol' // 솔레노이드 밸브 코일
   | 'cyl' // 공압 실린더 (솔레노이드 기호로 움직임)
   | 'plc' // PLC: 입력 8 · 릴레이 출력 8, PLC 탭의 프로그램을 스캔 실행
+  | 'prox' // 3선식 센서 (근접·광전): 갈색 +, 검정 출력, 파랑 0V. 전원이 있어야 동작
+  | 'smps' // DC 전원 공급기: AC 220V 입력 → +24V / 0V 출력
+  | 'air' // 공압원
+  | 'frl' // 에어 서비스 유닛 (필터·레귤레이터)
+  | 'fc' // 속도 제어 밸브 (한쪽 방향 유량 조절, 미터 아웃)
+  | 'v32' // 3/2 밸브 (NC) 편솔 · 스프링 복귀
+  | 'v52' // 5/2 밸브 편솔 · 스프링 복귀
+  | 'v52d' // 5/2 밸브 양솔 (위치 유지)
+  | 'v53' // 5/3 밸브 양솔 · 올포트 블록 (스프링 센터)
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -50,7 +59,8 @@ export interface Part {
   /** 부품 리스트에 쓰는 사양 (비우면 자동) */
   spec?: string;
   pole?: Pole;
-  timerMode?: 'on' | 'off';
+  /** on = ON 딜레이, off = OFF 딜레이, flicker = 켜져 있는 동안 preset 마다 반전 (플리커 릴레이) */
+  timerMode?: 'on' | 'off' | 'flicker';
   /** 타이머 설정 시간 (ms) */
   preset?: number;
   color?: LampColor;
@@ -67,6 +77,15 @@ export interface Part {
   /** PLC: 입력·출력 첫 주소 (X0 / Y0, P00000 / P00040, I0.0 / Q0.0, %IX0.0 / %QX0.0) */
   inBase?: string;
   outBase?: string;
+  /** 센서 종류: 3선식(inductive 유도형 · capacitive 정전용량형 · photo 광전), 리밋 스위치(reed 리드 · float 플로트 · pressure 압력) */
+  sense?: 'inductive' | 'capacitive' | 'photo' | 'reed' | 'float' | 'pressure';
+  /** 3선식 센서 출력: NPN (기본 PNP) */
+  npn?: boolean;
+  /** 밸브: 14쪽(왼쪽) · 12쪽(오른쪽) 솔레노이드 기호 */
+  solA?: string;
+  solB?: string;
+  /** 속도 제어 밸브: 빠르기 (%) */
+  speed?: number;
 }
 
 export interface Wire {

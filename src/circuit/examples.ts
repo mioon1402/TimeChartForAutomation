@@ -245,6 +245,70 @@ function cylinderCycle(): Circuit {
   return b.done();
 }
 
+/**
+ * 전공압 자동 왕복: 공압원 → FRL → 5/2 양솔 밸브 → 속도 제어(로드 쪽, 전진 50%) → 복동 실린더.
+ * 근접 센서 PX1(후진단)·PX2(전진단) → 릴레이 X2·X3, 기동 X1 이 켜져 있는 동안 왕복을 되풀이한다.
+ */
+function electroPneumatic(): Circuit {
+  const b = new Builder();
+  b.part('src', 1, 2, '', { pole: '+24V' });
+  b.part('src', 1, 26, '', { pole: '0V' });
+  b.wire([1, 2], [29, 2]);
+  b.wire([1, 26], [29, 26]);
+  // 렁 1: 정지 PB0 → 기동 PB1 ∥ X1 → X1 (운전)
+  b.part('pb_nc', 4, 6, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('pb_no', 4, 12, 'PB1', { name: tr('기동', 'Start'), color: 'green' });
+  b.part('no', 7, 12, 'X1');
+  b.part('coil', 4, 22, 'X1', { name: tr('운전', 'Run') });
+  b.wire([4, 2], [4, 4]);
+  b.wire([4, 8], [4, 10]);
+  b.wire([4, 10], [7, 10]);
+  b.wire([4, 14], [7, 14]);
+  b.wire([4, 14], [4, 20]);
+  b.wire([4, 24], [4, 26]);
+  // 렁 2·3: 근접 센서(PNP) → 릴레이
+  b.part('prox', 11, 6, 'PX1', { name: tr('후진단', 'Retracted'), sense: 'inductive', cyl: 'CYL1', end: '-' });
+  b.part('coil', 11, 22, 'X2', { name: tr('후진 확인', 'Retracted') });
+  b.wire([11, 2], [11, 4]);
+  b.wire([13, 8], [13, 26]);
+  b.wire([11, 8], [11, 20]);
+  b.wire([11, 24], [11, 26]);
+  b.part('prox', 17, 6, 'PX2', { name: tr('전진단', 'Extended'), sense: 'inductive', cyl: 'CYL1', end: '+' });
+  b.part('coil', 17, 22, 'X3', { name: tr('전진 확인', 'Extended') });
+  b.wire([17, 2], [17, 4]);
+  b.wire([19, 8], [19, 26]);
+  b.wire([17, 8], [17, 20]);
+  b.wire([17, 24], [17, 26]);
+  // 렁 4: 운전 중 후진단이면 SOL1 (전진), 렁 5: 전진단이면 SOL2 (후진)
+  b.part('no', 23, 8, 'X1');
+  b.part('no', 23, 14, 'X2');
+  b.part('sol', 23, 22, 'SOL1', { name: tr('전진', 'Advance') });
+  b.wire([23, 2], [23, 6]);
+  b.wire([23, 10], [23, 12]);
+  b.wire([23, 16], [23, 20]);
+  b.wire([23, 24], [23, 26]);
+  b.part('no', 29, 8, 'X3');
+  b.part('sol', 29, 22, 'SOL2', { name: tr('후진', 'Return') });
+  b.wire([29, 2], [29, 6]);
+  b.wire([29, 10], [29, 20]);
+  b.wire([29, 24], [29, 26]);
+  // 공압
+  b.part('cyl', 40, 6, 'CYL1', { name: tr('이송 실린더', 'Transfer cylinder'), stroke: 1000, strokeBack: 800 });
+  b.part('v52d', 43, 16, 'V1', { solA: 'SOL1', solB: 'SOL2' });
+  b.part('fc', 45, 11, 'SC1', { speed: 50 });
+  b.part('frl', 43, 21, 'FRL');
+  b.part('air', 43, 25);
+  b.wire([41, 8], [41, 11], [42, 11], [42, 14]);
+  b.wire([45, 8], [45, 9]);
+  b.wire([45, 13], [44, 13], [44, 14]);
+  b.wire([43, 18], [43, 19]);
+  b.wire([43, 26], [43, 23]);
+  b.part('text', 1, -1, '', { text: tr('전공압 자동 왕복 (5/2 양솔 밸브 · 근접 센서 · 속도 제어)', 'Electro-pneumatic auto cycle (5/2 double valve, proximity sensors, flow control)') });
+  b.op(500, 'PB1', 'press', tr('기동', 'Start'));
+  b.op(7500, 'PB0', 'press', tr('정지', 'Stop'));
+  return b.done();
+}
+
 /** PLC 자기유지: 기동 PB → X0, 정지 PB → X1, Y0 운전 램프, T0(3초) 뒤 Y1 램프 */
 function plcSelfHold(): Circuit {
   const b = new Builder();
@@ -302,6 +366,7 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'reversing', name: tr('정역 운전 (인터록)', 'Forward / reverse (interlock)'), desc: tr('MC1·MC2 서로 b접점 인터록, 주회로에서 L1·L3 교체', 'MC1/MC2 interlocked, L1 and L3 swapped'), build: reversing },
     { id: 'timer', name: tr('타이머 지연 동작', 'Timer delay'), desc: tr('기동 3초 뒤 운전, 기다리는 동안 대기 표시', 'Run 3 s after start, waiting lamp meanwhile'), build: timerDelay },
     { id: 'cylinder', name: tr('공압 실린더 1사이클', 'Cylinder one cycle'), desc: tr('기동 → 전진 → 전진단 → 후진 → 후진단', 'Start → advance → end → return'), build: cylinderCycle },
+    { id: 'pneumatic', name: tr('전공압 자동 왕복 (밸브 · 근접 센서)', 'Electro-pneumatic auto cycle'), desc: tr('공압원 → FRL → 5/2 양솔 밸브 → 속도 제어 → 실린더, 근접 센서로 왕복', 'Air supply, FRL, 5/2 valve, flow control, cylinder, proximity sensors'), build: electroPneumatic },
     { id: 'plc', name: tr('PLC 자기유지 + 타이머', 'PLC self-hold + timer'), desc: tr('푸시버튼 → PLC 입력, PLC 출력 → 램프. 프로그램은 PLC 탭에서 고칩니다', 'Buttons to PLC inputs, outputs to lamps; edit the program in the PLC tab'), build: plcSelfHold, plc: plcSelfHoldProgram },
   ];
 }

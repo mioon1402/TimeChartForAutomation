@@ -41,7 +41,9 @@ function defaultName(p: Part): string {
       return t_('비상정지', 'E-stop');
     case 'ls_no':
     case 'ls_nc':
-      return t_('리밋 스위치', 'Limit switch');
+      return p.sense === 'reed' ? t_('리드 스위치', 'Reed switch') : p.sense === 'float' ? t_('플로트 스위치', 'Float switch') : p.sense === 'pressure' ? t_('압력 스위치', 'Pressure switch') : t_('리밋 스위치', 'Limit switch');
+    case 'prox':
+      return p.sense === 'photo' ? t_('광전 센서', 'Photo sensor') : t_('근접 센서', 'Proximity sensor');
     case 'mcb':
     case 'mcb3':
       return t_('차단기', 'Breaker');
@@ -112,13 +114,17 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     const time = formatTime(p.preset ?? 3000, 's');
     const name = nameOf(c, keyTag(tr), p);
     if (tr.kind === 'timerCoil') {
-      out.push(bit(tr, 'timer', G.timer, { name: `${name} ${t_('코일', 'coil')} (${p.timerMode === 'off' ? 'OFF' : 'ON'} ${time})` }));
+      out.push(bit(tr, 'timer', G.timer, { name: `${name} ${t_('코일', 'coil')} (${p.timerMode === 'off' ? 'OFF' : p.timerMode === 'flicker' ? t_('점멸', 'flicker') : 'ON'} ${time})` }));
       continue;
     }
     const row = bit(tr, 'timer', G.timer, { address: `${tr.tag}.Q`, name: `${name} ${t_('한시 접점', 'timed contact')}` });
     const coil = out[out.length - 1]?.points ?? [];
     const edge = (pp: WavePoint[], v: number, after: number) => pp.find((q) => q.t >= after && q.v === v && pp.indexOf(q) > 0)?.t;
     const off = p.timerMode === 'off';
+    if (p.timerMode === 'flicker') {
+      out.push(row);
+      continue;
+    }
     const t1 = off ? edge(coil, 0, edge(coil, 1, 0) ?? Infinity) : edge(coil, 1, 0);
     const t2 = t1 === undefined ? undefined : edge(row.points, off ? 0 : 1, t1);
     if (t1 !== undefined && t2 !== undefined && t2 > t1) row.dim = [t1, t2];

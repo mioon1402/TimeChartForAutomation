@@ -9,6 +9,8 @@ export interface PinDef {
   y: number;
   /** 단자 번호 (13, 14, A1, U …) */
   label: string;
+  /** 공압 포트 (배관을 잇는 곳) */
+  air?: boolean;
 }
 
 export interface PartDef {
@@ -46,6 +48,11 @@ const POLES3: [number, number][] = [
   [0, 3],
   [1, 4],
   [2, 5],
+];
+const VALVE5: PinDef[] = [
+  { x: -1, y: -2, label: '4', air: true },
+  { x: 1, y: -2, label: '2', air: true },
+  { x: 0, y: 2, label: '1', air: true },
 ];
 const BOX2: [number, number, number, number] = [-1, -2, 1, 2];
 const BOX2W: [number, number, number, number] = [-1.6, -2, 1, 2];
@@ -102,7 +109,76 @@ export const PARTS: Record<PartType, PartDef> = {
   },
   motor: { type: 'motor', cat: 'output', pins: pins2('1', '2'), load: true, box: BOX2, prefix: 'M' },
   sol: { type: 'sol', cat: 'pneumatic', pins: pins2('1', '2'), load: true, box: BOX2, prefix: 'SOL' },
-  cyl: { type: 'cyl', cat: 'pneumatic', pins: [], box: [0, -1.6, 12, 1.8], prefix: 'CYL' },
+  // 헤드 쪽 포트(전진용)와 로드 쪽 포트(후진용). 배관이 없으면 솔레노이드 기호로 움직인다
+  cyl: {
+    type: 'cyl',
+    cat: 'pneumatic',
+    pins: [
+      { x: 1, y: 2, label: '', air: true },
+      { x: 5, y: 2, label: '', air: true },
+    ],
+    box: [0, -1.6, 12, 2.2],
+    prefix: 'CYL',
+  },
+  prox: {
+    type: 'prox',
+    cat: 'switch',
+    pins: [
+      { x: 0, y: -2, label: 'BN' },
+      { x: 0, y: 2, label: 'BK' },
+      { x: 2, y: 2, label: 'BU' },
+    ],
+    operate: 'toggle',
+    box: [-1.4, -2, 2.4, 2],
+    prefix: 'PX',
+  },
+  smps: {
+    type: 'smps',
+    cat: 'power',
+    pins: [
+      { x: -1, y: -2, label: 'L' },
+      { x: 1, y: -2, label: 'N' },
+      { x: -1, y: 2, label: '+V' },
+      { x: 1, y: 2, label: '-V' },
+    ],
+    box: [-1.8, -2, 1.8, 2],
+    prefix: 'SMPS',
+  },
+  air: { type: 'air', cat: 'pneumatic', pins: [{ x: 0, y: 1, label: '', air: true }], box: [-1, -0.8, 1, 1], prefix: '' },
+  frl: {
+    type: 'frl',
+    cat: 'pneumatic',
+    pins: [
+      { x: 0, y: -2, label: '', air: true },
+      { x: 0, y: 2, label: '', air: true },
+    ],
+    box: [-1.4, -2, 1.4, 2],
+    prefix: 'FRL',
+  },
+  fc: {
+    type: 'fc',
+    cat: 'pneumatic',
+    pins: [
+      { x: 0, y: -2, label: '', air: true },
+      { x: 0, y: 2, label: '', air: true },
+    ],
+    box: [-1, -2, 1.6, 2],
+    prefix: 'SC',
+  },
+  // 밸브: 가운데 칸(-2~2)에 지금 위치의 칸이 오고, 포트는 그 칸의 위(4·2)와 아래(1)
+  v32: {
+    type: 'v32',
+    cat: 'pneumatic',
+    pins: [
+      { x: -1, y: -2, label: '2', air: true },
+      { x: -1, y: 2, label: '1', air: true },
+    ],
+    box: [-7.5, -2, 7.5, 2],
+    prefix: 'V',
+  },
+  v52: { type: 'v52', cat: 'pneumatic', pins: VALVE5, box: [-7.5, -2, 7.5, 2], prefix: 'V' },
+  v52d: { type: 'v52d', cat: 'pneumatic', pins: VALVE5, box: [-7.5, -2, 7.5, 2], prefix: 'V' },
+  v53: { type: 'v53', cat: 'pneumatic', pins: VALVE5, box: [-11.5, -2, 11.5, 2], prefix: 'V' },
   // 입력 I0~I7 (위), 출력 공통 C 와 Q0~Q7 (아래)
   plc: {
     type: 'plc',
@@ -229,6 +305,24 @@ export function partKindName(type: PartType): string {
       return tr('공압 실린더', 'Pneumatic cylinder');
     case 'plc':
       return tr('PLC (입력 8 · 릴레이 출력 8)', 'PLC (8 in / 8 relay out)');
+    case 'prox':
+      return tr('3선식 센서 (근접 · 광전)', '3-wire sensor (proximity / photo)');
+    case 'smps':
+      return tr('SMPS (AC 220V → DC 24V)', 'Power supply (AC → DC 24V)');
+    case 'air':
+      return tr('공압원', 'Air supply');
+    case 'frl':
+      return tr('에어 서비스 유닛 (FRL)', 'Air service unit (FRL)');
+    case 'fc':
+      return tr('속도 제어 밸브', 'Flow control valve');
+    case 'v32':
+      return tr('3/2 밸브 (NC, 편솔)', '3/2 valve (NC, single solenoid)');
+    case 'v52':
+      return tr('5/2 밸브 (편솔)', '5/2 valve (single solenoid)');
+    case 'v52d':
+      return tr('5/2 밸브 (양솔)', '5/2 valve (double solenoid)');
+    case 'v53':
+      return tr('5/3 밸브 (올포트 블록)', '5/3 valve (closed centre)');
     case 'text':
       return tr('글자', 'Text');
   }
@@ -259,6 +353,7 @@ export function palette(): PaletteGroup[] {
         it('src', '+24V', { pole: '+24V' }, 'src-p'),
         it('src', '0V', { pole: '0V' }, 'src-0'),
         it('src3', tr('3상 L1 L2 L3', '3-ph L1 L2 L3')),
+        it('smps', tr('SMPS (AC→DC 24V)', 'SMPS (AC→DC 24V)')),
       ],
     },
     {
@@ -278,11 +373,23 @@ export function palette(): PaletteGroup[] {
       ],
     },
     {
+      title: tr('센서', 'Sensors'),
+      items: [
+        it('prox', tr('근접 센서 (유도형)', 'Proximity (inductive)'), { sense: 'inductive' }, 'prox-i', 'PX'),
+        it('prox', tr('근접 센서 (정전용량형)', 'Proximity (capacitive)'), { sense: 'capacitive' }, 'prox-c', 'PX'),
+        it('prox', tr('광전 센서', 'Photoelectric sensor'), { sense: 'photo' }, 'prox-p', 'PE'),
+        it('ls_no', tr('리드 스위치 (실린더 센서)', 'Reed switch (cylinder)'), { sense: 'reed' }, 'reed', 'RS'),
+        it('ls_no', tr('플로트 스위치', 'Float switch'), { sense: 'float' }, 'float', 'FLS'),
+        it('ls_no', tr('압력 스위치', 'Pressure switch'), { sense: 'pressure' }, 'press', 'PS'),
+      ],
+    },
+    {
       title: tr('릴레이 · 타이머', 'Relays & timers'),
       items: [
         it('coil', tr('릴레이 코일 X', 'Relay coil'), undefined, 'coil-x'),
         it('coil', tr('전자접촉기 코일 MC', 'Contactor coil'), undefined, 'coil-mc', 'MC'),
         it('timer', tr('타이머 (ON 딜레이)', 'Timer (on-delay)'), { timerMode: 'on', preset: 3000 }),
+        it('timer', tr('플리커 릴레이 (점멸)', 'Flicker relay'), { timerMode: 'flicker', preset: 500 }, 'flicker', 'FR'),
         it('no', tr('a접점', 'NO contact')),
         it('nc', tr('b접점', 'NC contact')),
         it('km3', tr('MC 주접점 3P', 'Contactor 3P')),
@@ -301,7 +408,17 @@ export function palette(): PaletteGroup[] {
     },
     {
       title: tr('공압', 'Pneumatics'),
-      items: [it('sol', tr('솔레노이드 밸브', 'Solenoid valve')), it('cyl', tr('공압 실린더', 'Cylinder'), { stroke: 1000, strokeBack: 1000 })],
+      items: [
+        it('air', tr('공압원', 'Air supply')),
+        it('frl', tr('에어 서비스 유닛 (FRL)', 'Service unit (FRL)')),
+        it('v52', tr('5/2 밸브 편솔', '5/2 valve single')),
+        it('v52d', tr('5/2 밸브 양솔', '5/2 valve double')),
+        it('v53', tr('5/3 밸브 (올포트 블록)', '5/3 valve closed')),
+        it('v32', tr('3/2 밸브 (NC)', '3/2 valve NC')),
+        it('fc', tr('속도 제어 밸브', 'Flow control'), { speed: 50 }),
+        it('sol', tr('솔레노이드 (코일)', 'Solenoid (coil)')),
+        it('cyl', tr('공압 실린더', 'Cylinder'), { stroke: 1000, strokeBack: 1000 }),
+      ],
     },
     { title: 'PLC', items: [it('plc', tr('PLC (입력 8 · 출력 8)', 'PLC (8 in / 8 out)'))] },
     { title: tr('기타', 'Other'), items: [it('text', tr('글자', 'Text'), { text: tr('글자', 'Text') })] },
@@ -352,12 +469,13 @@ export const POLE_SYSTEM: Record<string, 'dc' | 'ac'> = { '+24V': 'dc', '0V': 'd
 
 /** 기호를 따라 움직이는 접점 (코일·타이머·THR·스위치) */
 export const FOLLOWER: ReadonlySet<PartType> = new Set(['no', 'nc', 'km3']);
-export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3']);
+export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox']);
+export const VALVES: ReadonlySet<PartType> = new Set(['v32', 'v52', 'v52d', 'v53']);
 export const CONTACT_A: ReadonlySet<PartType> = new Set(['no', 'pb_no', 'sw_no', 'ls_no']);
 export const CONTACT_B: ReadonlySet<PartType> = new Set(['nc', 'pb_nc', 'sw_nc', 'ls_nc', 'estop']);
 
 export function isLinkedSensor(p: Part): boolean {
-  return (p.type === 'ls_no' || p.type === 'ls_nc') && !!p.cyl;
+  return (p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'prox') && !!p.cyl;
 }
 
 /** 기호 순서 비교: PB2 < PB10 */

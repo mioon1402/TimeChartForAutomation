@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { isLinkedSensor, OPERATOR, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM } from './parts';
+import { isLinkedSensor, OPERATOR, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import type { PlcConfig, SimSettings } from '../plc/types';
 import { parseProgram, type ParsedProgram } from '../plc/program';
@@ -40,6 +40,17 @@ interface Conductor {
   always: boolean;
   /** PLC 릴레이 출력 번호 (공통 C ↔ Qn) */
   plcOut?: number;
+  /** 3선식 센서: 이 부품에 전원이 있어야 닫힌다 */
+  power?: string;
+}
+
+/** 공압 포트 상태: P = 압력, E = 배기(대기), X = 막힘 */
+export type AirState = 'P' | 'E' | 'X';
+
+/** 두 극 사이에 전압이 걸리는가 (같은 계통의 다른 극, 직류는 +24V 쪽이 a) */
+function powerBetween(a: string | null, b: string | null, dcPolarity = false): boolean {
+  if (!a || !b || a === b || a === 'short' || b === 'short' || POLE_SYSTEM[a] !== POLE_SYSTEM[b]) return false;
+  return !dcPolarity || POLE_SYSTEM[a] !== 'dc' || a === '+24V';
 }
 
 /** 회로 안의 PLC: 입력 단자 넷과 프로그램 디바이스 */
@@ -80,7 +91,7 @@ export class CircuitModel {
   readonly tagLabel = new Map<string, string>();
   readonly coilParts = new Map<string, string[]>();
   readonly timerParts = new Map<string, string[]>();
-  readonly timerDef = new Map<string, { mode: 'on' | 'off'; preset: number }>();
+  readonly timerDef = new Map<string, { mode: 'on' | 'off' | 'flicker'; preset: number }>();
   readonly cylDef = new Map<string, Part>();
   readonly sensorDef = new Map<string, { cyl: string; end: '+' | '-' }>();
   readonly operatorDefault = new Map<string, boolean>();
@@ -95,6 +106,17 @@ export class CircuitModel {
   readonly prog: ParsedProgram | null = null;
   readonly plcSim: SimSettings | null = null;
   readonly plcIssues: string[] = [];
+  /** 3선식 센서: 갈색(+) · 검정(출력) · 파랑(0V) 넷 */
+  readonly proxs: { part: Part; bn: number; bu: number }[] = [];
+  /** SMPS: 입력 L·N, 출력 +V·-V 넷 */
+  readonly smpsList: { part: Part; inL: number; inN: number; outP: number; outM: number }[] = [];
+  /** 공압: 공압원 넷, 늘 통하는 쌍(FRL·속도 제어), 속도 제어, 밸브, 실린더 포트 */
+  readonly airNets = new Set<number>();
+  readonly airSrc: number[] = [];
+  readonly airAlways: [number, number][] = [];
+  readonly flowCtrls: { part: Part; net: number; speed: number }[] = [];
+  readonly valves: { part: Part; ports: number[]; solA: string; solB: string }[] = [];
+  readonly cylPorts = new Map<string, { cap: number; rod: number; capTubed: boolean; rodTubed: boolean }>();
 
   constructor(
     readonly circuit: Circuit,
@@ -145,6 +167,20 @@ export class CircuitModel {
       }
       if (p.type === 'src') this.sources.push({ net: this.net.pinNet.get(`${p.id}:0`)!, id: POLE_IDENTITY[p.pole ?? 'L'] });
       if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => this.sources.push({ net: this.net.pinNet.get(`${p.id}:${i}`)!, id }));
+      const pin = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
+      def.pins.forEach((pd, i) => pd.air && this.airNets.add(pin(i)));
+      const tubed = (n: number) => this.net.pinCount[n] > 1 || this.net.hasWire[n];
+      if (p.type === 'prox') {
+        // PNP: 감지하면 출력이 + 에, NPN: 출력이 0V 에 이어진다
+        this.proxs.push({ part: p, bn: pin(0), bu: pin(2) });
+        this.conductors.push({ part: p, a: p.npn ? pin(1) : pin(0), b: p.npn ? pin(2) : pin(1), tag, nc: false, always: false, power: p.id });
+      } else if (p.type === 'smps') this.smpsList.push({ part: p, inL: pin(0), inN: pin(1), outP: pin(2), outM: pin(3) });
+      else if (p.type === 'air') this.airSrc.push(pin(0));
+      else if (p.type === 'frl' || p.type === 'fc') {
+        this.airAlways.push([pin(0), pin(1)]);
+        if (p.type === 'fc') this.flowCtrls.push({ part: p, net: pin(0), speed: Math.min(100, Math.max(5, p.speed ?? 50)) });
+      } else if (VALVES.has(p.type)) this.valves.push({ part: p, ports: def.pins.map((_, i) => pin(i)), solA: normTag(p.solA ?? ''), solB: normTag(p.solB ?? '') });
+      else if (p.type === 'cyl' && p.tag.trim() && !this.cylPorts.has(tag)) this.cylPorts.set(tag, { cap: pin(0), rod: pin(1), capTubed: tubed(pin(0)), rodTubed: tubed(pin(1)) });
     }
     // PLC: 입력은 단자 넷의 극으로 읽고, 출력은 공통 C ↔ Qn 접점
     const blocks = circuit.parts.filter((p) => p.type === 'plc');
@@ -200,6 +236,12 @@ export class CircuitModel {
   }
 }
 
+/** 배관으로 움직이는 실린더인가 (포트에 배관이 하나라도 있음) */
+export function airDriven(m: CircuitModel, tag: string): boolean {
+  const c = m.cylPorts.get(tag);
+  return !!c && (c.capTubed || c.rodTubed);
+}
+
 export interface TimerView {
   coil: boolean;
   out: boolean;
@@ -217,6 +259,8 @@ interface CylState {
   target: 0 | 1;
   atPlus: boolean;
   atMinus: boolean;
+  /** 배관이 막혀(5/3 가운데 등) 그 자리에 멈춤 */
+  hold: boolean;
 }
 
 export class CircuitSim {
@@ -233,6 +277,14 @@ export class CircuitSim {
   shorted = false;
   readonly plcIn = new Map<string, boolean[]>();
   readonly plcOut = new Map<string, boolean[]>();
+  /** 3선식 센서·SMPS 에 전원이 들어와 있는가 */
+  readonly powered = new Map<string, boolean>();
+  /** 밸브 위치: a = 14쪽 솔레노이드, b = 12쪽(또는 스프링), c = 가운데 */
+  readonly valvePos = new Map<string, 'a' | 'b' | 'c'>();
+  /** 공압 넷마다 상태 (공압이 아닌 넷은 null) */
+  airState: (AirState | null)[] = [];
+  /** 속도 제어 밸브로 느려진 비율 (1 = 그대로) */
+  readonly cylFactor = new Map<string, { ext: number; ret: number }>();
   private rt: PlcRuntime | null = null;
   private nextScan: number | null = null;
   private scanK = 0;
@@ -246,7 +298,8 @@ export class CircuitSim {
     for (const [tag, k] of m.tagKind) if (k === 'operator' || k === 'thr') this.act.set(tag, m.operatorDefault.get(tag) ?? false);
     for (const tag of m.coilParts.keys()) this.coilOn.set(tag, false);
     for (const tag of m.timerParts.keys()) this.timers.set(tag, { coil: false, out: false, since: 0 });
-    for (const tag of m.cylDef.keys()) this.cyl.set(tag, { pos: 0, target: 0, atPlus: false, atMinus: true });
+    for (const tag of m.cylDef.keys()) this.cyl.set(tag, { pos: 0, target: 0, atPlus: false, atMinus: true, hold: false });
+    for (const v of m.valves) this.valvePos.set(v.part.id, v.part.type === 'v53' ? 'c' : 'b');
     for (const b of m.plcs) {
       this.plcIn.set(b.part.id, new Array<boolean>(PLC_IO).fill(false));
       this.plcOut.set(b.part.id, new Array<boolean>(PLC_IO).fill(false));
@@ -331,7 +384,7 @@ export class CircuitSim {
     const st = this.timers.get(tag);
     const def = this.m.timerDef.get(tag);
     if (!st || !def) return null;
-    const pending = def.mode === 'on' ? st.coil && !st.out : !st.coil && st.out;
+    const pending = def.mode === 'on' ? st.coil && !st.out : def.mode === 'flicker' ? st.coil : !st.coil && st.out;
     return { coil: st.coil, out: st.out, elapsed: pending ? this.t - st.since : null, preset: def.preset };
   }
 
@@ -371,7 +424,8 @@ export class CircuitSim {
       return i;
     };
     for (const c of this.m.conductors) {
-      const closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || this.on(c.tag) !== c.nc;
+      let closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || this.on(c.tag) !== c.nc;
+      if (c.power && !this.powered.get(c.power)) closed = false;
       if (closed) {
         const ra = find(c.a);
         const rb = find(c.b);
@@ -379,7 +433,12 @@ export class CircuitSim {
       }
     }
     const poles = new Map<number, Set<string>>();
-    for (const s of this.m.sources) {
+    const sources = [...this.m.sources];
+    for (const s of this.m.smpsList) {
+      if (!this.powered.get(s.part.id)) continue;
+      sources.push({ net: s.outP, id: '+24V' }, { net: s.outM, id: '0V' });
+    }
+    for (const s of sources) {
       const r = find(s.net);
       const set = poles.get(r) ?? new Set<string>();
       set.add(s.id);
@@ -448,20 +507,70 @@ export class CircuitSim {
       if (def.mode === 'on') {
         if (!want) st.out = false;
         else if (def.preset <= 0) st.out = true;
-      } else if (want) st.out = true;
+      } else if (def.mode === 'flicker') st.out = want;
+      else if (want) st.out = true;
       else if (def.preset <= 0) st.out = false;
       return true;
     }
+    // 3선식 센서·SMPS 전원
+    for (const s of this.m.proxs) {
+      const want = powerBetween(this.netPole[s.bn], this.netPole[s.bu], true);
+      if (want !== (this.powered.get(s.part.id) ?? false)) {
+        this.powered.set(s.part.id, want);
+        return true;
+      }
+    }
+    for (const s of this.m.smpsList) {
+      const want = powerBetween(this.netPole[s.inL], this.netPole[s.inN]);
+      if (want !== (this.powered.get(s.part.id) ?? false)) {
+        this.powered.set(s.part.id, want);
+        return true;
+      }
+    }
+    // 밸브 위치 (양솔은 마지막 위치 유지, 5/3 은 둘 다 꺼지면 가운데)
+    for (const v of this.m.valves) {
+      const a = !!v.solA && this.loadOn(v.solA);
+      const b = !!v.solB && this.loadOn(v.solB);
+      const cur = this.valvePos.get(v.part.id)!;
+      let pos = cur;
+      if (v.part.type === 'v32' || v.part.type === 'v52') pos = a ? 'a' : 'b';
+      else if (a && !b) pos = 'a';
+      else if (b && !a) pos = 'b';
+      else if (v.part.type === 'v53' && !a && !b) pos = 'c';
+      this.valvePos.set(v.part.id, pos);
+    }
+    const groupOf = this.evaluateAir();
     let jumped = false;
     for (const [tag, def] of this.m.cylDef) {
       const st = this.cyl.get(tag)!;
-      const plus = def.solPlus ? this.loadOn(normTag(def.solPlus)) : false;
-      const minus = def.solMinus ? this.loadOn(normTag(def.solMinus)) : false;
       let target = st.target;
-      if (def.solMinus?.trim()) {
-        if (plus && !minus) target = 1;
-        else if (minus && !plus) target = 0;
-      } else target = plus ? 1 : 0;
+      const ports = this.m.cylPorts.get(tag);
+      if (ports && (ports.capTubed || ports.rodTubed)) {
+        // 배관: 헤드 쪽 압력 → 전진, 로드 쪽 압력 → 후진. 로드 쪽 배관이 없으면 단동(스프링 복귀)
+        const cap = ports.capTubed ? this.airState[ports.cap] : 'E';
+        const rod = ports.rodTubed ? this.airState[ports.rod] : 'E';
+        let drive: 0 | 1 | null = null;
+        if (!ports.rodTubed) drive = cap === 'P' ? 1 : cap === 'E' ? 0 : null;
+        else if (cap === 'P' && rod !== 'P') drive = 1;
+        else if (rod === 'P' && cap !== 'P') drive = 0;
+        // 양쪽이 막혔거나 양쪽에 압력: 그 자리에 멈춤
+        st.hold = drive === null && st.pos !== st.target;
+        if (drive !== null) target = drive;
+        // 속도 제어(미터 아웃): 배기되는 쪽 배관에 있으면 그 방향이 느려진다
+        const slow = (net: number, tubed: boolean) => {
+          if (!tubed) return 1;
+          const g = groupOf(net);
+          return Math.min(1, ...this.m.flowCtrls.filter((f) => groupOf(f.net) === g).map((f) => f.speed / 100));
+        };
+        this.cylFactor.set(tag, { ext: rod !== 'P' ? slow(ports.rod, ports.rodTubed) : 1, ret: cap !== 'P' ? slow(ports.cap, ports.capTubed) : 1 });
+      } else {
+        const plus = def.solPlus ? this.loadOn(normTag(def.solPlus)) : false;
+        const minus = def.solMinus ? this.loadOn(normTag(def.solMinus)) : false;
+        if (def.solMinus?.trim()) {
+          if (plus && !minus) target = 1;
+          else if (minus && !plus) target = 0;
+        } else target = plus ? 1 : 0;
+      }
       if (target === st.target) continue;
       st.target = target;
       if (this.strokeTime(def, target) <= 0) {
@@ -475,7 +584,60 @@ export class CircuitSim {
   }
 
   private strokeTime(def: Part, target: 0 | 1): number {
-    return Math.max(0, target ? def.stroke ?? 1000 : def.strokeBack ?? def.stroke ?? 1000);
+    const base = Math.max(0, target ? def.stroke ?? 1000 : def.strokeBack ?? def.stroke ?? 1000);
+    const f = this.cylFactor.get(tagKey(def));
+    return f ? base / Math.max(0.05, target ? f.ext : f.ret) : base;
+  }
+
+  /** 공압: 공압원에서 밸브 통로를 따라 압력이 닿는 곳, 밸브 배기구로 빠지는 곳 */
+  private evaluateAir(): (net: number) => number {
+    const m = this.m;
+    const n = m.net.count;
+    const parent = new Int32Array(n);
+    for (let i = 0; i < n; i++) parent[i] = i;
+    const find = (i: number): number => {
+      while (parent[i] !== i) {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
+      }
+      return i;
+    };
+    const union = (a: number, b: number) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent[ra] = rb;
+    };
+    for (const [a, b] of m.airAlways) union(a, b);
+    const vents: number[] = [];
+    for (const v of m.valves) {
+      const pos = this.valvePos.get(v.part.id)!;
+      if (v.part.type === 'v32') {
+        // 2 = A, 1 = P: 켜지면 P→A, 꺼지면 A→배기
+        if (pos === 'a') union(v.ports[1], v.ports[0]);
+        else vents.push(v.ports[0]);
+      } else {
+        // 4 = A, 2 = B, 1 = P: a 위치 1→4 · 2 배기, b 위치 1→2 · 4 배기, c 모두 막힘
+        if (pos === 'a') {
+          union(v.ports[2], v.ports[0]);
+          vents.push(v.ports[1]);
+        } else if (pos === 'b') {
+          union(v.ports[2], v.ports[1]);
+          vents.push(v.ports[0]);
+        }
+      }
+    }
+    const press = new Set(m.airSrc.map(find));
+    const vent = new Set(vents.map(find));
+    this.airState = Array.from({ length: n }, (_, i) => {
+      if (!m.airNets.has(i)) return null;
+      const r = find(i);
+      if (press.has(r)) {
+        if (vent.has(r)) this.warn(`${formatTime(this.t, 's')}: 공압이 밸브 배기구로 새고 있습니다 (배관 확인)`, 'airleak');
+        return 'P';
+      }
+      return vent.has(r) ? 'E' : 'X';
+    });
+    return find;
   }
 
   settle(): void {
@@ -491,10 +653,10 @@ export class CircuitSim {
     let best = withScan && this.nextScan !== null ? this.nextScan : Infinity;
     for (const [tag, st] of this.timers) {
       const def = this.m.timerDef.get(tag)!;
-      if ((def.mode === 'on' && st.coil && !st.out) || (def.mode === 'off' && !st.coil && st.out)) best = Math.min(best, st.since + def.preset);
+      if ((def.mode === 'on' && st.coil && !st.out) || (def.mode === 'off' && !st.coil && st.out) || (def.mode === 'flicker' && st.coil && def.preset > 0)) best = Math.min(best, st.since + def.preset);
     }
     for (const [tag, st] of this.cyl) {
-      if (st.pos === st.target) continue;
+      if (st.pos === st.target || st.hold) continue;
       const time = this.strokeTime(this.m.cylDef.get(tag)!, st.target);
       best = Math.min(best, this.t + Math.abs(st.target - st.pos) * time);
       if (st.atPlus && st.target === 0) best = Math.min(best, this.t + Math.max(0, st.pos - (1 - SENSOR_BAND)) * time);
@@ -506,7 +668,7 @@ export class CircuitSim {
   private moveTo(t2: number): void {
     const dt = t2 - this.t;
     for (const [tag, st] of this.cyl) {
-      if (st.pos === st.target) continue;
+      if (st.pos === st.target || st.hold) continue;
       if (dt > 0) {
         const time = this.strokeTime(this.m.cylDef.get(tag)!, st.target);
         const step = time > 0 ? dt / time : 1;
@@ -535,6 +697,10 @@ export class CircuitSim {
         if (st.since + def.preset > this.t + EPS) continue;
         if (def.mode === 'on' && st.coil && !st.out) st.out = true;
         else if (def.mode === 'off' && !st.coil && st.out) st.out = false;
+        else if (def.mode === 'flicker' && st.coil && def.preset > 0) {
+          st.out = !st.out;
+          st.since += def.preset;
+        }
       }
       if (this.nextScan !== null && this.nextScan <= this.t + EPS) {
         this.settle();

@@ -529,7 +529,7 @@ export function HelpModal({ onClose, onWelcome, onTour }: { onClose: () => void;
         </div>
         <h4>{tr('주요 기능', 'Features')}</h4>
         <ul>
-          <li>{tr('회로도 탭: 푸시버튼·릴레이·타이머·MC·THR·전동기·램프·솔레노이드·실린더·PLC 블록으로 결선도를 그리고 마우스로 눌러 시뮬레이션. 조작 순서를 적으면 타임차트, 그림에서 부품 리스트(접점 수·수량)가 자동으로 나옴', 'Circuit tab: draw relay, contactor, timer, motor and pneumatic circuits and simulate by clicking. Operations become the timing chart; the drawing becomes the parts list')}</li>
+          <li>{tr('회로도 탭: 푸시버튼·센서·릴레이·타이머·MC·THR·전동기·램프·PLC 블록과 공압(밸브·실린더·배관)으로 결선도를 그리고 마우스로 눌러 시뮬레이션. 조작 순서를 적으면 타임차트, 그림에서 부품 리스트(접점 수·수량)가 자동으로 나옴', 'Circuit tab: draw relay, contactor, timer, motor and pneumatic circuits and simulate by clicking. Operations become the timing chart; the drawing becomes the parts list')}</li>
           <li>{tr('동작 순서 탭: 설비 → 동작 기기 → I/O → 동작 순서를 엑셀처럼 표에 적으면(엑셀 표 붙여넣기 가능) 타임차트·사이클 타임·인터록 검토가 바로 나옴', 'Sequence tab: fill in devices, I/O and sequence in spreadsheet-like tables (paste from Excel) to get the chart, cycle time and interlock checks')}</li>
           <li>{tr('설비 파일: 한 설비의 차트 여러 장(자동 사이클, 원점 복귀, 유닛별 …)을 한 파일에 두고, 목차와 함께 한 번에 인쇄', 'Machine file: keep all charts of one machine in one file and print them together with a contents page')}</li>
           <li>{tr('PLC 프로그램(미쓰비시 GX Works 니모닉/CSV, LS XG5000, 지멘스 STL, IEC ST/SCL)을 불러와 스캔 시뮬레이션으로 타임차트 자동 생성', 'Generate charts from PLC programs (Mitsubishi, LS, Siemens STL, IEC ST) by scan simulation')}</li>

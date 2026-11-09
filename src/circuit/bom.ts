@@ -1,6 +1,6 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, PARTS, plcAddresses } from './parts';
-import { CircuitModel, normTag, tagKey } from './engine';
+import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, PARTS, plcAddresses, VALVES } from './parts';
+import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatTime } from '../model/format';
 import { tr } from '../i18n';
@@ -50,6 +50,21 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   sol: 10,
   cyl: 11,
   plc: 3,
+  smps: 0,
+  prox: 7,
+  frl: 10,
+  v32: 10,
+  v52: 10,
+  v52d: 10,
+  v53: 10,
+  fc: 10,
+};
+
+const VALVE_KIND: Partial<Record<PartType, [string, string]>> = {
+  v32: ['3/2 솔레노이드 밸브 (NC)', '3/2 solenoid valve (NC)'],
+  v52: ['5/2 솔레노이드 밸브 (편솔)', '5/2 solenoid valve (single)'],
+  v52d: ['5/2 솔레노이드 밸브 (양솔)', '5/2 solenoid valve (double)'],
+  v53: ['5/3 솔레노이드 밸브 (올포트 블록)', '5/3 solenoid valve (closed centre)'],
 };
 
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
@@ -71,6 +86,7 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('릴레이', 'Relay'), spec: ab };
     }
     case 'timer':
+      if (p.timerMode === 'flicker') return { kind: tr('플리커 릴레이', 'Flicker relay'), spec: `${formatTime(p.preset ?? 500, 's')} ${tr('간격', 'interval')}${ab ? `, ${ab}` : ''}` };
       return { kind: tr('타이머', 'Timer'), spec: `${p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : tr('ON 딜레이', 'on-delay')} ${formatTime(p.preset ?? 3000, 's')}${ab ? `, ${ab}` : ''}` };
     case 'pb_no':
     case 'pb_nc':
@@ -81,8 +97,37 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'estop':
       return { kind: tr('비상정지 스위치', 'Emergency stop'), spec: ab };
     case 'ls_no':
-    case 'ls_nc':
-      return { kind: p.cyl ? tr('실린더 센서', 'Cylinder sensor') : tr('리밋 스위치', 'Limit switch'), spec: [p.cyl ? `${p.cyl} ${p.end === '-' ? tr('후진단', 'retracted') : tr('전진단', 'extended')}` : '', ab].filter(Boolean).join(', ') };
+    case 'ls_nc': {
+      const kind =
+        p.sense === 'reed'
+          ? tr('리드 스위치 (실린더 센서)', 'Reed switch')
+          : p.sense === 'float'
+            ? tr('플로트 스위치', 'Float switch')
+            : p.sense === 'pressure'
+              ? tr('압력 스위치', 'Pressure switch')
+              : p.cyl
+                ? tr('실린더 센서', 'Cylinder sensor')
+                : tr('리밋 스위치', 'Limit switch');
+      return { kind, spec: [p.cyl ? `${p.cyl} ${p.end === '-' ? tr('후진단', 'retracted') : tr('전진단', 'extended')}` : '', ab].filter(Boolean).join(', ') };
+    }
+    case 'prox': {
+      const kind = p.sense === 'photo' ? tr('광전 센서', 'Photoelectric sensor') : p.sense === 'capacitive' ? tr('근접 센서 (정전용량형)', 'Capacitive proximity sensor') : tr('근접 센서 (유도형)', 'Inductive proximity sensor');
+      return { kind, spec: [`DC 24V ${tr('3선식', '3-wire')} ${p.npn ? 'NPN' : 'PNP'}`, p.cyl ? `${p.cyl} ${p.end === '-' ? tr('후진단', 'retracted') : tr('전진단', 'extended')}` : ''].filter(Boolean).join(', ') };
+    }
+    case 'smps':
+      return { kind: tr('SMPS (DC 전원 공급기)', 'Switching power supply'), spec: 'AC 220V → DC 24V' };
+    case 'frl':
+      return { kind: tr('에어 서비스 유닛 (FRL)', 'Air service unit (FRL)'), spec: tr('필터 · 레귤레이터 · 압력계', 'filter, regulator, gauge') };
+    case 'fc':
+      return { kind: tr('속도 제어 밸브', 'Flow control valve'), spec: tr(`미터 아웃, ${p.speed ?? 50}%`, `meter-out, ${p.speed ?? 50}%`) };
+    case 'v32':
+    case 'v52':
+    case 'v52d':
+    case 'v53': {
+      const [ko, en] = VALVE_KIND[p.type]!;
+      const sols = [p.solA?.trim() ? `${p.solA.trim()} (14)` : '', p.type !== 'v32' && p.type !== 'v52' && p.solB?.trim() ? `${p.solB.trim()} (12)` : ''].filter(Boolean).join(', ');
+      return { kind: tr(ko, en), spec: sols };
+    }
     case 'mcb3':
     case 'mcb':
       return { kind: tr('배선용 차단기', 'Circuit breaker'), spec: p.type === 'mcb3' ? '3P' : '1P' };
@@ -117,8 +162,11 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
 /** 회로도 → 부품 리스트 (기호마다 한 줄) */
 export function partsList(c: Circuit): BomRow[] {
   const groups = new Map<string, Part[]>();
+  // 밸브에 붙은 솔레노이드는 밸브 한 줄에 함께 적는다
+  const valveSols = new Set(c.parts.filter((p) => VALVES.has(p.type)).flatMap((p) => [normTag(p.solA ?? ''), p.type === 'v52d' || p.type === 'v53' ? normTag(p.solB ?? '') : '']).filter(Boolean));
   for (const p of c.parts) {
-    if (p.type === 'src' || p.type === 'src3' || p.type === 'text') continue;
+    if (p.type === 'src' || p.type === 'src3' || p.type === 'text' || p.type === 'air') continue;
+    if (p.type === 'sol' && valveSols.has(normTag(p.tag))) continue;
     const k = tagKey(p);
     groups.set(k, [...(groups.get(k) ?? []), p]);
   }
@@ -195,7 +243,7 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
       for (const s of [p.solPlus, p.solMinus]) {
         if (s?.trim() && !model.loadParts.has(normTag(s))) out.push({ level: 'error', msg: tr(`${p.tag}: 솔레노이드 ${s} 이(가) 회로에 없습니다`, `${p.tag}: solenoid ${s} not in the circuit`), partIds: [p.id] });
       }
-      if (!p.solPlus?.trim()) out.push({ level: 'warn', msg: tr(`${p.tag}: 전진 솔레노이드를 정하세요`, `${p.tag}: choose the advance solenoid`), partIds: [p.id] });
+      if (!p.solPlus?.trim() && !airDriven(model, tagKey(p))) out.push({ level: 'warn', msg: tr(`${p.tag}: 배관을 잇거나 전진 솔레노이드를 정하세요`, `${p.tag}: connect air tubes or choose the advance solenoid`), partIds: [p.id] });
     }
   }
   for (const [tag, ids] of [...model.coilParts, ...model.timerParts]) {
@@ -203,12 +251,53 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   }
   for (const p of c.parts) {
     const pins = PARTS[p.type].pins;
-    if (!pins.length || p.type === 'src' || p.type === 'plc') continue;
+    if (!pins.length || p.type === 'src' || p.type === 'plc' || p.type === 'cyl') continue;
     const nets = pins.map((_, i) => model.net.pinNet.get(`${p.id}:${i}`)!);
-    const floating = nets.filter((n) => model.net.pinCount[n] <= 1 && !model.net.hasWire[n]).length;
+    // 공압 포트는 안 쓰는 것이 있어도 정상 (5/2 밸브로 단동 실린더 등)
+    const floating = nets.filter((n, i) => !pins[i].air && model.net.pinCount[n] <= 1 && !model.net.hasWire[n]).length;
     if (floating) out.push({ level: 'warn', msg: tr(`${p.tag || partKindName(p.type)}: 이어지지 않은 단자 ${floating}개`, `${p.tag || partKindName(p.type)}: ${floating} unconnected terminal(s)`), partIds: [p.id] });
     const poles = PARTS[p.type].poles ?? (PARTS[p.type].load && nets.length === 2 ? ([[0, 1]] as [number, number][]) : []);
     if (poles.some(([i, j]) => nets[i] === nets[j])) out.push({ level: 'warn', msg: tr(`${p.tag || partKindName(p.type)}: 두 단자가 선으로 바로 이어져 있습니다`, `${p.tag || partKindName(p.type)}: both terminals are wired together`), partIds: [p.id] });
+  }
+  // 공압: 전기 단자와 배관이 섞임, 밸브 솔레노이드, 공급 포트
+  const airIds = new Map<number, string[]>();
+  const elecIds = new Map<number, string[]>();
+  for (const p of c.parts) {
+    PARTS[p.type].pins.forEach((pin, i) => {
+      const n = model.net.pinNet.get(`${p.id}:${i}`)!;
+      const m = pin.air ? airIds : elecIds;
+      m.set(n, [...(m.get(n) ?? []), p.id]);
+    });
+  }
+  for (const [n, ids] of airIds) {
+    if (elecIds.has(n)) out.push({ level: 'error', msg: tr('공압 포트와 전기 단자가 같은 선으로 이어졌습니다', 'An air port is wired to an electrical terminal'), partIds: [...ids, ...elecIds.get(n)!] });
+  }
+  const fed = new Set<number>();
+  {
+    const parent = new Map<number, number>();
+    const find = (i: number): number => {
+      const p = parent.get(i);
+      if (p === undefined || p === i) return i;
+      const r = find(p);
+      parent.set(i, r);
+      return r;
+    };
+    for (const [a, b] of model.airAlways) parent.set(find(a), find(b));
+    const src = new Set(model.airSrc.map(find));
+    for (const v of model.valves) {
+      const pIdx = v.part.type === 'v32' ? 1 : 2;
+      if (src.has(find(v.ports[pIdx]))) fed.add(v.ports[pIdx]);
+    }
+  }
+  for (const v of model.valves) {
+    const p = v.part;
+    const name = p.tag || partKindName(p.type);
+    const pIdx = p.type === 'v32' ? 1 : 2;
+    if (!fed.has(v.ports[pIdx])) out.push({ level: 'warn', msg: tr(`${name}: 공급 포트(1)에 공압원이 이어지지 않았습니다`, `${name}: no air supply on port 1`), partIds: [p.id] });
+    if (!p.solA?.trim()) out.push({ level: 'warn', msg: tr(`${name}: 솔레노이드 기호를 정하세요`, `${name}: choose its solenoid`), partIds: [p.id] });
+    for (const s of [p.solA, p.type === 'v52d' || p.type === 'v53' ? p.solB : undefined]) {
+      if (s?.trim() && !model.loadParts.has(normTag(s))) out.push({ level: 'error', msg: tr(`${name}: 솔레노이드 ${s} 이(가) 회로에 없습니다`, `${name}: solenoid ${s} not in the circuit`), partIds: [p.id] });
+    }
   }
   const plcParts = c.parts.filter((p) => p.type === 'plc').map((p) => p.id);
   for (const msg of model.plcIssues) out.push({ level: model.prog ? 'error' : 'warn', msg, partIds: plcParts });
