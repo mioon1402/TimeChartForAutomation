@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import type { Circuit, Part } from '../circuit/types';
 import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, rotate } from '../circuit/parts';
-import { CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
+import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
+import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
 import { formatTime } from '../model/format';
 import { FONT } from './layout';
 
@@ -41,16 +42,32 @@ export interface PartState {
   /** PLC 입출력 램프 */
   plcIn?: boolean[];
   plcOut?: boolean[];
+  /** 3선식 센서·SMPS 전원 */
+  powered?: boolean;
+  /** 밸브 위치와 솔레노이드 (14쪽, 12쪽) */
+  valve?: 'a' | 'b' | 'c';
+  solOn?: [boolean, boolean];
+  /** 실린더: 스프링 복귀 (단동), 배관으로 움직임 */
+  spring?: boolean;
+  air?: boolean;
 }
 
 export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null): PartState {
   const tag = tagKey(p);
   const def = PARTS[p.type];
+  const air = p.type === 'cyl' && airDriven(model, tag);
+  const spring = p.type === 'cyl' ? (air ? !model.cylPorts.get(tag)!.rodTubed : !p.solMinus?.trim()) : undefined;
   if (!sim) {
     const act = !!def.defaultOn;
-    return { closed: def.nc ? !act : act || p.type === 'fuse' || p.type === 'fuse3', act, on: false, dir: 0, openPhase: false, timer: null, pos: 0, link: model.tagKind.get(tag) };
+    return { closed: def.nc ? !act : act || p.type === 'fuse' || p.type === 'fuse3', act, on: false, dir: 0, openPhase: false, timer: null, pos: 0, link: model.tagKind.get(tag), spring, air };
   }
+  const sol = (t?: string) => !!t?.trim() && sim.loadOn(normTag(t));
   return {
+    spring,
+    air,
+    powered: sim.powered.get(p.id),
+    valve: sim.valvePos.get(p.id),
+    solOn: [sol(p.solA), sol(p.solB)],
     closed: def.poles ? sim.closed(p) : false,
     act: sim.on(tag),
     on: sim.energized.has(p.id),
@@ -140,6 +157,29 @@ function actuatorFor(p: Part, st: PartState, c: CircuitColors): ReactNode {
       return <path d="M-16,-9A9,9 0 0 0 -16,9Z" stroke={c.ink} fill={st.act ? '#ef4444' : '#fca5a5'} />;
     case 'ls_no':
     case 'ls_nc':
+      if (p.sense === 'reed')
+        return (
+          <>
+            <rect x={-26} y={-5} width={5} height={10} fill="#ef4444" stroke="none" />
+            <rect x={-21} y={-5} width={5} height={10} fill="#3b82f6" stroke="none" />
+          </>
+        );
+      if (p.sense === 'float')
+        return (
+          <>
+            <path d="M-16,0L-22,4" stroke={c.ink} />
+            <circle cx={-25} cy={6} r={4} stroke={c.ink} fill="none" />
+          </>
+        );
+      if (p.sense === 'pressure')
+        return (
+          <>
+            <circle cx={-22} cy={0} r={6} stroke={c.ink} fill="none" />
+            <text x={-22} y={3} textAnchor="middle" fontSize={8} fontWeight={700} fill={c.ink} stroke="none">
+              P
+            </text>
+          </>
+        );
       return (
         <>
           <path d="M-16,0l-4,-5" stroke={c.ink} />
@@ -344,15 +384,16 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
     case 'cyl': {
       const px = 6 + st.pos * 104;
       const rodEnd = px + 8 + 116;
-      const spring = !p.solMinus?.trim();
+      const spring = st.spring ?? !p.solMinus?.trim();
       return (
         <g>
+          <path d="M20,16V40" stroke={TUBE} strokeWidth={1.8} />
+          {!spring && <path d="M100,16V40" stroke={TUBE} strokeWidth={1.8} />}
           <rect x={0} y={-16} width={120} height={32} fill={c.bg} stroke={c.ink} />
           {spring && <path d="M100,-12l4,4-8,4 8,4-8,4 8,4-4,4" stroke={c.muted} fill="none" transform={`translate(${(px - 6) * 0.4},0)`} />}
           <rect x={px} y={-14} width={8} height={28} fill={c.ink} stroke="none" />
           <rect x={px + 8} y={-3} width={116} height={6} fill={c.muted} stroke="none" />
           <rect x={rodEnd} y={-8} width={5} height={16} fill={c.ink} stroke="none" />
-          <path d="M10,16v6M110,16v6" stroke={c.ink} />
           {[
             { x: 134, tags: sensors?.minus ?? [], at: st.pos <= 0.03 },
             { x: 238, tags: sensors?.plus ?? [], at: st.pos >= 0.999 },
@@ -371,6 +412,21 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
     }
     case 'plc':
       return <PlcGlyph p={p} st={st} c={c} />;
+    case 'prox':
+      return <ProxGlyph p={p} st={st} c={c} />;
+    case 'smps':
+      return <SmpsGlyph st={st} c={c} />;
+    case 'air':
+      return <AirSupplyGlyph c={c} />;
+    case 'frl':
+      return <FrlGlyph c={c} />;
+    case 'fc':
+      return <FlowCtrlGlyph c={c} />;
+    case 'v32':
+    case 'v52':
+    case 'v52d':
+    case 'v53':
+      return <ValveGlyph p={p} st={st} c={c} />;
     case 'text':
       return (
         <text y={0} fontSize={14} fontWeight={600} fill={c.ink} stroke="none">
@@ -382,15 +438,19 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
 
 /** 기호·설명·단자 번호 (글자는 돌리지 않는다) */
 export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: CircuitColors }) {
-  if (p.type === 'src' || p.type === 'src3' || p.type === 'text' || p.type === 'plc') return null;
+  if (p.type === 'src' || p.type === 'src3' || p.type === 'text' || p.type === 'plc' || p.type === 'air') return null;
+  const valve = p.type === 'v32' || p.type === 'v52' || p.type === 'v52d' || p.type === 'v53';
   const X = p.x * G;
   const Y = p.y * G;
   const vertical = p.rot === 0 || p.rot === 180;
-  const wide = p.type === 'km3' || p.type === 'mcb3' || p.type === 'ol3' || p.type === 'fuse3' || p.type === 'motor3';
+  const wide = p.type === 'km3' || p.type === 'mcb3' || p.type === 'ol3' || p.type === 'fuse3' || p.type === 'motor3' || p.type === 'smps';
+  // 오른쪽에 선·기호가 붙는 부품은 글자를 더 오른쪽에
+  const side = p.type === 'prox' ? 2.6 : p.type === 'fc' || p.type === 'frl' ? 1.7 : 0.9;
   let lines: string[] = [p.tag];
   if (p.name) lines.push(p.name);
-  if (p.type === 'timer') lines[0] = `${p.tag} ${formatTime(p.preset ?? 3000, 's').replace(' ', '')}${p.timerMode === 'off' ? ' OFF' : ''}`;
-  if (p.type === 'cyl') lines = [[p.tag, p.name].filter(Boolean).join(' '), `${p.solPlus || '?'}${p.solMinus ? ` / ${p.solMinus}` : ''}`];
+  if (p.type === 'timer') lines[0] = `${p.tag} ${formatTime(p.preset ?? 3000, 's').replace(' ', '')}${p.timerMode === 'off' ? ' OFF' : p.timerMode === 'flicker' ? ' FLK' : ''}`;
+  if (p.type === 'cyl') lines = [[p.tag, p.name].filter(Boolean).join(' '), ...(!st.air && p.solPlus?.trim() ? [`${p.solPlus}${p.solMinus ? ` / ${p.solMinus}` : ''}`] : [])];
+  if (p.type === 'fc') lines.push(`${p.speed ?? 50}%`);
   let lx: number;
   let ly: number;
   let anchor: 'start' | 'middle' = 'start';
@@ -398,15 +458,18 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
     const [x0, y0] = partBox(p);
     lx = x0 * G;
     ly = y0 * G - 8 - (lines.length - 1) * 12;
+  } else if (valve && p.rot === 0) {
+    lx = X - 3.4 * G;
+    ly = Y + 2.5 * G;
   } else if (vertical) {
-    lx = X + (wide ? 3 * G - 6 : 0.9 * G);
+    lx = X + (wide ? 3 * G - 6 : side * G);
     ly = Y - 4 - (lines.length - 1) * 6;
   } else {
     lx = X;
     ly = Y - (wide ? 3.3 : 1.4) * G - (lines.length - 1) * 12;
     anchor = 'middle';
   }
-  const pinLabels = PARTS[p.type].pins.filter((pin) => pin.label).length && !wide;
+  const pinLabels = PARTS[p.type].pins.filter((pin) => pin.label).length && !wide && !valve && p.type !== 'prox';
   const pinText = (i: number, label: string) => {
     if (st.link === 'thr' && (p.type === 'nc' || p.type === 'no')) return p.type === 'nc' ? ['95', '96'][i] : ['97', '98'][i];
     if (st.link === 'timer' && (p.type === 'nc' || p.type === 'no')) return p.type === 'nc' ? ['55', '56'][i] : ['67', '68'][i];
@@ -442,7 +505,7 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
 export function cylinderSensors(circuit: Circuit): Map<string, { plus: string[]; minus: string[] }> {
   const m = new Map<string, { plus: string[]; minus: string[] }>();
   for (const p of circuit.parts) {
-    if ((p.type !== 'ls_no' && p.type !== 'ls_nc') || !p.cyl) continue;
+    if ((p.type !== 'ls_no' && p.type !== 'ls_nc' && p.type !== 'prox') || !p.cyl) continue;
     const k = normTag(p.cyl);
     const s = m.get(k) ?? { plus: [], minus: [] };
     const list = p.end === '-' ? s.minus : s.plus;
@@ -465,10 +528,17 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
   const sim = o.sim ?? null;
   const sensors = cylinderSensors(circuit);
   const wireColor = (id: string) => {
-    if (!sim) return null;
     const n = model.net.wireNet.get(id);
+    if (n !== undefined && model.airNets.has(n)) return sim?.airState[n] === 'P' ? TUBE_P : TUBE;
+    if (!sim) return null;
     const pole = n === undefined ? null : sim.netPole[n];
     return pole ? POLE_COLOR[pole] ?? c.accent : null;
+  };
+  const wideWire = (id: string, col: string | null) => {
+    if (!col) return 1.8;
+    const n = model.net.wireNet.get(id);
+    if (n !== undefined && model.airNets.has(n)) return sim?.airState[n] === 'P' ? 3.4 : 2.2;
+    return 2.6;
   };
   return (
     <g fontFamily={FONT} strokeLinecap="round" strokeLinejoin="round">
@@ -478,7 +548,7 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         return (
           <g key={w.id}>
             {sel && <line x1={w.a[0] * G} y1={w.a[1] * G} x2={w.b[0] * G} y2={w.b[1] * G} stroke={c.select} strokeWidth={7} opacity={0.5} />}
-            <line x1={w.a[0] * G} y1={w.a[1] * G} x2={w.b[0] * G} y2={w.b[1] * G} stroke={col ?? c.ink} strokeWidth={col ? 2.6 : 1.8} className={col === POLE_COLOR.short ? 'cc-short' : undefined} />
+            <line x1={w.a[0] * G} y1={w.a[1] * G} x2={w.b[0] * G} y2={w.b[1] * G} stroke={col ?? c.ink} strokeWidth={wideWire(w.id, col)} className={col === POLE_COLOR.short ? 'cc-short' : undefined} />
           </g>
         );
       })}
@@ -500,8 +570,10 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
             {o.showPins &&
               pinPositions(p).map(([x, y], i) => {
                 const n = model.net.pinNet.get(`${p.id}:${i}`)!;
-                // PLC 는 안 쓰는 단자가 많은 게 정상
-                const open = p.type !== 'plc' && model.net.pinCount[n] <= 1 && !model.net.hasWire[n];
+                // PLC·공압 포트는 안 쓰는 단자가 있는 게 정상
+                const air = !!PARTS[p.type].pins[i].air;
+                const open = p.type !== 'plc' && !air && model.net.pinCount[n] <= 1 && !model.net.hasWire[n];
+                if (air) return <rect key={i} x={x * G - 2.5} y={y * G - 2.5} width={5} height={5} fill={c.bg} stroke={TUBE} strokeWidth={1.4} />;
                 return <circle key={i} cx={x * G} cy={y * G} r={open ? 3.2 : 2} fill={open ? c.bg : c.ink} stroke={open ? c.danger : 'none'} strokeWidth={1.4} />;
               })}
           </g>

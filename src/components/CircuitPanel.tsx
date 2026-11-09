@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project } from '../model/types';
 import { emptyCircuit, type Circuit, type LampColor, type OpStep, type Part, type Pole, type Wire } from '../circuit/types';
-import { FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partKindName, plcAddresses, plcBases, type PaletteItem } from '../circuit/parts';
+import { FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partKindName, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
-import { CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
+import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
 import { applyCircuit, autoChartOn, circuitStatus, circuitToProject } from '../circuit/chart';
 import { bomCsv, bomSummary, checkCircuit, contactsLabel, partsList, type CircuitIssue } from '../circuit/bom';
 import { CircuitCanvas, NO_SEL, type Sel } from './CircuitCanvas';
@@ -16,7 +16,7 @@ import { formatTime } from '../model/format';
 import { uid } from '../model/wave';
 import { downloadText, safeFileName } from '../io/files';
 import { niceCeil } from '../plc/simulator';
-import { askConfirm, askText, Check, Field, Icon, IconButton, Menu, Select, TimeInput } from './ui';
+import { askConfirm, askText, Check, Field, Icon, IconButton, Menu, NumberInput, Select, TimeInput } from './ui';
 import * as F from './fileActions';
 import { circuitExamples } from '../circuit/examples';
 import { tr } from '../i18n';
@@ -56,11 +56,16 @@ export function makePart(c: Circuit, item: PaletteItem, x: number, y: number, id
     p.inBase = b.in;
     p.outBase = b.out;
   }
+  // 아직 아무것도 쓰지 않는 솔레노이드 기호를 실린더·밸브에 붙여 준다
+  const used = new Set(c.parts.flatMap((q) => [q.solPlus, q.solMinus, q.solA, q.solB].map((t) => normTag(t ?? ''))));
+  const free = c.parts.filter((q) => q.type === 'sol' && q.tag.trim() && !used.has(normTag(q.tag))).map((q) => q.tag);
   if (item.type === 'cyl') {
-    const used = new Set(c.parts.filter((q) => q.type === 'cyl').flatMap((q) => [normTag(q.solPlus ?? ''), normTag(q.solMinus ?? '')]));
-    const free = c.parts.filter((q) => q.type === 'sol' && q.tag.trim() && !used.has(normTag(q.tag))).map((q) => q.tag);
     p.solPlus = free[0] ?? '';
     p.solMinus = free[1] ?? '';
+  }
+  if (VALVES.has(item.type)) {
+    p.solA = free[0] ?? '';
+    if (item.type === 'v52d' || item.type === 'v53') p.solB = free[1] ?? '';
   }
   return p;
 }
@@ -652,9 +657,9 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
           {p.type === 'timer' && (
             <div className="grid2">
               <Field label={tr('동작', 'Mode')}>
-                <Select value={p.timerMode ?? 'on'} onChange={(v: 'on' | 'off') => set({ timerMode: v })} options={[{ value: 'on', label: tr('ON 딜레이 (한시 동작)', 'On-delay') }, { value: 'off', label: tr('OFF 딜레이 (한시 복귀)', 'Off-delay') }]} />
+                <Select value={p.timerMode ?? 'on'} onChange={(v: 'on' | 'off' | 'flicker') => set({ timerMode: v })} options={[{ value: 'on', label: tr('ON 딜레이 (한시 동작)', 'On-delay') }, { value: 'off', label: tr('OFF 딜레이 (한시 복귀)', 'Off-delay') }, { value: 'flicker', label: tr('플리커 (점멸)', 'Flicker') }]} />
               </Field>
-              <Field label={tr('설정 시간', 'Preset')}>
+              <Field label={p.timerMode === 'flicker' ? tr('켜짐·꺼짐 시간', 'On/off time') : tr('설정 시간', 'Preset')}>
                 <TimeInput value={p.preset ?? 3000} onChange={(v) => v !== undefined && set({ preset: v })} />
               </Field>
             </div>
@@ -664,7 +669,22 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
               <Select value={p.color ?? (p.type === 'lamp' ? 'red' : '')} onChange={(v) => set({ color: (v || undefined) as LampColor | undefined })} options={[...(p.type !== 'lamp' ? [{ value: '', label: '—' }] : []), ...(['red', 'green', 'yellow', 'white', 'blue'] as LampColor[]).map((x) => ({ value: x, label: lampColorName(x) }))]} />
             </Field>
           )}
+          {p.type === 'prox' && (
+            <div className="grid2">
+              <Field label={tr('센서 종류', 'Sensor type')}>
+                <Select value={p.sense ?? 'inductive'} onChange={(v) => set({ sense: v as Part['sense'] })} options={[{ value: 'inductive', label: tr('근접 (유도형, 금속)', 'Inductive (metal)') }, { value: 'capacitive', label: tr('근접 (정전용량형)', 'Capacitive') }, { value: 'photo', label: tr('광전 센서', 'Photoelectric') }]} />
+              </Field>
+              <Field label={tr('출력', 'Output')} hint={p.npn ? tr('감지하면 검정선이 0V 로 (부하는 +24V 쪽)', 'Black goes to 0V when detecting') : tr('감지하면 검정선이 +24V 로 (부하는 0V 쪽)', 'Black goes to +24V when detecting')}>
+                <Select value={p.npn ? 'npn' : 'pnp'} onChange={(v) => set({ npn: v === 'npn' || undefined })} options={[{ value: 'pnp', label: 'PNP' }, { value: 'npn', label: 'NPN' }]} />
+              </Field>
+            </div>
+          )}
           {(p.type === 'ls_no' || p.type === 'ls_nc') && (
+            <Field label={tr('스위치 종류', 'Switch type')} wide>
+              <Select value={p.sense ?? ''} onChange={(v) => set({ sense: (v || undefined) as Part['sense'] })} options={[{ value: '', label: tr('리밋 스위치 (롤러)', 'Limit switch (roller)') }, { value: 'reed', label: tr('리드 스위치 (실린더 센서)', 'Reed switch') }, { value: 'float', label: tr('플로트 스위치 (수위)', 'Float switch') }, { value: 'pressure', label: tr('압력 스위치', 'Pressure switch') }]} />
+            </Field>
+          )}
+          {(p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'prox') && (
             <div className="grid2">
               <Field label={tr('실린더 연결', 'Cylinder')} hint={tr('비우면 시뮬레이션에서 눌러서 조작', 'Empty: operate by clicking')}>
                 <Select value={p.cyl ?? ''} onChange={(v) => set({ cyl: v || undefined })} options={[{ value: '', label: tr('(손으로 조작)', '(manual)') }, ...cylTags.map((t) => ({ value: t, label: t }))]} />
@@ -676,7 +696,46 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
               )}
             </div>
           )}
-          {p.type === 'cyl' && (
+          {VALVES.has(p.type) && (
+            <div className="grid2">
+              <Field label={tr('솔레노이드 14 (왼쪽)', 'Solenoid 14 (left)')} hint={tr('켜지면 1→4 (A, 전진 쪽)', 'ON: 1→4 (A)')}>
+                <Select value={p.solA ?? ''} onChange={(v) => set({ solA: v })} options={[{ value: '', label: '—' }, ...solTags.map((t) => ({ value: t, label: t }))]} />
+              </Field>
+              {(p.type === 'v52d' || p.type === 'v53') && (
+                <Field label={tr('솔레노이드 12 (오른쪽)', 'Solenoid 12 (right)')} hint={tr('켜지면 1→2 (B, 후진 쪽)', 'ON: 1→2 (B)')}>
+                  <Select value={p.solB ?? ''} onChange={(v) => set({ solB: v })} options={[{ value: '', label: '—' }, ...solTags.map((t) => ({ value: t, label: t }))]} />
+                </Field>
+              )}
+              <p className="small muted cc-span2">
+                {p.type === 'v32'
+                  ? tr('1 = 공급(P), 2 = 출력(A), 3 = 배기. 꺼지면 스프링으로 2→배기.', '1 = supply, 2 = A, 3 = exhaust. Spring return.')
+                  : p.type === 'v52'
+                    ? tr('1 = 공급(P), 4 = A, 2 = B. 꺼지면 스프링으로 1→2 · 4 배기.', '1 = supply, 4 = A, 2 = B. Spring return to 1→2.')
+                    : p.type === 'v52d'
+                      ? tr('양솔: 펄스만 줘도 마지막 위치를 유지합니다.', 'Double solenoid: keeps the last position.')
+                      : tr('둘 다 꺼지면 가운데(모든 포트 막힘) — 실린더가 그 자리에 멈춥니다.', 'Both off: centre, all ports closed — the cylinder stops.')}
+              </p>
+            </div>
+          )}
+          {p.type === 'fc' && (
+            <Field label={tr('빠르기 (%)', 'Speed (%)')} wide hint={tr('배기되는 쪽 배관에 달면 그 방향 동작이 느려집니다 (미터 아웃)', 'On the exhaust side it slows that stroke (meter-out)')}>
+              <NumberInput value={p.speed ?? 50} min={5} max={100} onChange={(v) => set({ speed: v ?? 50 })} />
+            </Field>
+          )}
+          {p.type === 'cyl' && airDriven(model, tag) && (
+            <p className="small muted">{tr(`배관으로 움직입니다 (${model.cylPorts.get(tag)!.rodTubed ? '복동' : '단동 · 스프링 복귀'}). 왼쪽 포트 = 헤드 쪽(전진), 오른쪽 포트 = 로드 쪽(후진).`, `Driven by air (${model.cylPorts.get(tag)!.rodTubed ? 'double-acting' : 'single-acting'}). Left port = cap end, right port = rod end.`)}</p>
+          )}
+          {p.type === 'cyl' && airDriven(model, tag) && (
+            <div className="grid2">
+              <Field label={tr('전진 시간', 'Advance time')}>
+                <TimeInput value={p.stroke ?? 1000} onChange={(v) => v !== undefined && set({ stroke: v })} />
+              </Field>
+              <Field label={tr('후진 시간', 'Return time')}>
+                <TimeInput value={p.strokeBack ?? p.stroke ?? 1000} onChange={(v) => v !== undefined && set({ strokeBack: v })} />
+              </Field>
+            </div>
+          )}
+          {p.type === 'cyl' && !airDriven(model, tag) && (
             <div className="grid2">
               <Field label={tr('전진 솔레노이드', 'Advance solenoid')}>
                 <Select value={p.solPlus ?? ''} onChange={(v) => set({ solPlus: v })} options={[{ value: '', label: '—' }, ...solTags.map((t) => ({ value: t, label: t }))]} />

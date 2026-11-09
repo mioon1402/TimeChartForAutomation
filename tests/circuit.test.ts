@@ -304,3 +304,173 @@ describe('PLC block', () => {
     expect(edges(res, 'load:GL')).toEqual([{ t: 0, v: 0 }]);
   });
 });
+
+describe('sensors, power supply, flicker', () => {
+  const rails = (): Part[] => [part('src', 0, 0, '', { pole: '+24V' }), part('src', 0, 14, '', { pole: '0V' })];
+  const railWires = (): Wire[] => [wire([0, 0], [10, 0]), wire([0, 14], [10, 14])];
+
+  it('3-wire PNP sensor switches its load only when powered', () => {
+    const c: Circuit = {
+      parts: [...rails(), part('prox', 2, 4, 'PX1', { sense: 'inductive' }), part('lamp', 2, 10, 'GL')],
+      wires: [...railWires(), wire([2, 0], [2, 2]), wire([4, 6], [4, 14]), wire([2, 6], [2, 8]), wire([2, 12], [2, 14])],
+      ops: [
+        { id: 'a', wait: 500, tag: 'PX1', action: 'on', hold: 0 },
+        { id: 'b', wait: 1000, tag: 'PX1', action: 'off', hold: 0 },
+      ],
+    };
+    expect(edges(runScenario(c), 'load:GL').map((e) => e.t)).toEqual([0, 500, 1500]);
+    // 파랑(0V) 선을 빼면 감지해도 출력이 없다
+    const unpowered = { ...c, wires: c.wires.filter((w) => !(w.a[0] === 4 && w.a[1] === 6)) };
+    expect(edges(runScenario(unpowered), 'load:GL')).toEqual([{ t: 0, v: 0 }]);
+  });
+
+  it('SMPS makes 24 V DC only while its AC input is on', () => {
+    const c: Circuit = {
+      parts: [part('src', 4, -3, '', { pole: 'L' }), part('src', 6, 1, '', { pole: 'N' }), part('sw_no', 4, -1, 'SS1'), part('smps', 5, 5, 'SMPS1'), part('lamp', 4, 9, 'GL')],
+      wires: [wire([4, 1], [4, 3]), wire([6, 1], [6, 3]), wire([4, 11], [6, 11]), wire([6, 11], [6, 7])],
+      ops: [{ id: 'a', wait: 500, tag: 'SS1', action: 'on', hold: 0 }],
+    };
+    expect(edges(runScenario(c), 'load:GL').map((e) => e.t)).toEqual([0, 500]);
+  });
+
+  it('flicker relay blinks while its coil is on', () => {
+    const c: Circuit = {
+      parts: [...rails(), part('sw_no', 2, 3, 'SS1'), part('timer', 2, 7, 'FR1', { timerMode: 'flicker', preset: 500 }), part('no', 6, 3, 'FR1'), part('lamp', 6, 7, 'RL')],
+      wires: [...railWires(), wire([2, 0], [2, 1]), wire([2, 9], [2, 14]), wire([6, 0], [6, 1]), wire([6, 9], [6, 14])],
+      ops: [
+        { id: 'a', wait: 100, tag: 'SS1', action: 'on', hold: 0 },
+        { id: 'b', wait: 1700, tag: 'SS1', action: 'off', hold: 0 },
+      ],
+    };
+    expect(edges(runScenario(c), 'load:RL').map((e) => e.t)).toEqual([0, 100, 600, 1100, 1600]);
+  });
+});
+
+describe('pneumatic circuit', () => {
+  /** 스위치 → 솔레노이드 (전기), 공압원 → 밸브 → 실린더 (배관) */
+  function rig(valve: PartType, cyl: Partial<Part>, extra: { parts?: Part[]; wires?: Wire[] } = {}): Circuit {
+    const parts: Part[] = [
+      part('src', 0, 0, '', { pole: '+24V' }),
+      part('src', 0, 10, '', { pole: '0V' }),
+      part('sw_no', 2, 3, 'SS1'),
+      part('sol', 2, 7, 'SOL1'),
+      part('sw_no', 6, 3, 'SS2'),
+      part('sol', 6, 7, 'SOL2'),
+      part('cyl', 20, 0, 'CYL1', { stroke: 1000, strokeBack: 800, ...cyl }),
+      part(valve, 23, 8, 'V1', { solA: 'SOL1', solB: 'SOL2' }),
+      part('air', 23, 13),
+      ...(extra.parts ?? []),
+    ];
+    const wires: Wire[] = [
+      wire([0, 0], [6, 0]),
+      wire([0, 10], [6, 10]),
+      wire([2, 0], [2, 1]),
+      wire([2, 9], [2, 10]),
+      wire([6, 0], [6, 1]),
+      wire([6, 9], [6, 10]),
+      wire([23, 14], [23, 10]),
+      ...(extra.wires ?? []),
+    ];
+    return { parts, wires, ops: [] };
+  }
+  const cap = (): Wire[] => [wire([22, 6], [22, 4]), wire([22, 4], [21, 4]), wire([21, 4], [21, 2])];
+  const rod = (): Wire[] => [wire([24, 6], [24, 4]), wire([24, 4], [25, 4]), wire([25, 4], [25, 2])];
+  const cylRamps = (res: ScenarioResult) => res.tracks.find((t) => t.key === 'cyl:CYL1')!.points.filter((p) => p.t > 0);
+
+  it('5/2 single-solenoid valve: air drives the cylinder out and the spring-returned valve brings it back', () => {
+    const c = rig('v52', {}, { wires: [...cap(), ...rod()] });
+    c.ops = [
+      { id: 'a', wait: 500, tag: 'SS1', action: 'on', hold: 0 },
+      { id: 'b', wait: 2500, tag: 'SS1', action: 'off', hold: 0 },
+    ];
+    expect(cylRamps(runScenario(c))).toEqual([
+      { t: 500, v: 1, ramp: 1000 },
+      { t: 3000, v: 0, ramp: 800 },
+    ]);
+  });
+
+  it('5/2 double-solenoid valve keeps its position after a short pulse', () => {
+    const c = rig('v52d', {}, { wires: [...cap(), ...rod()] });
+    c.ops = [
+      { id: 'a', wait: 500, tag: 'SS1', action: 'press', hold: 100 },
+      { id: 'b', wait: 2500, tag: 'SS2', action: 'press', hold: 100 },
+    ];
+    expect(cylRamps(runScenario(c))).toEqual([
+      { t: 500, v: 1, ramp: 1000 },
+      { t: 3000, v: 0, ramp: 800 },
+    ]);
+  });
+
+  it('flow control on the exhaust side slows that stroke (meter-out)', () => {
+    // 속도 제어 밸브를 로드 쪽 배관에: 전진할 때 로드 쪽이 배기되므로 전진이 50% 빠르기
+    const c = rig('v52', {}, {
+      parts: [part('fc', 25, 4, 'SC1', { speed: 50 })],
+      wires: [...cap(), wire([25, 2], [25, 2]), wire([25, 6], [24, 6])],
+    });
+    c.ops = [
+      { id: 'a', wait: 500, tag: 'SS1', action: 'on', hold: 0 },
+      { id: 'b', wait: 3000, tag: 'SS1', action: 'off', hold: 0 },
+    ];
+    expect(cylRamps(runScenario(c))).toEqual([
+      { t: 500, v: 1, ramp: 2000 },
+      { t: 3500, v: 0, ramp: 800 },
+    ]);
+  });
+
+  it('3/2 valve with a single-acting cylinder: air out, spring back', () => {
+    const c = rig('v32', {}, { wires: [wire([22, 6], [22, 4]), wire([22, 4], [21, 4]), wire([21, 4], [21, 2]), wire([23, 10], [22, 10])] });
+    c.ops = [
+      { id: 'a', wait: 500, tag: 'SS1', action: 'on', hold: 0 },
+      { id: 'b', wait: 2000, tag: 'SS1', action: 'off', hold: 0 },
+    ];
+    expect(cylRamps(runScenario(c))).toEqual([
+      { t: 500, v: 1, ramp: 1000 },
+      { t: 2500, v: 0, ramp: 800 },
+    ]);
+  });
+
+  it('5/3 closed-centre valve stops the cylinder where it is', () => {
+    const c = rig('v53', {}, { wires: [...cap(), ...rod()] });
+    c.ops = [{ id: 'a', wait: 500, tag: 'SS1', action: 'press', hold: 400 }];
+    const model = new CircuitModel(c);
+    const sim = new CircuitSim(model);
+    sim.advanceTo(500);
+    sim.setAct('SS1', true);
+    sim.advanceTo(900);
+    sim.setAct('SS1', false);
+    sim.advanceTo(3000);
+    expect(sim.cylPos('CYL1')).toBeCloseTo(0.4, 5);
+    expect(sim.valvePos.get(c.parts.find((p) => p.type === 'v53')!.id)).toBe('c');
+  });
+
+  it('parts list names valves with their solenoids and leaves the solenoid coils out', () => {
+    const rows = partsList(rig('v52d', {}, { wires: [...cap(), ...rod()] }));
+    expect(rows.find((r) => r.tag === 'V1')).toMatchObject({ kind: '5/2 솔레노이드 밸브 (양솔)', spec: 'SOL1 (14), SOL2 (12)' });
+    expect(rows.some((r) => r.tag === 'SOL1')).toBe(false);
+  });
+});
+
+describe('electro-pneumatic example', () => {
+  it('cycles the cylinder with proximity sensors until stop, extension slowed by the flow control', () => {
+    const c = circuitExamples().find((e) => e.id === 'pneumatic')!.build();
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    const ramps = res.tracks.find((t) => t.key === 'cyl:CYL1')!.points.filter((p) => p.t > 0);
+    expect(ramps).toEqual([
+      { t: 500, v: 1, ramp: 2000 },
+      { t: 2500, v: 0, ramp: 800 },
+      { t: 3300, v: 1, ramp: 2000 },
+      { t: 5300, v: 0, ramp: 800 },
+      { t: 6100, v: 1, ramp: 2000 },
+      { t: 8100, v: 0, ramp: 800 },
+    ]);
+    // 전진단 센서 → X3 → SOL2, 후진단을 떠나면 X2 가 꺼진다 (스트로크 3%)
+    expect(edges(res, 'sen:PX2').map((e) => e.t).slice(0, 3)).toEqual([0, 2500, 2524]);
+    expect(edges(res, 'sen:PX1').map((e) => e.t).slice(0, 3)).toEqual([0, 560, 3300]);
+    expect(res.warnings).toEqual([]);
+    const rows = partsList(c);
+    expect(rows.find((r) => r.tag === 'PX1')).toMatchObject({ kind: '근접 센서 (유도형)', spec: 'DC 24V 3선식 PNP, CYL1 후진단' });
+    expect(rows.find((r) => r.tag === 'V1')?.spec).toBe('SOL1 (14), SOL2 (12)');
+    expect(rows.find((r) => r.tag === 'SC1')?.kind).toBe('속도 제어 밸브');
+  });
+});

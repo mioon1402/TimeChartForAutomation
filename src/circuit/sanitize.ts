@@ -29,7 +29,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (optStr(q.name)) p.name = str(q.name);
     if (optStr(q.spec)) p.spec = str(q.spec);
     if (POLES.includes(q.pole as Pole)) p.pole = q.pole as Pole;
-    if (q.timerMode === 'on' || q.timerMode === 'off') p.timerMode = q.timerMode;
+    if (q.timerMode === 'on' || q.timerMode === 'off' || q.timerMode === 'flicker') p.timerMode = q.timerMode;
     if (typeof q.preset === 'number' && q.preset >= 0) p.preset = q.preset;
     if (COLORS.includes(q.color as LampColor)) p.color = q.color as LampColor;
     if (typeof q.stroke === 'number' && q.stroke >= 0) p.stroke = q.stroke;
@@ -41,6 +41,11 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (typeof q.text === 'string') p.text = q.text;
     if (optStr(q.inBase)) p.inBase = str(q.inBase);
     if (optStr(q.outBase)) p.outBase = str(q.outBase);
+    if (['inductive', 'capacitive', 'photo', 'reed', 'float', 'pressure'].includes(q.sense as string)) p.sense = q.sense as Part['sense'];
+    if (q.npn === true) p.npn = true;
+    if (optStr(q.solA)) p.solA = str(q.solA);
+    if (optStr(q.solB)) p.solB = str(q.solB);
+    if (typeof q.speed === 'number' && q.speed > 0) p.speed = Math.min(100, q.speed);
     parts.push(p);
   }
   const wires: Wire[] = [];
