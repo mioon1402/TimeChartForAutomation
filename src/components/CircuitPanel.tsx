@@ -1034,7 +1034,7 @@ function GuideCard({ type }: { type: PartType }) {
   );
 }
 
-const NO_ANALYSIS: PowerAnalysis = { shorted: false, cables: [], loads: [], breakers: [], issues: [], supply: [], peakKw: 0, panels: [], wireI: new Map(), vll: 220 * Math.sqrt(3), vln: 220 };
+const NO_ANALYSIS: PowerAnalysis = { shorted: false, cables: [], bare: [], loads: [], breakers: [], issues: [], supply: [], peakKw: 0, panels: [], wireI: new Map(), vll: 220 * Math.sqrt(3), vln: 220 };
 
 const METHOD_LABEL: Record<CableMethod, [string, string]> = {
   A1: ['A1 단열벽 속 전선관 (절연전선)', 'A1 conduit in insulated wall (wires)'],

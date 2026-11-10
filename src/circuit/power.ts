@@ -286,6 +286,15 @@ interface Cable {
   ends: number[];
 }
 
+/** 꺾여 이어진 한 가닥 (규격이 있든 없든) */
+interface Run {
+  wires: string[];
+  /** 케이블 번호 (-1 = 규격 없음) */
+  cable: number;
+  ends: number[];
+  drawn: number;
+}
+
 interface LoadDef {
   part: Part;
   nodes: number[];
@@ -328,6 +337,8 @@ export class PowerModel {
   readonly pts: Pt[] = [];
   readonly segs: Seg[] = [];
   readonly cables: Cable[] = [];
+  /** 모든 전선을 꺾여 이어진 한 가닥씩 */
+  readonly runs: Run[] = [];
   readonly poles: { c: Conductor; a: number; b: number }[] = [];
   readonly loads: LoadDef[] = [];
   private readonly srcs: { node: number; pole: string }[] = [];
@@ -336,6 +347,9 @@ export class PowerModel {
   readonly prot: (Part | null)[] = [];
   readonly pathLen: number[] = [];
   readonly depth: number[] = [];
+  /** 전원 쪽으로 한 칸 (점 번호, 없으면 -1) 과 그때 지나는 케이블 번호 */
+  private readonly via: number[] = [];
+  private readonly viaCable: number[] = [];
   /** 점에 있는 단자 이름 (기기 기호 + 단자 번호) 과 기기 기호 */
   readonly pinName = new Map<number, string>();
   readonly pinDev = new Map<number, string>();
@@ -418,7 +432,8 @@ export class PowerModel {
     for (const [n, ws] of ends) {
       if (ws.length !== 2 || pinsAt.has(n) || onInterior.has(n)) continue;
       const [a, b] = ws;
-      if (a.id !== b.id && live(a) && live(b) && JSON.stringify(a.cable) === JSON.stringify(b.cable)) group.set(find(a.id), find(b.id));
+      // 규격이 같은 선끼리, 규격이 없는 선끼리 한 가닥
+      if (a.id !== b.id && live(a) === live(b) && (!live(a) || JSON.stringify(a.cable) === JSON.stringify(b.cable))) group.set(find(a.id), find(b.id));
     }
     const cableOf = new Map<string, number>();
     for (const w of wires) {
@@ -444,10 +459,24 @@ export class PowerModel {
         if (drawn > 0) this.segs.push({ wire: w.id, a, b, drawn, cable: ci });
       }
     }
-    for (const c of this.cables) {
+    const runOf = new Map<string, number>();
+    for (const w of wires) {
+      const root = find(w.id);
+      let ri = runOf.get(root);
+      if (ri === undefined) {
+        ri = this.runs.length;
+        runOf.set(root, ri);
+        this.runs.push({ wires: [], cable: live(w) ? cableOf.get(w.id) ?? -1 : -1, ends: [], drawn: 0 });
+      }
+      this.runs[ri].wires.push(w.id);
+      this.runs[ri].drawn += Math.abs(w.a[0] - w.b[0]) + Math.abs(w.a[1] - w.b[1]);
+    }
+    const byId = new Map(wires.map((w) => [w.id, w]));
+    for (const r of this.runs) {
       const count = new Map<number, number>();
-      for (const w of wires.filter((x) => c.wires.includes(x.id))) for (const e of [w.a, w.b]) count.set(node(e), (count.get(node(e)) ?? 0) + 1);
-      c.ends = [...count].filter(([, k]) => k === 1).map(([n]) => n);
+      for (const id of r.wires) for (const e of [byId.get(id)!.a, byId.get(id)!.b]) count.set(node(e), (count.get(node(e)) ?? 0) + 1);
+      r.ends = [...count].filter(([, k]) => k === 1).map(([n]) => n);
+      if (r.cable >= 0) this.cables[r.cable].ends = r.ends;
     }
 
     // 접점 (극), 전원, 부하
@@ -530,20 +559,22 @@ export class PowerModel {
   /** 전원에서 퍼져 나가며: 지나온 마지막 차단기, 케이블 길이 */
   private buildPaths(): void {
     const n = this.pts.length;
-    const adj: { to: number; part?: Part; len: number }[][] = Array.from({ length: n }, () => []);
+    const adj: { to: number; part?: Part; len: number; cable: number }[][] = Array.from({ length: n }, () => []);
     for (const s of this.segs) {
       const len = s.cable >= 0 ? (this.cables[s.cable].spec.len * s.drawn) / Math.max(1e-9, this.cables[s.cable].drawn) : 0;
-      adj[s.a].push({ to: s.b, len });
-      adj[s.b].push({ to: s.a, len });
+      adj[s.a].push({ to: s.b, len, cable: s.cable });
+      adj[s.b].push({ to: s.a, len, cable: s.cable });
     }
     for (const p of this.poles) {
-      adj[p.a].push({ to: p.b, part: p.c.part, len: 0 });
-      adj[p.b].push({ to: p.a, part: p.c.part, len: 0 });
+      adj[p.a].push({ to: p.b, part: p.c.part, len: 0, cable: -1 });
+      adj[p.b].push({ to: p.a, part: p.c.part, len: 0, cable: -1 });
     }
     for (let i = 0; i < n; i++) {
       this.prot.push(null);
       this.pathLen.push(0);
       this.depth.push(Infinity);
+      this.via.push(-1);
+      this.viaCable.push(-1);
     }
     // N · PE · 0V 쪽에서 거슬러 오는 길은 차단기 판정에 쓰지 않도록 상 (L · +24V) 에서 먼저 퍼진다
     const order = [...this.srcs].sort((a, b) => Number(a.pole === 'N' || a.pole === 'PE' || a.pole === '0V') - Number(b.pole === 'N' || b.pole === 'PE' || b.pole === '0V'));
@@ -560,9 +591,34 @@ export class PowerModel {
         this.depth[e.to] = this.depth[u] + 1;
         this.prot[e.to] = e.part && BREAKER.has(e.part.type) ? e.part : this.prot[u];
         this.pathLen[e.to] = this.pathLen[u] + e.len;
+        this.via[e.to] = u;
+        this.viaCable[e.to] = e.cable;
         queue.push(e.to);
       }
     }
+  }
+
+  /** 그 점에서 전원까지 거슬러 가며 지나는 케이블 */
+  pathCables(nd: number): number[] {
+    const out = new Set<number>();
+    for (let u = nd, guard = 0; u >= 0 && guard < 100000; u = this.via[u], guard++) if (this.viaCable[u] >= 0) out.add(this.viaCable[u]);
+    return [...out];
+  }
+
+  /** 한 가닥의 양 끝: [단자 이름, 기기 기호] (전원 쪽이 먼저) */
+  runEnds(r: Run): { name: string; dev: string }[] {
+    const ends = [...r.ends].sort((a, b) => this.depth[a] - this.depth[b]);
+    const end = (n: number | undefined) => ({ name: n === undefined ? '' : this.pinName.get(n) ?? tr('분기점', 'junction'), dev: n === undefined ? '' : this.pinDev.get(n) ?? tr('분기점', 'junction') });
+    return [end(ends[0]), end(ends[ends.length - 1])];
+  }
+
+  /** 한 가닥을 보호하는 차단기 (전원 쪽 끝에서 가장 가까운 것) */
+  runBreaker(r: Run): Part | null {
+    const ids = new Set(r.wires);
+    const nodes = this.segs.filter((s) => ids.has(s.wire)).flatMap((s) => [s.a, s.b]);
+    let best = -1;
+    for (const nd of nodes.length ? nodes : r.ends) if (best < 0 || this.depth[nd] < this.depth[best]) best = nd;
+    return best < 0 ? null : this.prot[best];
   }
 
   /** 케이블을 보호하는 차단기 (전원 쪽 끝에서 가장 가까운 것) */
@@ -863,6 +919,28 @@ export interface LoadRow {
   limit: number;
   /** 전원에서 오는 케이블 길이 합 (m) */
   len: number;
+  /** 작은 제어 부하 (코일 · 표시등): 용량을 적지 않았고 가정값이 20 W 미만 */
+  minor: boolean;
+  /** 조작 순서에서 한 번이라도 켜졌는가 */
+  on: boolean;
+  /** 전원에서 이 부하까지 지나는 케이블 (cables 의 id) */
+  path: number[];
+}
+
+/** 규격을 정하지 않은 전선 (전류는 계산되지만 허용전류 · 전압강하는 검토하지 못한다) */
+export interface BareRow {
+  wires: string[];
+  count: number;
+  from: string;
+  to: string;
+  ib: number;
+  breaker: string;
+  breakerAmps: number | null;
+  /** XLPE · B1 로 깔 때 권장 굵기 (mm²) */
+  suggest: number | null;
+  /** 부하 도체 수 (권장 굵기를 고른 기준) 와 그림에서의 길이 (칸, 가장 긴 가닥) */
+  cores: 2 | 3;
+  drawn: number;
 }
 
 export interface BreakerRow {
@@ -882,6 +960,8 @@ export interface PowerIssue {
 export interface PowerAnalysis {
   shorted: boolean;
   cables: CableRow[];
+  /** 규격 없는 전선 중 전류가 흐르는 것 (전류가 큰 순서) */
+  bare: BareRow[];
   loads: LoadRow[];
   breakers: BreakerRow[];
   issues: PowerIssue[];
@@ -897,6 +977,15 @@ export interface PowerAnalysis {
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
+
+/** 그 전류를 흘릴 수 있는 가장 가는 굵기 (보정계수 포함). 표의 가장 굵은 것으로도 안 되면 null */
+export function suggestSize(spec: Pick<CableSpec, 'ins' | 'method' | 'cores' | 'amb' | 'group'>, need: number): number | null {
+  for (const mm2 of cableSizes(spec.ins, spec.cores, spec.method)) {
+    const iz = cableIz({ ...spec, mm2, len: 1 });
+    if (iz !== null && iz + 1e-6 >= need) return mm2;
+  }
+  return null;
+}
 
 /** 전압강하 허용값 (%) - KEC 232.3.9 표: 저압 수전 조명 3 · 기타 5, 고압 이상 수전 조명 6 · 기타 8. 100 m 를 넘는 부분은 m 당 0.005%, 0.5% 까지 */
 export function dropLimit(supply: 'lv' | 'hv' | undefined, lighting: boolean, len: number): number {
@@ -961,6 +1050,13 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
       row.ib = Math.max(row.ib, ib);
     } else grouped.set(k, { id, count: 1, wires: [...cb.wires], from: '', to: '', ends, spec: cb.spec, text: cableText(cb.spec), iz: cableIz(cb.spec), ib, dv: 0, breaker: br?.tag ?? '', breakerAmps: br ? breakerAmps(br) : null });
   });
+  // 케이블 번호 → 표의 줄 (부하까지의 길을 찾을 때)
+  const rowOfCable = new Map<number, number>();
+  pm.cables.forEach((cb, id) => {
+    const br = pm.cableBreaker(id);
+    const ends = pm.cableEnds(id);
+    rowOfCable.set(id, grouped.get(`${ends[0].dev}\u0000${ends[1].dev}\u0000${JSON.stringify(cb.spec)}\u0000${br?.id ?? ''}`)!.id);
+  });
   const cables: CableRow[] = [...grouped.values()].map(({ ends, ...row }) => {
     const z = cableZ(row.spec);
     const many = row.count > 1;
@@ -975,11 +1071,14 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
       issues.push({ level: 'info', msg: tr(`${name}: 허용전류 표에 없는 규격입니다 (${cb.text})`, `${name}: no ampacity table entry (${cb.text})`), partIds: [], wireIds: cb.wires });
       continue;
     }
-    if (cb.ib > cb.iz + 1e-6) issues.push({ level: 'error', msg: tr(`${name}: 전류 ${r1(cb.ib)} A 가 허용전류 ${cb.iz} A 를 넘습니다 (${cb.text}). 더 굵은 전선이 필요합니다`, `${name}: ${r1(cb.ib)} A exceeds the ampacity ${cb.iz} A (${cb.text})`), partIds: [], wireIds: cb.wires });
+    // 권장 굵기: 전류와 차단기 정격을 모두 감당하는 가장 가는 것
+    const want = cb.spec.kind === 'bus' ? null : suggestSize(cb.spec, Math.max(cb.ib, cb.breakerAmps ?? 0));
+    const hint = want !== null && want > cb.spec.mm2 ? tr(` → ${want} mm² 이상`, ` → ${want} mm² or larger`) : '';
+    if (cb.ib > cb.iz + 1e-6) issues.push({ level: 'error', msg: tr(`${name}: 전류 ${r1(cb.ib)} A 가 허용전류 ${cb.iz} A 를 넘습니다 (${cb.text}). 더 굵은 전선이 필요합니다${hint}`, `${name}: ${r1(cb.ib)} A exceeds the ampacity ${cb.iz} A (${cb.text})${hint}`), partIds: [], wireIds: cb.wires });
     if (cb.breakerAmps !== null && cb.breakerAmps > cb.iz + 1e-6)
       issues.push({
         level: 'error',
-        msg: tr(`${name}: 차단기 ${cb.breaker} 정격 ${cb.breakerAmps} A 가 전선 허용전류 ${cb.iz} A 보다 큽니다. 과부하 때 전선이 먼저 탑니다 (In ≤ Iz 가 되게)`, `${name}: breaker ${cb.breaker} ${cb.breakerAmps} A is above the cable ampacity ${cb.iz} A (need In ≤ Iz)`),
+        msg: tr(`${name}: 차단기 ${cb.breaker} 정격 ${cb.breakerAmps} A 가 전선 허용전류 ${cb.iz} A 보다 큽니다. 과부하 때 전선이 먼저 탑니다 (In ≤ Iz 가 되게)${hint}`, `${name}: breaker ${cb.breaker} ${cb.breakerAmps} A is above the cable ampacity ${cb.iz} A (need In ≤ Iz)${hint}`),
         partIds: br,
         wireIds: cb.wires,
       });
@@ -991,15 +1090,56 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
   for (const b of breakers) {
     if (b.amps !== null && b.i > b.amps + 1e-6) issues.push({ level: 'error', msg: tr(`${b.tag}: 흐르는 전류 ${r1(b.i)} A 가 차단기 정격 ${b.amps} A 를 넘습니다 (과부하로 트립)`, `${b.tag}: ${r1(b.i)} A exceeds the breaker rating ${b.amps} A`), partIds: [b.partId], wireIds: [] });
   }
-  const loads: LoadRow[] = pm.loads
-    .filter((l) => l.rating.w >= 20 || l.part.watt !== undefined)
-    .map((l) => {
-      const mx = loadMax.get(l.part.id) ?? { i: 0, v: null };
-      const len = Math.max(...l.nodes.map((nd) => pm.pathLen[nd] ?? 0));
-      const lighting = isLightingLoad(l.part);
-      const dropPct = mx.v === null ? null : r2(((l.vSup - mx.v) / l.vSup) * 100);
-      return { partId: l.part.id, tag: l.part.tag, name: l.part.name ?? '', watt: l.rating.out, pf: l.rating.pf, three: l.three, lighting, vSup: l.vSup, v: mx.v === null ? null : r1(mx.v), i: r2(mx.i), dropPct, limit: dropLimit(c.supply, lighting, len), len: r1(len) };
-    });
+  const three = pm.loads.some((l) => l.three) || c.parts.some((p) => p.type === 'src3' || ((p.type === 'src' || p.type === 'r_term') && (p.pole === 'L2' || p.pole === 'L3')));
+  // 규격 없는 전선: 같은 두 기기를 잇는 가닥끼리 묶어서, 전류가 큰 순서로
+  const bareGroups = new Map<string, BareRow>();
+  for (const r of pm.runs) {
+    if (r.cable >= 0) continue;
+    const ib = Math.max(0, ...r.wires.map((w) => wireI.get(w) ?? 0));
+    if (ib < 0.05) continue;
+    const ends = pm.runEnds(r);
+    const br = pm.runBreaker(r);
+    const k = `${ends[0].dev}\u0000${ends[1].dev}\u0000${br?.id ?? ''}`;
+    const row = bareGroups.get(k);
+    if (row) {
+      row.count++;
+      row.wires.push(...r.wires);
+      row.ib = Math.max(row.ib, ib);
+      row.drawn = Math.max(row.drawn, r.drawn);
+    } else bareGroups.set(k, { wires: [...r.wires], count: 1, from: ends[0].dev, to: ends[1].dev, ib, breaker: br?.tag ?? '', breakerAmps: br ? breakerAmps(br) : null, suggest: null, cores: 2, drawn: r.drawn });
+  }
+  const bare = [...bareGroups.values()]
+    .map((r) => {
+      // 세 가닥이 나란하거나 3상 계통의 한 가닥이면 3상으로 (허용전류가 작은 쪽이라 안전), L · N 두 가닥이면 단상
+      const cores: 2 | 3 = three && r.count !== 2 ? 3 : 2;
+      return { ...r, ib: r2(r.ib), cores, suggest: suggestSize({ ins: 'xlpe', method: 'B1', cores }, Math.max(r.ib, r.breakerAmps ?? 0)) };
+    })
+    .sort((a, b) => b.ib - a.ib);
+  const loads: LoadRow[] = pm.loads.map((l) => {
+    const mx = loadMax.get(l.part.id) ?? { i: 0, v: null };
+    const len = Math.max(...l.nodes.map((nd) => pm.pathLen[nd] ?? 0));
+    const lighting = isLightingLoad(l.part);
+    const dropPct = mx.v === null ? null : r2(((l.vSup - mx.v) / l.vSup) * 100);
+    const path = [...new Set(l.nodes.flatMap((nd) => pm.pathCables(nd)).map((ci) => rowOfCable.get(ci)!))];
+    return {
+      partId: l.part.id,
+      tag: l.part.tag,
+      name: l.part.name ?? '',
+      watt: l.rating.out,
+      pf: l.rating.pf,
+      three: l.three,
+      lighting,
+      vSup: l.vSup,
+      v: mx.v === null ? null : r1(mx.v),
+      i: mx.i >= 1 ? r2(mx.i) : Math.round(mx.i * 1000) / 1000,
+      dropPct,
+      limit: dropLimit(c.supply, lighting, len),
+      len: r1(len),
+      minor: l.rating.w < 20 && l.part.watt === undefined,
+      on: mx.i > 1e-6,
+      path,
+    };
+  });
   for (const l of loads) {
     if (l.dropPct !== null && l.dropPct > l.limit + 1e-6)
       issues.push({
@@ -1010,18 +1150,27 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
       });
   }
   if (shorted) issues.unshift({ level: 'error', msg: tr('단락이 있어 그 순간의 전류는 계산하지 않았습니다', 'A short circuit was found; currents were not computed for that state'), partIds: [], wireIds: [] });
-  if (loads.length && !pm.cables.length) issues.push({ level: 'info', msg: tr('전선을 누르고 케이블 규격 (굵기 · 공사방법 · 길이) 을 정하면 허용전류와 전압강하를 검토합니다', 'Select a wire and set its cable spec to check ampacity and voltage drop'), partIds: [], wireIds: [] });
+  if (bare.length)
+    issues.push({
+      level: 'info',
+      msg: pm.cables.length
+        ? tr(`규격을 정하지 않은 전선 ${bare.length}구간에도 전류가 흐릅니다. 규격을 정해야 허용전류 · 전압강하를 검토합니다`, `${bare.length} wire runs without a spec carry current; give them a spec to check them`)
+        : tr(`케이블 규격이 하나도 없어서 전류만 계산했습니다. 전선을 눌러 규격을 정하거나 아래 [규격 자동 지정] 을 누르면 허용전류 · 전압강하를 검토합니다`, 'No cable specs yet, so only currents were computed. Set specs on the wires or press "Assign specs" below'),
+      partIds: [],
+      wireIds: bare.flatMap((r) => r.wires),
+    });
   const panels = c.parts
     .filter((p) => p.type === 'r_panel')
     .map((p) => {
       const [w, h] = panelSize(p);
-      const inside = pm.loads.filter((l) => l.part.x >= p.x && l.part.x <= p.x + w && l.part.y >= p.y && l.part.y <= p.y + h && (l.rating.w >= 20 || l.part.watt !== undefined));
+      const inside = pm.loads.filter((l) => l.part.x >= p.x && l.part.x <= p.x + w && l.part.y >= p.y && l.part.y <= p.y + h);
       return { partId: p.id, name: [p.tag, p.name].filter(Boolean).join(' '), kw: r2(inside.reduce((s, l) => s + l.rating.out, 0) / 1000), loads: inside.length };
     });
   const order = ['L1', 'L2', 'L3', 'N', 'PE', '+24V', '0V'];
   return {
     shorted,
     cables,
+    bare,
     loads,
     breakers,
     issues,
@@ -1032,4 +1181,85 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
     vll: pm.vll,
     vln: pm.vln,
   };
+}
+
+// ───────────────────────── 굵기 자동 선정 ─────────────────────────
+
+export interface AutoSizeResult {
+  circuit: Circuit;
+  /** 규격을 새로 준 전선 구간 수, 굵기를 키운 구간 수, 그래도 남은 문제 수 */
+  assigned: number;
+  resized: number;
+  left: number;
+}
+
+/** 그림 1칸을 1 cm 로 보고 어림한 길이 (m). 판넬 안 배선에 맞는 값이라 판넬 사이 급전선은 실제 길이로 고쳐야 한다 */
+export function drawnLength(cells: number): number {
+  return Math.max(0.1, Math.round(cells) / 100);
+}
+
+/**
+ * 굵기 자동 선정:
+ *  1) assign 이면 규격 없는 전선에 XLPE · B1 로, 흐르는 전류와 위쪽 차단기 정격을 감당하는 가장 가는 굵기를 준다 (길이는 그림에서 어림)
+ *  2) 허용전류가 모자란 케이블 (IB > Iz, In > Iz) 을 필요한 굵기로 키운다
+ *  3) 전압강하가 넘는 부하는, 그 부하까지의 케이블 가운데 전압을 가장 많이 떨어뜨리는 것부터 한 단계씩 키운다
+ * 차단기 정격과 부하는 건드리지 않는다.
+ */
+export function autoSize(c: Circuit, makeModel: (c: Circuit) => CircuitModel = (x) => new CircuitModel(x), opt: { assign?: boolean } = {}): AutoSizeResult {
+  let cur: Circuit = c;
+  const touched = new Set<string>();
+  const apply = (specs: Map<string, CableSpec>) => {
+    cur = { ...cur, wires: cur.wires.map((w) => (specs.has(w.id) ? { ...w, cable: specs.get(w.id)! } : w)) };
+  };
+  let assigned = 0;
+  if (opt.assign) {
+    const a = analyzePower(cur, makeModel(cur));
+    const specs = new Map<string, CableSpec>();
+    for (const r of a.bare) {
+      const sizes = cableSizes('xlpe', r.cores, 'B1');
+      const spec: CableSpec = { ins: 'xlpe', mm2: r.suggest ?? sizes[sizes.length - 1], method: 'B1', cores: r.cores, len: drawnLength(r.drawn) };
+      for (const w of r.wires) specs.set(w, spec);
+      assigned++;
+    }
+    apply(specs);
+  }
+  let a = analyzePower(cur, makeModel(cur));
+  for (let iter = 0; iter < 80; iter++) {
+    const specs = new Map<string, CableSpec>();
+    const bump = (r: CableRow, mm2: number) => {
+      for (const w of r.wires) {
+        specs.set(w, { ...r.spec, mm2 });
+        touched.add(w);
+      }
+    };
+    for (const r of a.cables) {
+      if (r.spec.kind === 'bus' || r.iz === null) continue;
+      const need = Math.max(r.ib, r.breakerAmps ?? 0);
+      if (need <= r.iz + 1e-6) continue;
+      const sizes = cableSizes(r.spec.ins, r.spec.cores, r.spec.method);
+      const want = suggestSize(r.spec, need) ?? sizes[sizes.length - 1];
+      if (want > r.spec.mm2) bump(r, want);
+    }
+    if (!specs.size) {
+      for (const l of a.loads) {
+        if (l.dropPct === null || l.dropPct <= l.limit + 1e-6) continue;
+        const rows = l.path
+          .map((id) => a.cables.find((r) => r.id === id))
+          .filter((r): r is CableRow => !!r && r.spec.kind !== 'bus')
+          .sort((x, y) => y.dv - x.dv);
+        for (const r of rows) {
+          if (r.wires.some((w) => specs.has(w))) break;
+          const next = cableSizes(r.spec.ins, r.spec.cores, r.spec.method).find((s) => s > r.spec.mm2);
+          if (next === undefined) continue;
+          bump(r, next);
+          break;
+        }
+      }
+    }
+    if (!specs.size) break;
+    apply(specs);
+    a = analyzePower(cur, makeModel(cur));
+  }
+  const rows = new Set(a.cables.filter((r) => r.wires.some((w) => touched.has(w))).map((r) => r.id));
+  return { circuit: cur, assigned, resized: rows.size, left: a.issues.filter((i) => i.level === 'error').length };
 }
