@@ -1,6 +1,6 @@
 import type { Part, WireColor } from '../circuit/types';
-import { LAMP_HEX, tbSize } from '../circuit/parts';
-import { formatTime } from '../model/format';
+import { LAMP_HEX, schedOn, tbSize, tswSched } from '../circuit/parts';
+import { formatClock, formatTime } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
 import type { CircuitColors, PartState } from './CircuitSvg';
 import { tr } from '../i18n';
@@ -442,6 +442,151 @@ export function TbGlyph({ p, c }: { p: Part; c: CircuitColors }) {
       })}
       <Label x={-28} y={-2} text={p.tag} anchor="end" size={11} weight={800} fill={c.ink} />
       {p.name && <Label x={-28} y={11} text={p.name} anchor="end" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/** 다이얼 위의 점 (0시가 위, 시계 방향) */
+function dialPt(cx: number, cy: number, r: number, deg: number): string {
+  const a = (deg * Math.PI) / 180;
+  return `${(cx + r * Math.sin(a)).toFixed(1)},${(cy - r * Math.cos(a)).toFixed(1)}`;
+}
+
+/** 다이얼 가장자리의 15분 세그먼트 96개 (켜진 것 / 꺼진 것 두 path 로) */
+function dialSegments(sched: [number, number][], cx: number, cy: number, r0: number, r1: number): { on: string; off: string } {
+  let on = '';
+  let off = '';
+  for (let i = 0; i < 96; i++) {
+    const a0 = i * 3.75 + 0.45;
+    const a1 = (i + 1) * 3.75 - 0.45;
+    const d = `M${dialPt(cx, cy, r0, a0)}L${dialPt(cx, cy, r1, a0)}A${r1},${r1} 0 0 1 ${dialPt(cx, cy, r1, a1)}L${dialPt(cx, cy, r0, a1)}Z`;
+    // 세그먼트 가운데 시각으로 판정
+    if (schedOn(sched, (i + 0.5) * 900000)) on += d;
+    else off += d;
+  }
+  return { on, off };
+}
+
+/**
+ * 24시간 타임 스위치 (다이얼식): 가장자리 세그먼트 (15분) 를 밀어 넣은 구간에 접점이 붙는다.
+ * 아래 단자: L · N 시계 전원, COM → NO (설정 시간에 ON) · NC
+ */
+export function TswGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const sched = tswSched(p);
+  const v = st.tsw ?? { dial: 0, out: schedOn(sched, 0), run: false };
+  const seg = dialSegments(sched, 0, -28, 49, 61);
+  const deg = (v.dial / 86400000) * 360;
+  const xs = [-80, -40, 0, 40, 80];
+  const names = ['L', 'N', 'COM', 'NO', 'NC'];
+  return (
+    <g>
+      <rect x={-92} y={-112} width={184} height={186} rx={7} fill={BODY} stroke={BODY_EDGE} />
+      <rect x={-92} y={70} width={184} height={46} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <circle cx={0} cy={-28} r={66} fill="#f8fafc" stroke="#94a3b8" />
+      <path d={seg.off} fill="#cbd5e1" />
+      <path d={seg.on} fill="#f59e0b" stroke="#b45309" strokeWidth={0.5} />
+      <circle cx={0} cy={-28} r={46} fill="#ffffff" stroke="#cbd5e1" />
+      {[0, 3, 6, 9, 12, 15, 18, 21].map((h) => {
+        const [x, y] = dialPt(0, -28, 37, h * 15).split(',').map(Number);
+        return <Label key={h} x={x} y={y + 3} text={String(h)} fill="#334155" size={8.5} weight={700} />;
+      })}
+      {Array.from({ length: 24 }, (_, h) => (
+        <path key={h} d={`M${dialPt(0, -28, 43, h * 15)}L${dialPt(0, -28, 46, h * 15)}`} stroke="#64748b" strokeWidth={h % 3 === 0 ? 1.6 : 0.8} />
+      ))}
+      <path d={`M0,-28L${dialPt(0, -28, 47, deg)}`} stroke="#dc2626" strokeWidth={2.6} strokeLinecap="round" />
+      <circle cx={0} cy={-28} r={4.5} fill="#334155" />
+      <Label x={0} y={-12} text="24h" fill="#94a3b8" size={7} weight={700} />
+      <rect x={-46} y={44} width={62} height={20} rx={3} fill="#0f172a" />
+      <Label x={-15} y={58} text={formatClock(v.dial)} fill="#a7f3d0" size={12} weight={800} />
+      <circle cx={34} cy={54} r={5} fill={v.out ? '#ef4444' : '#cbd5e1'} stroke="#64748b" strokeWidth={0.8} />
+      <Label x={44} y={58} text={v.out ? 'ON' : 'OFF'} anchor="start" fill={v.out ? '#dc2626' : '#64748b'} size={9.5} weight={800} />
+      <Label x={-82} y={-98} text={tr('타임 스위치', 'TIME SWITCH')} anchor="start" fill="#475569" size={8} weight={700} />
+      {xs.map((x, i) => (
+        <g key={x}>
+          <Screw x={x} y={100} ring={i < 2 ? 'orange' : i === 3 ? 'green' : i === 4 ? 'yellow' : 'grey'} />
+          <Label x={x} y={86} text={names[i]} size={8.5} weight={800} />
+        </g>
+      ))}
+      <path d="M-20,74V116" stroke={BODY_EDGE} />
+      <Label x={98} y={-98} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      {p.name && <Label x={98} y={-85} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+      {(sched.length ? sched.slice(0, 3) : [null]).map((r, i) => (
+        <Label key={i} x={98} y={(p.name ? -72 : -85) + i * 12} text={r ? `ON ${formatClock(r[0])}~${formatClock(r[1])}${i === 2 && sched.length > 3 ? ' …' : ''}` : 'ON —'} anchor="start" size={9} weight={700} fill={c.accent} />
+      ))}
+      {st.tsw && !v.run && <Label x={98} y={(p.name ? -72 : -85) + Math.min(3, Math.max(1, sched.length)) * 12 + 2} text={tr('전원 없음: 시계 멈춤', 'No power: stopped')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+    </g>
+  );
+}
+
+/** 전등: 전구 + 소켓, L · N. 켜지면 빛난다 */
+export function LightGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const on = st.on;
+  return (
+    <g>
+      {on && <circle cy={-34} r={46} fill="#fde047" opacity={0.3} />}
+      <path d="M-11,2C-11,-8 -26,-16 -26,-36A26,26 0 0 1 26,-36C26,-16 11,-8 11,2Z" fill={on ? '#fde047' : '#f8fafc'} stroke={on ? '#ca8a04' : '#94a3b8'} strokeWidth={1.4} />
+      <path d="M-7,-2V-20L-3,-28L0,-20L3,-28L7,-20V-2" stroke={on ? '#b45309' : '#94a3b8'} strokeWidth={1.2} fill="none" />
+      <rect x={-12} y={2} width={24} height={12} fill="#9ca3af" stroke="#6b7280" />
+      <path d="M-12,6H12M-12,10H12" stroke="#6b7280" strokeWidth={0.8} />
+      <rect x={-32} y={14} width={64} height={40} rx={4} fill="#111827" stroke="#6b7280" />
+      <Label x={-20} y={27} text="L" fill="#f9fafb" size={8} weight={800} />
+      <Label x={20} y={27} text="N" fill="#f9fafb" size={8} weight={800} />
+      <Screw x={-20} y={40} />
+      <Screw x={20} y={40} />
+      <Label x={34} y={-52} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      {p.name && <Label x={34} y={-39} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/** 벽 스위치 판: 로커, 켜지면 위쪽이 눌리고 표시등 */
+function SwitchPlate({ on }: { on: boolean }) {
+  return (
+    <g>
+      <rect x={-34} y={-48} width={68} height={72} rx={6} fill="#f8fafc" stroke="#94a3b8" />
+      <rect x={-15} y={-40} width={30} height={56} rx={4} fill="#e2e8f0" stroke="#94a3b8" />
+      <rect x={-13} y={on ? -38 : -12} width={26} height={26} rx={3} fill="#ffffff" stroke="#cbd5e1" />
+      <rect x={-13} y={on ? -12 : -38} width={26} height={26} rx={3} fill="#cbd5e1" />
+      <circle cx={0} cy={-25} r={3} fill={on ? '#22c55e' : '#94a3b8'} />
+    </g>
+  );
+}
+
+/** 스위치 (단로): 단자 1 · 2 */
+export function SwGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  return (
+    <g>
+      <SwitchPlate on={st.act} />
+      <rect x={-34} y={22} width={68} height={34} rx={4} fill="#111827" stroke="#6b7280" />
+      <Label x={-6} y={44} text="1" fill="#f9fafb" size={8} weight={800} />
+      <Label x={6} y={44} text="2" fill="#f9fafb" size={8} weight={800} />
+      <Screw x={-20} y={40} />
+      <Screw x={20} y={40} />
+      <Label x={0} y={-52} text={st.act ? 'ON' : 'OFF'} fill={st.act ? '#16a34a' : c.muted} size={8.5} weight={800} />
+      <Label x={40} y={-36} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      {p.name && <Label x={40} y={-23} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/** 3로 스위치: 공통 0 (위) → 1 또는 3 (아래). 누를 때마다 넘어간다 */
+export function Sw3Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const to3 = st.act;
+  return (
+    <g>
+      <rect x={-14} y={-74} width={28} height={30} rx={4} fill="#111827" stroke="#6b7280" />
+      <Screw x={0} y={-60} ring="grey" />
+      <Label x={20} y={-57} text="0" anchor="start" fill={c.ink} size={9} weight={800} />
+      <SwitchPlate on={to3} />
+      <rect x={-34} y={22} width={68} height={34} rx={4} fill="#111827" stroke="#6b7280" />
+      <Label x={-6} y={44} text="1" fill="#f9fafb" size={8} weight={800} />
+      <Label x={6} y={44} text="3" fill="#f9fafb" size={8} weight={800} />
+      <Screw x={-20} y={40} ring={to3 ? 'grey' : 'green'} />
+      <Screw x={20} y={40} ring={to3 ? 'green' : 'grey'} />
+      <path d={`M0,-44L${to3 ? 20 : -20},24`} stroke="#16a34a" strokeWidth={2} strokeDasharray="4 3" opacity={0.85} />
+      <Label x={40} y={-36} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      {p.name && <Label x={40} y={-23} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+      <Label x={40} y={p.name ? -10 : -23} text={to3 ? '0-3' : '0-1'} anchor="start" size={9} weight={700} fill={c.accent} />
     </g>
   );
 }

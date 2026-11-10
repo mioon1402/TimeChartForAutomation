@@ -181,7 +181,7 @@ export interface Revision {
   author: string;
 }
 
-export type TimeUnit = 'ms' | 's' | 'auto';
+export type TimeUnit = 'ms' | 's' | 'min' | 'h' | 'auto';
 
 export interface ProjectSettings {
   /** 차트 전체 길이 (ms) */

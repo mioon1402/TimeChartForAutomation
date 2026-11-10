@@ -1,10 +1,11 @@
 import type { ReactNode, JSX } from 'react';
 import type { Circuit, Part, WireColor } from '../circuit/types';
-import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate } from '../circuit/parts';
+import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { EstopGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { EstopGlyph, LightGlyph, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
+import { wireNoLabels, wiringList } from '../circuit/wiring';
 import { FONT } from './layout';
 
 /** 격자 한 칸 (px) */
@@ -48,6 +49,8 @@ export interface PartState {
   /** 밸브 위치와 솔레노이드 (14쪽, 12쪽) */
   valve?: 'a' | 'b' | 'c';
   solOn?: [boolean, boolean];
+  /** 타임 스위치: 다이얼 시각, 접점, 시계가 도는 중 */
+  tsw?: { dial: number; out: boolean; run: boolean };
   /** 실린더: 스프링 복귀 (단동), 배관으로 움직임 */
   spring?: boolean;
   air?: boolean;
@@ -60,6 +63,10 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
   const spring = p.type === 'cyl' ? (air ? !model.cylPorts.get(tag)!.rodTubed : !p.solMinus?.trim()) : undefined;
   if (!sim) {
     const act = !!def.defaultOn;
+    if (p.type === 'r_tsw') {
+      const dial = model.circuit.clock ?? 0;
+      return { closed: false, act: false, on: false, dir: 0, openPhase: false, timer: null, pos: 0, link: 'tsw', tsw: { dial, out: schedOn(tswSched(p), dial), run: true } };
+    }
     return { closed: def.nc ? !act : act || p.type === 'fuse' || p.type === 'fuse3', act, on: false, dir: 0, openPhase: false, timer: null, pos: 0, link: model.tagKind.get(tag), spring, air };
   }
   const sol = (t?: string) => !!t?.trim() && sim.loadOn(normTag(t));
@@ -77,6 +84,7 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     timer: p.type === 'timer' || p.type === 'r_timer8' ? sim.timerView(tag) : null,
     pos: p.type === 'cyl' ? sim.cylPos(tag) : 0,
     link: model.tagKind.get(tag),
+    tsw: p.type === 'r_tsw' ? sim.tsw.get(tag) : undefined,
     plcIn: p.type === 'plc' ? sim.plcIn.get(p.id) : undefined,
     plcOut: p.type === 'plc' ? sim.plcOut.get(p.id) : undefined,
   };
@@ -454,6 +462,14 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <EstopGlyph p={p} st={st} c={c} />;
     case 'r_tb':
       return <TbGlyph p={p} c={c} />;
+    case 'r_tsw':
+      return <TswGlyph p={p} st={st} c={c} />;
+    case 'r_light':
+      return <LightGlyph p={p} st={st} c={c} />;
+    case 'r_sw':
+      return <SwGlyph p={p} st={st} c={c} />;
+    case 'r_sw3':
+      return <Sw3Glyph p={p} st={st} c={c} />;
     case 'text':
       return (
         <text y={0} fontSize={14} fontWeight={600} fill={c.ink} stroke="none">
@@ -551,6 +567,10 @@ export interface LayerOptions {
   showPins?: boolean;
   /** 결선표에서 고른 전선: 그림의 토막과 두 단자 */
   highlight?: { segs: [[number, number], [number, number]][]; pts: [number, number][] } | null;
+  /** 선번호 (전선 가운데에 적는다) */
+  wireNos?: { at: [number, number]; no: number }[];
+  /** 따라 배선하기: 배선을 마친 전선만 진하게, 나머지는 흐리게 */
+  progress?: { segs: [[number, number], [number, number]][]; color?: WireColor }[] | null;
 }
 
 /** 선·점·부품·글자 (편집기와 인쇄 공용) */
@@ -570,8 +590,18 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
     if (n !== undefined && model.airNets.has(n)) return sim?.airState[n] === 'P' ? 3.4 : 2.2;
     return 2.6;
   };
+  // 따라 배선하기: 마친 전선 끝 (단자 좌표 + 나가는 방향)
+  const doneEnds = o.progress ? new Set<string>() : null;
+  if (o.progress && doneEnds) {
+    for (const r of o.progress)
+      for (const [a, b] of r.segs) {
+        doneEnds.add(`${a[0]},${a[1]}|${Math.sign(b[0] - a[0])},${Math.sign(b[1] - a[1])}`);
+        doneEnds.add(`${b[0]},${b[1]}|${Math.sign(a[0] - b[0])},${Math.sign(a[1] - b[1])}`);
+      }
+  }
   return (
     <g fontFamily={FONT} strokeLinecap="round" strokeLinejoin="round">
+      <g opacity={o.progress ? 0.16 : undefined}>
       {circuit.wires.map((w) => {
         const col = wireColor(w.id);
         const sel = o.selected?.has(w.id);
@@ -595,6 +625,12 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
       {model.net.junctions.map(([x, y]) => (
         <circle key={`j${x},${y}`} cx={x * G} cy={y * G} r={3.4} fill={c.ink} />
       ))}
+      </g>
+      {o.progress?.map((r, i) =>
+        r.segs.map(([a, b], j) =>
+          r.color ? <Cable key={`d${i}-${j}`} a={a} b={b} color={r.color} pole={null} c={c} /> : <line key={`d${i}-${j}`} x1={a[0] * G} y1={a[1] * G} x2={b[0] * G} y2={b[1] * G} stroke={c.ink} strokeWidth={1.8} />,
+        ),
+      )}
       {circuit.parts.map((p) => {
         const st = partState(p, model, sim);
         const sel = o.selected?.has(p.id);
@@ -620,7 +656,19 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
           </g>
         );
       })}
-      <WireEnds circuit={circuit} model={model} sim={sim} c={c} />
+      <WireEnds circuit={circuit} model={model} sim={sim} c={c} doneEnds={doneEnds} />
+      {o.wireNos?.map((n, i) => {
+        const t = String(n.no);
+        const w = t.length * 6.2 + 8;
+        return (
+          <g key={`n${i}`} pointerEvents="none">
+            <rect x={n.at[0] * G - w / 2} y={n.at[1] * G - 7.5} width={w} height={15} rx={3.5} fill="#ffffff" stroke="#111827" strokeWidth={1} />
+            <text x={n.at[0] * G} y={n.at[1] * G + 3.8} textAnchor="middle" fontSize={10.5} fontWeight={800} fill="#111827" stroke="none">
+              {t}
+            </text>
+          </g>
+        );
+      })}
       {o.highlight && (
         <g pointerEvents="none">
           {o.highlight.segs.map(([a, b], i) => (
@@ -654,7 +702,7 @@ function Cable({ a, b, color, pole, c }: { a: [number, number]; b: [number, numb
  * 실물 기기의 나사에 닿는 전선 끝: 몸통 그림이 선을 덮으므로 끝부분만 위에 다시 그려
  * 전선이 어느 나사로 들어가는지 보이게 한다.
  */
-function WireEnds({ circuit, model, sim, c }: { circuit: Circuit; model: CircuitModel; sim: CircuitSim | null; c: CircuitColors }) {
+function WireEnds({ circuit, model, sim, c, doneEnds }: { circuit: Circuit; model: CircuitModel; sim: CircuitSim | null; c: CircuitColors; doneEnds?: Set<string> | null }) {
   const real = new Set<string>();
   for (const p of circuit.parts) if (REAL.has(p.type)) pinPositions(p).forEach(([x, y]) => real.add(`${x},${y}`));
   if (!real.size) return null;
@@ -676,8 +724,15 @@ function WireEnds({ circuit, model, sim, c }: { circuit: Circuit; model: Circuit
       const to: [number, number] = [end[0] + dx * 0.35, end[1] + dy * 0.35];
       const pole = sim && n !== undefined ? sim.netPole[n] : null;
       const key = `${w.id}:${end[0]},${end[1]}`;
-      if (w.color) out.push(<Cable key={key} a={from} b={to} color={w.color} pole={pole} c={c} />);
-      else out.push(<line key={key} x1={from[0] * G} y1={from[1] * G} x2={to[0] * G} y2={to[1] * G} stroke={(pole && POLE_COLOR[pole]) || c.ink} strokeWidth={1.8} />);
+      // 따라 배선하기: 아직 잇지 않은 전선 끝은 흐리게
+      const dim = doneEnds && !doneEnds.has(`${end[0]},${end[1]}|${dx},${dy}`) ? 0.16 : undefined;
+      if (w.color)
+        out.push(
+          <g key={key} opacity={dim}>
+            <Cable a={from} b={to} color={w.color} pole={pole} c={c} />
+          </g>,
+        );
+      else out.push(<line key={key} x1={from[0] * G} y1={from[1] * G} x2={to[0] * G} y2={to[1] * G} stroke={(pole && POLE_COLOR[pole]) || c.ink} strokeWidth={1.8} opacity={dim} />);
     }
   }
   return <g pointerEvents="none">{out}</g>;
@@ -710,7 +765,7 @@ export function circuitBounds(circuit: Circuit): [number, number, number, number
 }
 
 /** 정적 회로도 (보고서·이미지 내보내기) */
-export function CircuitSvg({ circuit, width, height, c = CIRCUIT_LIGHT, frame }: { circuit: Circuit; width?: number; height?: number; c?: CircuitColors; frame?: boolean }) {
+export function CircuitSvg({ circuit, width, height, c = CIRCUIT_LIGHT, frame, wireNos }: { circuit: Circuit; width?: number; height?: number; c?: CircuitColors; frame?: boolean; wireNos?: boolean }) {
   const model = new CircuitModel(circuit);
   const [x0, y0, x1, y1] = circuitBounds(circuit);
   const vw = (x1 - x0) * G;
@@ -726,7 +781,7 @@ export function CircuitSvg({ circuit, width, height, c = CIRCUIT_LIGHT, frame }:
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width={w} height={h} viewBox={`${x0 * G} ${y0 * G} ${vw} ${vh}`} fontFamily={FONT} style={{ background: c.bg }}>
       <rect x={x0 * G} y={y0 * G} width={vw} height={vh} fill={c.bg} stroke={frame ? c.muted : 'none'} />
-      <CircuitLayer circuit={circuit} model={model} c={c} />
+      <CircuitLayer circuit={circuit} model={model} c={c} o={wireNos ? { wireNos: wireNoLabels(wiringList(circuit, model)) } : undefined} />
     </svg>
   );
 }

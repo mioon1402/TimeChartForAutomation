@@ -1,7 +1,7 @@
 import type { Annotation, Project, Signal, SignalRole, Step, WavePoint } from '../model/types';
 import { createSignal, createStep, ROLE_COLORS, STEP_COLORS } from '../model/project';
 import { normalize, uid } from '../model/wave';
-import { formatTime } from '../model/format';
+import { formatTime, HOUR, MINUTE } from '../model/format';
 import { niceCeil, niceGrid } from '../plc/simulator';
 import type { Circuit, Part } from './types';
 import { CircuitModel, normTag, runScenario, type ScenarioResult, type Track } from './engine';
@@ -53,6 +53,13 @@ function defaultName(p: Part): string {
       return t_('셀렉터 스위치', 'Selector switch');
     case 'r_estop':
       return t_('비상정지', 'E-stop');
+    case 'r_tsw':
+      return t_('타임 스위치', 'Time switch');
+    case 'r_light':
+      return t_('전등', 'Light');
+    case 'r_sw':
+    case 'r_sw3':
+      return t_('스위치', 'Switch');
     case 'pb_no':
     case 'pb_nc':
       return t_('푸시버튼', 'Push button');
@@ -153,6 +160,11 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     out.push(row);
   }
 
+  // 타임 스위치: 접점 (설정 시각은 이름에 넣지 않는다: 이름은 한 번 정해지면 유지되므로 설정을 바꾸면 틀려진다)
+  for (const tr of res.tracks.filter((t) => t.kind === 'tsw')) {
+    out.push(bit(tr, 'timer', G.timer, { name: `${nameOf(c, keyTag(tr), tr.part)} ${t_('접점', 'contact')}`, onLabel: 'ON', offLabel: 'OFF' }));
+  }
+
   // 공압: 실린더마다 전진 SOL → 후진 SOL → 실린더 → 전진단 → 후진단
   const used = new Set<Track>();
   const pneu: RowSpec[] = [];
@@ -186,7 +198,7 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
       const rev = t_('역회전', 'REV');
       if (both) out.push({ ...bit(tr, 'output', G.out), kind: 'bus', points: normalize(p.map((q) => ({ t: q.t, v: q.v === 'FWD' ? fwd : q.v === 'REV' ? rev : '0' })), 'bus', '0') });
       else out.push(bit(tr, 'output', G.out, { points: normalize(p.map((q) => ({ t: q.t, v: q.v === '0' ? 0 : 1 })), 'bit', 0), onLabel: p.some((q) => q.v === 'REV') ? rev : t_('운전', 'RUN'), offLabel: t_('정지', 'STOP') }));
-    } else out.push(bit(tr, 'output', G.out, tr.part.type === 'lamp' || tr.part.type === 'r_lamp' ? { onLabel: t_('점등', 'ON'), offLabel: t_('소등', 'OFF') } : {}));
+    } else out.push(bit(tr, 'output', G.out, tr.part.type === 'lamp' || tr.part.type === 'r_lamp' || tr.part.type === 'r_light' ? { onLabel: t_('점등', 'ON'), offLabel: t_('소등', 'OFF') } : {}));
   }
   out.push(...pneu);
   return out;
@@ -203,7 +215,8 @@ function opSteps(c: Circuit, res: ScenarioResult, until: number): Step[] {
 /** 회로가 바뀌었는지 보는 서명 (차트에 영향을 주는 것만) */
 export function circuitSig(c: Circuit, plcSource = ''): string {
   const plc = c.parts.some((p) => p.type === 'plc') ? plcSource : '';
-  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc]);
+  // 시작 시각은 있을 때만 넣는다 (예전 회로의 서명이 바뀌지 않게)
+  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc, ...(c.clock ? [c.clock] : [])]);
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -214,6 +227,14 @@ export function circuitSig(c: Circuit, plcSource = ''): string {
 
 export const AUTO_DESC = /^회로 시뮬레이션: /;
 
+/** 차트의 시간 단위: 하루짜리(타임 스위치)는 시간, 짧은 시퀀스는 초 */
+function chartUnit(u: Project['settings']['timeUnit'], duration: number): Project['settings']['timeUnit'] {
+  if (u === 'auto') return u;
+  if (duration >= 2 * HOUR) return 'h';
+  if (u === 'h' || u === 'min') return duration >= 20 * MINUTE ? 'min' : 's';
+  return u === 'ms' && duration >= 10000 ? 's' : u;
+}
+
 /**
  * 시뮬레이션 결과 → 타임차트. 같은 주소(기호)의 기존 신호는 이름·색·그룹 등 손으로 고친 것을 유지하고
  * 파형만 바꾼다. 화살표·치수선·규칙은 남은 신호에 걸린 것만 둔다. 타이머 지연 치수선은 자동으로 다시 그린다.
@@ -221,7 +242,8 @@ export const AUTO_DESC = /^회로 시뮬레이션: /;
 export function circuitToProject(base: Project, c: Circuit, res: ScenarioResult = runScenario(c)): Project {
   const existing = new Map<string, Signal>();
   for (const s of base.signals) existing.set(s.address || s.name, s);
-  const duration = c.duration && c.duration > 0 ? c.duration : niceCeil(Math.max(res.lastChange * 1.1, res.lastChange + 500, 1000));
+  // 타임 스위치가 있으면 하루 단위 그대로 (0~24시)
+  const duration = c.duration && c.duration > 0 ? c.duration : res.model.tswDef.size ? res.end : niceCeil(Math.max(res.lastChange * 1.1, res.lastChange + 500, 1000));
   const specs = rows(c, res);
   const signals: Signal[] = specs.map((r) => {
     const prev = existing.get(r.address);
@@ -256,11 +278,11 @@ export function circuitToProject(base: Project, c: Circuit, res: ScenarioResult 
     return true;
   });
   const steps = c.ops.some((o) => o.note?.trim()) ? opSteps(c, res, duration) : [];
-  const desc = `회로 시뮬레이션: 조작 ${c.ops.length}단계, 마지막 변화 ${formatTime(res.lastChange, 's')}`;
+  const desc = `회로 시뮬레이션: 조작 ${c.ops.length}단계, 마지막 변화 ${formatTime(res.lastChange, res.lastChange >= HOUR ? 'h' : 's')}`;
   return {
     ...base,
     meta: { ...base.meta, description: !base.meta.description || AUTO_DESC.test(base.meta.description) ? desc : base.meta.description },
-    settings: { ...base.settings, duration, grid: niceGrid(duration, 10), timeUnit: base.settings.timeUnit === 'ms' && duration >= 10000 ? 's' : base.settings.timeUnit },
+    settings: { ...base.settings, duration, grid: duration >= 2 * HOUR ? (duration <= 48 * HOUR ? 15 * MINUTE : HOUR) : niceGrid(duration, 10), timeUnit: chartUnit(base.settings.timeUnit, duration) },
     signals,
     steps,
     annotations,

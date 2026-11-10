@@ -54,6 +54,10 @@ export type PartType =
   | 'r_ss' // 셀렉터 스위치 (손잡이, 11-12 b · 23-24 a, 돌려서 유지)
   | 'r_estop' // 비상정지 (노란 판 + 빨간 버섯, 눌러서 잠김, 11-12 b · 23-24 a)
   | 'r_tb' // 단자대 (번호마다 위·아래 나사가 이어짐)
+  | 'r_tsw' // 24시간 타임 스위치 (다이얼식): L · N 시계 전원, COM → NO · NC
+  | 'r_light' // 전등 (L · N)
+  | 'r_sw' // 벽 스위치 (단로)
+  | 'r_sw3' // 3로 스위치 (0 → 1 · 3)
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -105,6 +109,8 @@ export interface Part {
   n?: number;
   /** 8핀 타이머: 1-3 · 1-4 접점이 순시 접점 (기본은 한시) */
   inst13?: boolean;
+  /** 타임 스위치: 켜지는 구간 [켜짐, 꺼짐] (하루 안의 시각, ms). 꺼짐이 더 이르면 자정을 넘긴다 */
+  sched?: [number, number][];
 }
 
 /** 전선 색: 갈색 L1, 검정 L2, 회색 L3, 파랑 N, 녹황 PE, 그 밖 제어선 */
@@ -142,6 +148,8 @@ export interface Circuit {
   applied?: string;
   /** 결선표에서 배선을 마쳤다고 체크한 전선 (단자 두 개의 키) */
   wired?: string[];
+  /** 시뮬레이션을 시작하는 시각 (하루 안의 ms, 기본 00:00) - 타임 스위치가 있을 때 */
+  clock?: number;
 }
 
 export function emptyCircuit(): Circuit {

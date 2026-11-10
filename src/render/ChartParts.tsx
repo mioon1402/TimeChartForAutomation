@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { Annotation, Project, Signal, WavePoint } from '../model/types';
 import type { Violation } from '../model/analysis';
 import { effectivePoints, isHigh, isLow } from '../model/wave';
-import { formatTime, niceStep } from '../model/format';
+import { formatTime, HOUR, MINUTE, tickSteps } from '../model/format';
 import { FONT, MONO, type ChartColors, type ChartLayout, type RowLayout } from './layout';
 
 export interface ViewProps {
@@ -74,14 +74,21 @@ export function fitText(s: string, maxW: number, size: number): string {
   return out ? out + '…' : '';
 }
 
-function unitFor(project: Project): 'ms' | 's' {
+function unitFor(project: Project): 'ms' | 's' | 'min' | 'h' {
   const u = project.settings.timeUnit;
-  if (u === 'auto') return project.settings.duration >= 10000 ? 's' : 'ms';
+  const d = project.settings.duration;
+  if (u === 'auto') return d >= 2 * HOUR ? 'h' : d >= 20 * MINUTE ? 'min' : d >= 10000 ? 's' : 'ms';
   return u;
 }
 
 export function tickLabel(t: number, project: Project): string {
-  return formatTime(t, unitFor(project), false);
+  const u = unitFor(project);
+  // 시간 단위에서 정각이 아닌 눈금은 1:30 처럼 (0.167 같은 소수 대신)
+  if (u === 'h' && t >= 0 && Math.abs(t / HOUR - Math.round(t / HOUR)) > 1e-6) {
+    const m = Math.round(t / MINUTE);
+    return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+  }
+  return formatTime(t, u, false);
 }
 
 export function rulerUnit(project: Project): string {
@@ -93,9 +100,7 @@ export function rulerUnit(project: Project): string {
 export function HeaderLayer(props: ViewProps & EditorOverlayProps & { width: number }) {
   const { project, layout, px, t0, t1, colors, width } = props;
   const x = (t: number) => (t - t0) * px;
-  const major = niceStep(px, 64);
-  const minorDiv = major * px >= 120 ? 10 : major * px >= 50 ? 5 : 2;
-  const minor = major / minorDiv;
+  const { major, minor } = tickSteps(px, unitFor(project), 64);
   const ticks: ReactNode[] = [];
   const start = Math.floor(t0 / minor) * minor;
   const yR = layout.stepsH;
@@ -369,7 +374,7 @@ export function BodyLayer(props: ViewProps & EditorOverlayProps & { width: numbe
     const start = Math.ceil(t0 / grid) * grid;
     for (let t = start, i = 0; t <= t1 && i < 4000; t += grid, i++) lines.push(<line key={`g${i}`} x1={x(t)} x2={x(t)} y1={0} y2={H} stroke={colors.grid} strokeWidth={1} />);
   }
-  const major = niceStep(px, 64);
+  const { major } = tickSteps(px, unitFor(project), 64);
   const mstart = Math.ceil(t0 / major) * major;
   for (let t = mstart, i = 0; t <= t1 && i < 2000; t += major, i++) lines.push(<line key={`m${i}`} x1={x(t)} x2={x(t)} y1={0} y2={H} stroke={colors.gridMajor} strokeWidth={0.8} />);
 

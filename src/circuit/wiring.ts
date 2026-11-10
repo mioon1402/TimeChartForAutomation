@@ -240,6 +240,24 @@ export function wiringList(c: Circuit, model: CircuitModel): WiringRow[] {
   return rows.map((r, i) => ({ r, i })).sort((a, b) => a.r.no - b.r.no || a.i - b.i).map((x) => x.r);
 }
 
+/** 그림에 적을 선번호 자리: 전선마다 가장 긴 토막의 가운데 */
+export function wireNoLabels(rows: WiringRow[]): { at: Pt; no: number }[] {
+  const out: { at: Pt; no: number }[] = [];
+  for (const r of rows) {
+    let best: [Pt, Pt] | null = null;
+    let len = 0;
+    for (const s of r.segs) {
+      const l = Math.abs(s[0][0] - s[1][0]) + Math.abs(s[0][1] - s[1][1]);
+      if (l > len) {
+        len = l;
+        best = s;
+      }
+    }
+    if (best && len >= 1) out.push({ at: [(best[0][0] + best[1][0]) / 2, (best[0][1] + best[1][1]) / 2], no: r.no });
+  }
+  return out;
+}
+
 function byPos(a: string, b: string): number {
   const [ax, ay] = a.split(',').map(Number);
   const [bx, by] = b.split(',').map(Number);

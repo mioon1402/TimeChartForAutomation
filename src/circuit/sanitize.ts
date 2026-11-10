@@ -49,6 +49,14 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (typeof q.speed === 'number' && q.speed > 0) p.speed = Math.min(100, q.speed);
     if (typeof q.n === 'number' && q.n >= 1) p.n = Math.min(40, Math.round(q.n));
     if (q.inst13 === true) p.inst13 = true;
+    if (Array.isArray(q.sched)) {
+      const day = 86400000;
+      const sched = q.sched
+        .filter((x): x is [number, number] => Array.isArray(x) && x.length === 2 && typeof x[0] === 'number' && typeof x[1] === 'number' && Number.isFinite(x[0]) && Number.isFinite(x[1]))
+        .map((x) => [((x[0] % day) + day) % day, ((x[1] % day) + day) % day] as [number, number])
+        .slice(0, 24);
+      p.sched = sched;
+    }
     parts.push(p);
   }
   const wires: Wire[] = [];
@@ -75,6 +83,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   if (typeof o.duration === 'number' && o.duration > 0) c.duration = o.duration;
   if (o.autoChart === false) c.autoChart = false;
   if (typeof o.applied === 'string') c.applied = o.applied;
+  if (typeof o.clock === 'number' && o.clock > 0 && o.clock < 86400000) c.clock = o.clock;
   if (Array.isArray(o.wired)) {
     const wired = o.wired.filter((x): x is string => typeof x === 'string' && x.length < 200);
     if (wired.length) c.wired = wired;

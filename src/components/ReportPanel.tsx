@@ -823,7 +823,7 @@ function buildPages(project: Project, o: ReportOpts, size: { w: number; h: numbe
       title: tr('회로도', 'Circuit diagram'),
       body: (
         <div className="circuit-page">
-          <CircuitSvg circuit={project.circuit} width={contentW} height={contentH - 4} />
+          <CircuitSvg circuit={project.circuit} width={contentW} height={contentH - 4} wireNos={o.wiring} />
         </div>
       ),
     });

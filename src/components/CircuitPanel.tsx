@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project } from '../model/types';
-import { emptyCircuit, type Circuit, type LampColor, type OpStep, type Part, type Pole, type Wire, type WireColor } from '../circuit/types';
-import { FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
+import { emptyCircuit, type Circuit, type LampColor, type OpStep, type Part, type PartType, type Pole, type Wire, type WireColor } from '../circuit/types';
+import { partGuide } from '../circuit/guide';
+import { DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -12,7 +13,7 @@ import { CircuitCanvas, NO_SEL, type Sel } from './CircuitCanvas';
 import { CIRCUIT_DARK, CIRCUIT_LIGHT, PartGlyph, partState, type CircuitColors } from '../render/CircuitSvg';
 import { ChartSvg } from '../render/ChartSvg';
 import { SCREEN_COLORS } from '../render/layout';
-import { formatTime } from '../model/format';
+import { formatClock, formatTime, HOUR, MINUTE, parseClock } from '../model/format';
 import { uid } from '../model/wave';
 import { downloadText, safeFileName } from '../io/files';
 import { niceCeil } from '../plc/simulator';
@@ -22,7 +23,7 @@ import { circuitExamples } from '../circuit/examples';
 import { tr } from '../i18n';
 import { WEB_TRIAL } from '../env';
 import { WIRE_HEX } from '../render/RealSymbols';
-import { wireColorName, wiringCsv, wiringList, type WiringRow } from '../circuit/wiring';
+import { termText, wireColorName, wireNoLabels, wiringCsv, wiringList, type WiringRow } from '../circuit/wiring';
 import { storageGet, storageSet } from '../storage';
 
 const EMPTY = emptyCircuit();
@@ -109,6 +110,15 @@ export function CircuitPanel() {
   const [tool, setTool] = useState<'select' | 'wire'>('select');
   const [placing, setPlacing] = useState<PaletteItem | null>(null);
   const [side, setSide] = useState<Side>(circuit.parts.length ? 'ops' : 'props');
+  // 결선표: 그림에 선번호 적기, 따라 배선하기 (마친 전선만 진하게)
+  const [wireNosOn, setWireNosOn] = useState(false);
+  const [wireGuide, setWireGuide] = useState(false);
+  const wireNos = useMemo(() => (wireNosOn ? wireNoLabels(wiring) : undefined), [wireNosOn, wiring]);
+  const wireProgress = useMemo(() => {
+    if (!wireGuide || side !== 'wiring') return null;
+    const done = new Set(circuit.wired ?? []);
+    return wiring.filter((r) => done.has(r.key) || r.key === wirePick).map((r) => ({ segs: r.segs, color: r.color }));
+  }, [wireGuide, side, wiring, circuit.wired, wirePick]);
   const [zoom, setZoomState] = useState(lastZoom);
   const setZoom = (z: number) => {
     lastZoom = z;
@@ -181,12 +191,14 @@ export function CircuitPanel() {
       return;
     }
     const sim = new CircuitSim(model);
-    runRef.current = { sim, base: performance.now(), startT: 0, speed: 1, actions: [] };
+    // 타임 스위치가 있으면 빨리 감기로 시작 (1초에 1시간, 하루가 24초)
+    runRef.current = { sim, base: performance.now(), startT: 0, speed: model.tswDef.size ? 3600 : 1, actions: [] };
     setPlacing(null);
     setSel(NO_SEL);
     setRunning(true);
     const errs = issues.filter((i) => i.level === 'error').length;
-    toast(errs ? tr(`시뮬레이션 시작 (검사 문제 ${errs}개)`, `Simulation started (${errs} issues)`) : tr('시뮬레이션 시작: 버튼·스위치를 눌러 보세요', 'Simulation running: click buttons and switches'), errs ? 'warn' : 'ok');
+    const hint = model.tswDef.size ? tr('시뮬레이션 시작: 1초에 1시간씩 흐릅니다 (속도는 위에서 바꿉니다)', 'Simulation running at 1 hour per second') : tr('시뮬레이션 시작: 버튼·스위치를 눌러 보세요', 'Simulation running: click buttons and switches');
+    toast(errs ? tr(`시뮬레이션 시작 (검사 문제 ${errs}개)`, `Simulation started (${errs} issues)`) : hint, errs ? 'warn' : 'ok');
   };
 
   const stopSim = async () => {
@@ -402,13 +414,20 @@ export function CircuitPanel() {
               <Icon name="stop" size={14} /> {tr('정지', 'Stop')}
             </button>
             <select className="input cc-speed" value={r?.speed ?? 1} onChange={(e) => setSpeed(Number(e.target.value))} title={tr('시뮬레이션 속도', 'Speed')}>
-              {[0, 0.25, 0.5, 1, 2, 4].map((s) => (
+              {[0, 0.25, 0.5, 1, 2, 4, ...(model.tswDef.size || (r?.speed ?? 1) > 4 ? [60, 600, 3600] : [])].map((s) => (
                 <option key={s} value={s}>
-                  {s === 0 ? tr('일시정지', 'Pause') : `×${s}`}
+                  {s === 0 ? tr('일시정지', 'Pause') : s === 60 ? tr('×60 (1초에 1분)', '×60 (1 min/s)') : s === 600 ? tr('×600 (1초에 10분)', '×600 (10 min/s)') : s === 3600 ? tr('×3600 (1초에 1시간)', '×3600 (1 h/s)') : `×${s}`}
                 </option>
               ))}
             </select>
-            <span className="cc-clock">t = {formatTime(r?.sim.t ?? 0, 's')}</span>
+            {model.tswDef.size > 0 && r ? (
+              <span className="cc-clock">
+                {tr('시각', 'Clock')} <b>{formatClock(r.sim.clock)}</b>
+                {r.sim.t >= 24 * HOUR ? ` (+${Math.floor((r.sim.clock0 + r.sim.t) / (24 * HOUR))}${tr('일', 'd')})` : ''}
+              </span>
+            ) : (
+              <span className="cc-clock">t = {formatTime(r?.sim.t ?? 0, 's')}</span>
+            )}
             {r?.sim.shorted && <span className="chip danger">{tr('단락!', 'Short!')}</span>}
           </>
         ) : (
@@ -439,7 +458,7 @@ export function CircuitPanel() {
       </div>
 
       <div className={`cc-work ${showPreview ? '' : 'no-preview'}`}>
-        <Palette c={colors} placing={placing} disabled={running} onPick={(it) => (setPlacing(placing?.key === it.key ? null : it), setTool('select'))} />
+        <Palette c={colors} placing={placing} disabled={running} onPick={(it) => (setPlacing(placing?.key === it.key ? null : it), setTool('select'), setSel(NO_SEL), setSide('props'))} />
         <CircuitCanvas
           circuit={circuit}
           model={model}
@@ -460,6 +479,8 @@ export function CircuitPanel() {
           ghostPart={(item, x, y) => makePart(circuit, item, x, y, 'ghost', project.plc?.dialect)}
           fitKey={fitKey}
           highlight={side === 'wiring' ? wireHighlight(wiring.find((r) => r.key === wirePick)) : null}
+          wireNos={side === 'wiring' ? wireNos : undefined}
+          progress={wireProgress}
         />
         <aside className="cc-side">
           <div className="seg cc-tabs">
@@ -487,6 +508,7 @@ export function CircuitPanel() {
                 sel={sel}
                 part={selected}
                 colors={colors}
+                placing={placing}
                 update={updatePart}
                 remove={deleteSel}
                 rotate={rotateSel}
@@ -505,6 +527,10 @@ export function CircuitPanel() {
                 title={project.meta.title}
                 pick={wirePick}
                 onPick={setWirePick}
+                nosOn={wireNosOn}
+                setNosOn={setWireNosOn}
+                guide={wireGuide}
+                setGuide={setWireGuide}
                 onDone={(wired) => commitCircuit(wired.length ? { ...circuit, wired } : { ...circuit, wired: undefined }, 'wired', false)}
               />
             )}
@@ -520,7 +546,9 @@ export function CircuitPanel() {
           </button>
           {!running && preview && (
             <span className="muted small">
-              {circuit.ops.length ? tr(`조작 ${circuit.ops.length}단계 · 마지막 변화 ${formatTime(preview.res.lastChange, 's')}`, `${circuit.ops.length} operations · last change ${formatTime(preview.res.lastChange, 's')}`) : tr('조작 순서가 없습니다: [조작 순서]에 적거나, 시뮬레이션에서 눌러 본 뒤 저장하세요', 'No operations yet: add them, or record them in the simulation')}
+              {model.tswDef.size
+                ? tr(`타임 스위치: 하루 ${formatTime(preview.res.end, 'h')} 시뮬레이션 · 조작 ${circuit.ops.length}단계`, `Time switch: ${formatTime(preview.res.end, 'h')} simulated · ${circuit.ops.length} operations`)
+                : circuit.ops.length ? tr(`조작 ${circuit.ops.length}단계 · 마지막 변화 ${longTime(preview.res.lastChange)}`, `${circuit.ops.length} operations · last change ${longTime(preview.res.lastChange)}`) : tr('조작 순서가 없습니다: [조작 순서]에 적거나, 시뮬레이션에서 눌러 본 뒤 저장하세요', 'No operations yet: add them, or record them in the simulation')}
             </span>
           )}
           <span className="grow" />
@@ -548,14 +576,14 @@ export function CircuitPanel() {
 
 // ───────────────────────── 팔레트 ─────────────────────────
 
-function MiniGlyph({ item, c }: { item: PaletteItem; c: CircuitColors }) {
+function MiniGlyph({ item, c, size = 30 }: { item: PaletteItem; c: CircuitColors; size?: number }) {
   const p = makePart(emptyCircuit(), item, 0, 0, 'mini');
   const [x0, y0, x1, y1] = partBox(p);
   const w = Math.max((x1 - x0) * 20, 20);
   const h = Math.max((y1 - y0) * 20, 20);
   const model = useMemo(() => new CircuitModel(emptyCircuit()), []);
   return (
-    <svg width={30} height={30} viewBox={`${x0 * 20 - 4} ${y0 * 20 - 4} ${w + 8} ${h + 8}`} aria-hidden="true">
+    <svg width={size} height={size} viewBox={`${x0 * 20 - 4} ${y0 * 20 - 4} ${w + 8} ${h + 8}`} aria-hidden="true">
       <g fill="none" strokeWidth={2.4} strokeLinecap="round">
         <PartGlyph part={{ ...p, tag: '' }} st={partState(p, model, null)} c={c} />
       </g>
@@ -573,6 +601,7 @@ function Palette({ c, placing, onPick, disabled }: { c: CircuitColors; placing: 
   };
   return (
     <nav className={`cc-palette ${disabled ? 'off' : ''}`} aria-label={tr('부품', 'Parts')} data-tour="cc-palette">
+      <div className="cc-pal-sticky">
       <div className="seg cc-pal-mode" role="radiogroup">
         <button type="button" role="radio" aria-checked={mode === 'real'} className={mode === 'real' ? 'on' : ''} onClick={() => pick('real')} title={tr('실제 기기 모양과 단자 번호로 배선 (실체 배선도)', 'Real devices with terminal numbers (wiring diagram)')}>
           {tr('실물 배선', 'Wiring')}
@@ -581,13 +610,14 @@ function Palette({ c, placing, onPick, disabled }: { c: CircuitColors; placing: 
           {tr('회로 기호', 'Symbols')}
         </button>
       </div>
+      </div>
       {palette()
         .filter((g) => !g.mode || g.mode === mode)
         .map((g) => (
         <div key={g.title} className="cc-pal-group">
           <div className="cc-pal-title">{g.title}</div>
           {g.items.map((it) => (
-            <button type="button" key={it.key} className={`cc-pal-item ${placing?.key === it.key ? 'on' : ''}`} onClick={() => onPick(it)} disabled={disabled} title={partKindName(it.type)}>
+            <button type="button" key={it.key} className={`cc-pal-item ${placing?.key === it.key ? 'on' : ''}`} onClick={() => onPick(it)} disabled={disabled} title={`${partKindName(it.type)}\n${partGuide(it.type)?.what ?? ''}`.trim()}>
               <MiniGlyph item={it} c={c} />
               <span>{it.label}</span>
             </button>
@@ -651,7 +681,7 @@ function WireColorPicker({ circuit, ids, onPick }: { circuit: Circuit; ids: stri
   );
 }
 
-function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotate, setWireColor }: { circuit: Circuit; model: CircuitModel; sel: Sel; part: Part | null; colors: CircuitColors; update: (id: string, patch: Partial<Part>) => void; remove: () => void; rotate: () => void; setWireColor: (c: WireColor | undefined) => void }) {
+function PropsPane({ circuit, model, sel, part: p, colors, placing, update, remove, rotate, setWireColor }: { circuit: Circuit; model: CircuitModel; sel: Sel; part: Part | null; colors: CircuitColors; placing: PaletteItem | null; update: (id: string, patch: Partial<Part>) => void; remove: () => void; rotate: () => void; setWireColor: (c: WireColor | undefined) => void }) {
   const bom = useMemo(() => partsList(circuit), [circuit]);
   if (!p) {
     const n = sel.parts.length + sel.wires.length;
@@ -673,6 +703,20 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
             </button>
           </div>
           <p className="muted small">{tr('끌어서 함께 옮기거나 방향키로 한 칸씩 옮깁니다. Ctrl+C / Ctrl+V 로 복사합니다.', 'Drag to move together or nudge with arrow keys. Ctrl+C / Ctrl+V to copy.')}</p>
+        </div>
+      );
+    // 놓으려고 고른 부품: 무엇이고 어떻게 잇는지 먼저 보여 준다
+    if (placing)
+      return (
+        <div className="cc-props">
+          <div className="cc-props-head">
+            <MiniGlyph item={placing} c={colors} size={34} />
+            <div>
+              <b>{placing.label}</b>
+              <div className="muted small">{tr('그림판을 누르면 놓입니다 (Esc: 취소)', 'Click the canvas to place it (Esc to cancel)')}</div>
+            </div>
+          </div>
+          <GuideCard type={placing.type} />
         </div>
       );
     return <Tips />;
@@ -757,6 +801,7 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
             </>
           )}
           {p.type === 'r_relay8' && <p className="small muted">{tr('2-7 코일 · 1-3 a · 1-4 b · 8-6 a · 8-5 b (MK2P · 소켓 PTF08A 꼴)', 'Coil 2-7 · 1-3 NO · 1-4 NC · 8-6 NO · 8-5 NC (MK2P-style, PTF08A socket)')}</p>}
+          {p.type === 'r_tsw' && <SchedEditor p={p} set={set} />}
           {p.type === 'r_tb' && (
             <Field label={tr('극수', 'Poles')} wide hint={tr('번호마다 위·아래 나사가 이어져 있습니다', 'Top and bottom screws of each number are connected')}>
               <NumberInput value={p.n ?? 6} min={1} max={40} onChange={(v) => set({ n: v ?? 6 })} />
@@ -867,6 +912,104 @@ function PropsPane({ circuit, model, sel, part: p, colors, update, remove, rotat
           <Icon name="trash" size={13} /> {tr('삭제', 'Delete')}
         </button>
       </div>
+      <GuideCard type={p.type} />
+    </div>
+  );
+}
+
+const GUIDE_KEY = 'timechart-studio.circuit-guide.v1';
+
+/** 부품 쓰는 법: 무엇인지 · 단자 · 잇는 순서 · 예제 (접어 둘 수 있고, 접은 상태를 기억) */
+function GuideCard({ type }: { type: PartType }) {
+  const guide = partGuide(type);
+  const [open, setOpen] = useState(() => storageGet(GUIDE_KEY) !== '0');
+  if (!guide) return null;
+  return (
+    <details
+      className="cc-guide"
+      open={open}
+      onToggle={(e) => {
+        const o = (e.currentTarget as HTMLDetailsElement).open;
+        if (o === open) return;
+        setOpen(o);
+        storageSet(GUIDE_KEY, o ? '1' : '0');
+      }}
+    >
+      <summary>
+        <Icon name="help" size={14} /> {tr('이 부품 쓰는 법', 'How to use this part')}
+      </summary>
+      <p>{guide.what}</p>
+      <div className="cc-guide-h">{tr('단자', 'Terminals')}</div>
+      <table className="cc-guide-pins">
+        <tbody>
+          {guide.pins.map(([a, b]) => (
+            <tr key={a}>
+              <th>{a}</th>
+              <td>{b}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="cc-guide-h">{tr('잇는 순서', 'How to wire it')}</div>
+      <ol>
+        {guide.steps.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ol>
+      <p className="cc-guide-sim">
+        <Icon name="play" size={12} /> {guide.sim}
+      </p>
+      {guide.example && (
+        <button type="button" className="btn small" onClick={() => F.openCircuitExample(guide.example!)} title={tr('새 차트 탭으로 열립니다 (지금 그림은 그대로)', 'Opens as a new chart tab')}>
+          <Icon name="circuit" size={13} /> {tr('이 부품을 쓴 예제 열기', 'Open an example using it')}
+        </button>
+      )}
+    </details>
+  );
+}
+
+/** 긴 시간은 시 · 분으로 */
+function longTime(ms: number): string {
+  return formatTime(ms, ms >= HOUR ? 'h' : ms >= 10 * MINUTE && ms % MINUTE === 0 ? 'min' : 's');
+}
+
+/** 타임 스위치 설정: 켜지는 구간 (다이얼의 세그먼트처럼 15분 단위) */
+function SchedEditor({ p, set }: { p: Part; set: (patch: Partial<Part>) => void }) {
+  const sched = tswSched(p);
+  const snap = (ms: number) => (Math.round(ms / (15 * MINUTE)) * 15 * MINUTE) % (24 * HOUR);
+  const change = (i: number, k: 0 | 1, v: string) => {
+    const t = parseClock(v);
+    if (t === null) return;
+    set({ sched: sched.map((r, j) => (j === i ? ((k === 0 ? [snap(t), r[1]] : [r[0], snap(t)]) as [number, number]) : r)) });
+  };
+  const total = sched.reduce((n, [a, b]) => n + (a === b ? 0 : (b - a + 24 * HOUR) % (24 * HOUR)), 0);
+  return (
+    <div className="cc-sched">
+      <div className="cc-sched-head">
+        <b>{tr('켜지는 시간 (ON 구간)', 'ON periods')}</b>
+        <span className="muted small">{tr(`하루 ${formatTime(total, 'h')} 켜짐`, `${formatTime(total, 'h')} on per day`)}</span>
+      </div>
+      {sched.map(([a, b], i) => (
+        <div key={i} className="cc-sched-row">
+          <input type="time" className="input" step={900} value={formatClock(a)} onChange={(e) => change(i, 0, e.target.value)} aria-label={tr('켜짐 시각', 'On time')} />
+          <span className="muted">{tr('켜짐 →', 'on →')}</span>
+          <input type="time" className="input" step={900} value={formatClock(b)} onChange={(e) => change(i, 1, e.target.value)} aria-label={tr('꺼짐 시각', 'Off time')} />
+          <span className="muted">{tr('꺼짐', 'off')}</span>
+          <IconButton icon="trash" title={tr('이 구간 지우기', 'Remove')} onClick={() => set({ sched: sched.filter((_, j) => j !== i) })} />
+        </div>
+      ))}
+      <div className="cc-btnrow">
+        <button type="button" className="btn small" onClick={() => set({ sched: [...sched, sched.length ? ([6 * HOUR, 8 * HOUR] as [number, number]) : DEFAULT_SCHED[0]] })} disabled={sched.length >= 12}>
+          <Icon name="plus" size={13} /> {tr('구간 추가', 'Add period')}
+        </button>
+      </div>
+      <p className="small muted">
+        {tr(
+          '다이얼 가장자리의 세그먼트(15분)를 밀어 넣은 구간에 COM-NO 가 붙습니다. 꺼짐이 켜짐보다 이르면 자정을 넘깁니다 (예: 18:00 → 06:00). 시계는 L · N 에 전원이 있어야 돌고, 정전되면 그만큼 늦어집니다.',
+          'COM-NO closes during the pushed-in segments (15 min each). If off is earlier than on, the period runs past midnight. The dial only turns while L and N are powered.',
+        )}
+      </p>
+      <p className="small muted">{tr('단자: L · N 시계 전원 / COM 공통 · NO 설정 시간에 붙음 · NC 반대 (제품마다 단자 이름이 다르니 옆면 결선도 확인)', 'Terminals: L, N clock supply / COM, NO closes during ON, NC opposite (check your model)')}</p>
     </div>
   );
 }
@@ -989,7 +1132,7 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                 </div>
                 <div className="cc-op-bot">
                   <span className="cc-op-t mono" title={tr('조작 시각', 'Time of this action')}>
-                    {times[i] !== undefined ? formatTime(times[i], 's') : ''}
+                    {times[i] === undefined ? '' : model.tswDef.size ? formatClock((circuit.clock ?? 0) + times[i]) : longTime(times[i])}
                   </span>
                   <label title={tr('앞 줄 조작에서 기다리는 시간', 'Wait after the previous action')}>
                     {tr('대기', 'Wait')} <TimeInput value={o.wait} onChange={(v) => v !== undefined && setOp(i, { wait: v })} />
@@ -1029,7 +1172,21 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
         <Field label={tr('시뮬레이션 시간', 'Duration')} hint={tr('비우면 마지막 변화에 맞춤', 'Empty = fit to last change')}>
           <TimeInput value={circuit.duration} allowEmpty placeholder={tr('자동', 'auto')} onChange={(v) => onChange({ ...circuit, duration: v && v > 0 ? v : undefined })} />
         </Field>
+        {model.tswDef.size > 0 && (
+          <Field label={tr('시작 시각', 'Start clock')} hint={tr('타임 스위치의 시계가 시작하는 시각. 00:00 이면 차트의 시간이 곧 하루의 시각', 'Clock time at t = 0')}>
+            <input
+              type="time"
+              className="input"
+              value={formatClock(circuit.clock ?? 0)}
+              onChange={(e) => {
+                const t = parseClock(e.target.value);
+                if (t !== null) onChange({ ...circuit, clock: t || undefined });
+              }}
+            />
+          </Field>
+        )}
       </div>
+      {model.tswDef.size > 0 && <p className="muted small">{tr('타임 스위치가 있으면 하루(24시간)를 시뮬레이션합니다. 조작의 대기 시간은 6h, 30min 처럼 적을 수 있습니다.', 'With a time switch one day (24 h) is simulated. Waits can be written like 6h or 30min.')}</p>}
       {res && res.warnings.length > 0 && (
         <div className="msgs">
           {res.warnings.map((w, i) => (
@@ -1107,11 +1264,52 @@ function wireHighlight(r: WiringRow | undefined) {
 }
 
 /** 결선표: 단자 → 단자 전선 한 가닥씩, 누르면 그림에서 강조, 배선을 마치면 체크 */
-function WiringPane({ rows, done, title, pick, onPick, onDone }: { rows: WiringRow[]; done: string[]; title: string; pick: string | null; onPick: (key: string | null) => void; onDone: (wired: string[]) => void }) {
+function WiringPane({
+  rows,
+  done,
+  title,
+  pick,
+  onPick,
+  onDone,
+  nosOn,
+  setNosOn,
+  guide,
+  setGuide,
+}: {
+  rows: WiringRow[];
+  done: string[];
+  title: string;
+  pick: string | null;
+  onPick: (key: string | null) => void;
+  onDone: (wired: string[]) => void;
+  nosOn: boolean;
+  setNosOn: (v: boolean) => void;
+  guide: boolean;
+  setGuide: (v: boolean) => void;
+}) {
   const doneSet = new Set(done);
+  const cur = rows.findIndex((r) => r.key === pick);
+  // 따라 배선하기를 켜면 아직 안 한 첫 전선부터
+  useEffect(() => {
+    if (guide && cur < 0 && rows.length) onPick((rows.find((r) => !doneSet.has(r.key)) ?? rows[0]).key);
+  }, [guide, cur, rows.length]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!rows.length) return <p className="muted">{tr('선으로 이어진 단자가 없습니다.', 'No wired terminals yet.')}</p>;
   const n = rows.filter((r) => doneSet.has(r.key)).length;
   const toggle = (key: string, on: boolean) => onDone(on ? [...done.filter((k) => k !== key), key] : done.filter((k) => k !== key));
+  const go = (d: number) => cur >= 0 && onPick(rows[(cur + d + rows.length) % rows.length].key);
+  /** 지금 전선을 마쳤다고 표시하고, 다음 안 한 전선으로 */
+  const finish = () => {
+    if (cur < 0) return;
+    const key = rows[cur].key;
+    const next = [...done.filter((k) => k !== key), key];
+    onDone(next);
+    const set = new Set(next);
+    for (let i = 1; i <= rows.length; i++) {
+      const r = rows[(cur + i) % rows.length];
+      if (!set.has(r.key)) return onPick(r.key);
+    }
+  };
+  const row = cur >= 0 ? rows[cur] : null;
   return (
     <div className="cc-wiring">
       <p className="muted small hint">
@@ -1133,6 +1331,41 @@ function WiringPane({ rows, done, title, pick, onPick, onDone }: { rows: WiringR
           </button>
         )}
       </div>
+      <div className="cc-wiring-opts">
+        <Check checked={nosOn} onChange={setNosOn} label={tr('그림에 선번호 적기', 'Wire numbers on the drawing')} />
+        <button type="button" className={`btn small ${guide ? 'primary' : ''}`} onClick={() => setGuide(!guide)} title={tr('한 가닥씩 차례로 안내합니다. 마친 전선만 진하게 보입니다', 'Step through the wires one at a time; finished wires stay solid')}>
+          <Icon name="play" size={13} /> {guide ? tr('따라 배선 끝내기', 'Stop guide') : tr('따라 배선하기', 'Follow along')}
+        </button>
+      </div>
+      {guide && row && (
+        <div className="cc-wiring-step">
+          <div className="cc-wiring-step-no">
+            {tr(`${cur + 1}번째 전선`, `Wire ${cur + 1}`)} / {rows.length}
+            <span className="muted"> · {tr('선번호', 'no.')} {row.no}</span>
+          </div>
+          <div className="cc-wiring-step-main">
+            <b>{termText(row.from)}</b>
+            <span className="cc-wiring-arrow">→</span>
+            <b>{termText(row.to)}</b>
+          </div>
+          <div className="small">
+            {row.color && <span className="cc-wsw" style={{ background: WIRE_HEX[row.color] }} />} {wireColorName(row.color) || tr('색 없음', 'no colour')}
+            {doneSet.has(row.key) && <span className="cc-ok"> ✓ {tr('완료', 'done')}</span>}
+          </div>
+          <div className="cc-btnrow">
+            <button type="button" className="btn small" onClick={() => go(-1)}>
+              ← {tr('이전', 'Back')}
+            </button>
+            <button type="button" className="btn small primary" onClick={finish}>
+              {n + (doneSet.has(row.key) ? 0 : 1) >= rows.length ? tr('완료 ✓', 'Done ✓') : tr('완료 → 다음', 'Done → next')}
+            </button>
+            <button type="button" className="btn small" onClick={() => go(1)}>
+              {tr('건너뛰기', 'Skip')} →
+            </button>
+          </div>
+          {n >= rows.length && <p className="cc-ok small">{tr('모든 전선을 이었습니다. [시뮬레이션]으로 동작을 확인하세요.', 'All wires done. Run the simulation to check.')}</p>}
+        </div>
+      )}
       <table className="tbl compact cc-wiring-tbl">
         <thead>
           <tr>
