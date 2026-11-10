@@ -318,6 +318,11 @@ export const PARTS: Record<PartType, PartDef> = {
   },
   r_light: { type: 'r_light', cat: 'output', pins: [pin(-1, 2, 'L'), pin(1, 2, 'N')], load: true, box: [-2.2, -3.6, 2.2, 2.8], prefix: 'EL' },
   r_sw: { type: 'r_sw', cat: 'switch', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], poles: [[0, 1]], operate: 'toggle', box: [-2, -2.6, 2, 2.8], prefix: 'S' },
+  // 부하 (용량으로 전류를 계산): 단상 L · N, 3상 L1 · L2 · L3
+  r_load1: { type: 'r_load1', cat: 'output', pins: [pin(-1, -3, 'L'), pin(1, -3, 'N')], load: true, box: [-3.2, -3.8, 3.2, 3], prefix: 'LD' },
+  r_load3: { type: 'r_load3', cat: 'output', pins: [pin(-2, -3, 'L1'), pin(0, -3, 'L2'), pin(2, -3, 'L3')], load: true, box: [-3.6, -3.8, 3.6, 3], prefix: 'LD' },
+  // 분전반 · 변전함 테두리 (왼쪽 위가 기준점, 크기는 부품마다)
+  r_panel: { type: 'r_panel', cat: 'misc', pins: [], box: [0, 0, 20, 20], prefix: 'PNL' },
   r_sw3: {
     type: 'r_sw3',
     cat: 'switch',
@@ -335,7 +340,12 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel']);
+
+/** 분전반 테두리의 크기 (격자 칸) */
+export function panelSize(p: Part): [number, number] {
+  return [Math.max(4, p.w ?? 20), Math.max(4, p.h ?? 20)];
+}
 
 /** 타임 스위치: 기본 설정 (18:00 켜짐 ~ 23:00 꺼짐) */
 export const DEFAULT_SCHED: [number, number][] = [[18 * 3600000, 23 * 3600000]];
@@ -537,6 +547,12 @@ export function partKindName(type: PartType): string {
       return tr('스위치 (단로)', 'Switch (1-way)');
     case 'r_sw3':
       return tr('3로 스위치', '3-way switch');
+    case 'r_load1':
+      return tr('부하 (단상)', 'Load (1-phase)');
+    case 'r_load3':
+      return tr('부하 (3상)', 'Load (3-phase)');
+    case 'r_panel':
+      return tr('분전반 · 변전함', 'Panel / switchboard');
     case 'text':
       return tr('글자', 'Text');
   }
@@ -607,6 +623,15 @@ export function palette(): PaletteGroup[] {
       ],
     },
     { title: tr('전동기', 'Motors'), mode: 'real', items: [it('r_motor3', tr('3상 전동기', '3-ph motor'))] },
+    {
+      title: tr('분전반 · 부하 (해석)', 'Panels & loads (analysis)'),
+      mode: 'real',
+      items: [
+        it('r_panel', tr('분전반 · 변전함 (테두리)', 'Panel box'), { w: 20, h: 24, name: tr('분전반', 'Panel') }),
+        it('r_load3', tr('부하 3상 (kW)', '3-phase load (kW)'), { watt: 7500, pf: 0.9 }),
+        it('r_load1', tr('부하 단상 (kW)', '1-phase load (kW)'), { watt: 2000, pf: 1 }),
+      ],
+    },
     { title: tr('단자대', 'Terminal blocks'), mode: 'real', items: [it('r_tb', tr('단자대 6P', 'Terminal block 6P'), { n: 6 }, 'tb6'), it('r_tb', tr('단자대 12P', 'Terminal block 12P'), { n: 12 }, 'tb12')] },
     {
       title: tr('전원', 'Supply'),
@@ -727,6 +752,7 @@ export function partBox(p: Part): [number, number, number, number] {
   let [x0, y0, x1, y1] = PARTS[p.type].box;
   if (p.type === 'text') x1 = textWidth(p.text ?? '') + 0.2;
   if (p.type === 'r_tb') x1 = 2 * (tbSize(p) - 1) + 1.2;
+  if (p.type === 'r_panel') [x1, y1] = panelSize(p);
   const corners = [rotate(x0, y0, p.rot), rotate(x1, y1, p.rot)];
   const xs = corners.map((c) => c[0]);
   const ys = corners.map((c) => c[1]);

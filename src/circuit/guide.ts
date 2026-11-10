@@ -43,7 +43,11 @@ export function partGuide(type: PartType): PartGuide | null {
           [tr('위 단자 (1 · 3 · 5)', 'top (1, 3, 5)'), tr('전원 쪽: 전원 단자에서 내려오는 선', 'supply side')],
           [tr('아래 단자 (2 · 4 · 6)', 'bottom (2, 4, 6)'), tr('부하 쪽: 전자접촉기 · 조작 회로로 가는 선', 'load side')],
         ],
-        [tr('위에는 전원(L1 L2 L3 또는 L N)을, 아래에는 부하 쪽 선을 잇습니다. 같은 줄의 위 · 아래가 한 극입니다', 'Supply on top, load below; each column is one pole'), tr('주회로용(3P)과 조작 회로용(2P 또는 1P)을 따로 두는 것이 보통입니다', 'Usually one breaker for the power circuit and one for the control circuit')],
+        [
+          tr('위에는 전원(L1 L2 L3 또는 L N)을, 아래에는 부하 쪽 선을 잇습니다. 같은 줄의 위 · 아래가 한 극입니다', 'Supply on top, load below; each column is one pole'),
+          tr('주회로용(3P)과 조작 회로용(2P 또는 1P)을 따로 두는 것이 보통입니다', 'Usually one breaker for the power circuit and one for the control circuit'),
+          tr('속성에 정격 전류 (A) 를 적으면 [해석] 탭이 흐르는 전류와 전선 허용전류를 비교합니다 (IB ≤ In ≤ Iz)', 'Enter the rated current so the Analysis tab can check IB ≤ In ≤ Iz'),
+        ],
         tr('시뮬레이션에서 레버를 누르면 ON/OFF 됩니다. 처음에는 ON 입니다.', 'Click the lever to switch it; it starts ON.'),
         'real',
       );
@@ -195,6 +199,43 @@ export function partGuide(type: PartType): PartGuide | null {
         [tr('L → 첫째 스위치 0', 'L to the first switch 0'), tr('두 스위치의 1 끼리, 3 끼리 잇습니다', 'Join 1 to 1 and 3 to 3'), tr('둘째 스위치 0 → 전등 L, 전등 N → N', 'Second switch 0 to the light, light to N')],
         CLICK(),
         'stair',
+      );
+
+    case 'r_load1':
+    case 'r_load3':
+      return g(
+        tr(
+          '용량 (kW) 과 역률로 전류를 계산하는 부하 상자입니다. 히터 · 컴프레서 · 생산 라인처럼 기기 하나, 또는 아래쪽 분전반 전체를 한 덩어리로 나타낼 때 씁니다.',
+          'A load box whose current is computed from its kW and power factor: one machine, or a whole downstream panel lumped together.',
+        ),
+        type === 'r_load3'
+          ? [['L1 · L2 · L3', tr('3상 전원 (차단기 아래에서)', '3-phase supply from the breaker')]]
+          : [
+              ['L', tr('차단기를 거친 상 (L1 · L2 · L3 중 하나)', 'a phase through the breaker')],
+              ['N', tr('중성선', 'neutral')],
+            ],
+        [
+          tr('차단기 아래 단자에서 부하 단자로 잇고, 그 전선을 눌러 케이블 규격 (굵기 · 공사방법 · 길이) 을 정합니다', 'Wire from the breaker and give that wire a cable spec'),
+          tr('속성에서 용량 (kW) 과 역률을 적습니다. 조명이면 [조명 부하] 를 체크합니다 (전압강하 허용값 3%)', 'Enter kW and power factor; tick lighting for the stricter drop limit'),
+          tr('[해석] 탭에서 전류 · 허용전류 · 전압강하 · 차단기 정격을 봅니다', 'Open the Analysis tab'),
+        ],
+        tr('전압이 들어오면 상자에 전류 (A) 와 단자 전압 (V) 이 나옵니다. 전선 위에 마우스를 올리면 그 선의 전류가 클램프 미터처럼 보입니다.', 'When powered the box shows its current and voltage; hover a wire to read its current like a clamp meter.'),
+        'feeders',
+      );
+    case 'r_panel':
+      return g(
+        tr(
+          '분전반 · 변전함을 나타내는 테두리입니다. 다른 도면 번호를 적는 대신, 함을 상자로 나누어 한 그림에 놓고 그 사이를 급전선으로 이으면 전체가 함께 시뮬레이션됩니다.',
+          'A frame that stands for a panel or switchboard. Keep several panels on one drawing and connect them with feeders so everything simulates together.',
+        ),
+        [[tr('단자 없음', 'no terminals'), tr('안에 차단기 · 부스바 · 부하를 놓습니다', 'place breakers, busbars and loads inside')]],
+        [
+          tr('이름표 줄을 잡고 끌면 안의 기기와 선이 함께 옮겨집니다. 크기는 속성의 가로 · 세로 칸 수로 바꿉니다', 'Drag the title bar to move it with its contents; resize in the properties'),
+          tr('함과 함 사이의 선 (급전선) 에 케이블 규격과 길이를 주면 전압강하가 계산됩니다', 'Give the feeders between panels a cable spec and length'),
+          tr('[해석] 탭에 함마다 부하 합계가 나옵니다', 'The Analysis tab totals the load per panel'),
+        ],
+        tr('그림을 묶어 보여 주는 테두리라 전기적으로는 아무 일도 하지 않습니다.', 'Only a frame; it does nothing electrically.'),
+        'feeders',
       );
 
     // ───────────── 회로 기호 ─────────────

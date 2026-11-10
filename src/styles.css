@@ -4776,6 +4776,80 @@ button.seq-kpi {
   width: 100%;
 }
 
+/* 탭이 많아 두 줄로 */
+.cc-tabs {
+  flex-wrap: wrap;
+}
+
+.cc-tabs button {
+  flex: 1 1 30%;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 전기 해석 */
+.cc-power h4 {
+  margin: 12px 0 4px;
+  font-size: 12.5px;
+}
+
+.cc-power table {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.cc-power-sum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 8px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  font-size: 12.5px;
+}
+
+.cc-power-tbl tbody tr {
+  cursor: pointer;
+}
+
+.cc-power-tbl tbody tr:hover td {
+  background: var(--accent-soft);
+}
+
+.cc-power-tbl tbody tr.bad td {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.cc-power-tbl td.num {
+  white-space: nowrap;
+}
+
+.cc-power .msg {
+  width: 100%;
+  text-align: left;
+}
+
+.cc-power-note {
+  margin-top: 10px;
+}
+
+.cc-power-note summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cc-power-note ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.cc-cable {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
 /* 결선표 */
 .cc-wiring table {
   width: 100%;

@@ -3,9 +3,10 @@ import type { Circuit, Part, WireColor } from '../circuit/types';
 import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { EstopGlyph, LightGlyph, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
+import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
 
 /** 격자 한 칸 (px) */
@@ -49,6 +50,9 @@ export interface PartState {
   /** 밸브 위치와 솔레노이드 (14쪽, 12쪽) */
   valve?: 'a' | 'b' | 'c';
   solOn?: [boolean, boolean];
+  /** 전기 해석: 부하의 전압 · 전류, 차단기 · 접점에 흐르는 전류 */
+  pw?: { v: number; i: number; p: number };
+  amp?: number;
   /** 타임 스위치: 다이얼 시각, 접점, 시계가 도는 중 */
   tsw?: { dial: number; out: boolean; run: boolean };
   /** 실린더: 스프링 복귀 (단동), 배관으로 움직임 */
@@ -470,6 +474,11 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <SwGlyph p={p} st={st} c={c} />;
     case 'r_sw3':
       return <Sw3Glyph p={p} st={st} c={c} />;
+    case 'r_load1':
+    case 'r_load3':
+      return <LoadGlyph p={p} st={st} c={c} />;
+    case 'r_panel':
+      return <PanelGlyph p={p} c={c} />;
     case 'text':
       return (
         <text y={0} fontSize={14} fontWeight={600} fill={c.ink} stroke="none">
@@ -567,6 +576,10 @@ export interface LayerOptions {
   showPins?: boolean;
   /** 결선표에서 고른 전선: 그림의 토막과 두 단자 */
   highlight?: { segs: [[number, number], [number, number]][]; pts: [number, number][] } | null;
+  /** 전기 해석 결과 (시뮬레이션 중): 부하 · 차단기에 전류를 적는다 */
+  power?: PowerState | null;
+  /** 전선 위에 적는 전류 */
+  currents?: { at: [number, number]; text: string; bad?: boolean }[];
   /** 선번호 (전선 가운데에 적는다) */
   wireNos?: { at: [number, number]; no: number }[];
   /** 따라 배선하기: 배선을 마친 전선만 진하게, 나머지는 흐리게 */
@@ -601,11 +614,33 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
   }
   return (
     <g fontFamily={FONT} strokeLinecap="round" strokeLinejoin="round">
+      {circuit.parts
+        .filter((p) => p.type === 'r_panel')
+        .map((p) => (
+          <g key={p.id} data-part={p.id} transform={`translate(${p.x * G},${p.y * G})`} fill="none">
+            <PanelGlyph p={p} c={c} />
+            {o.selected?.has(p.id) && <rect x={-3} y={-3} width={partBox(p)[2] * G - p.x * G + 6} height={partBox(p)[3] * G - p.y * G + 6} rx={12} fill="none" stroke={c.select} strokeWidth={2} strokeDasharray="6 4" />}
+          </g>
+        ))}
       <g opacity={o.progress ? 0.16 : undefined}>
       {circuit.wires.map((w) => {
         const col = wireColor(w.id);
         const sel = o.selected?.has(w.id);
         const n = model.net.wireNet.get(w.id);
+        if (w.cable?.kind === 'bus' && !(n !== undefined && model.airNets.has(n))) {
+          // 부스바: 납작한 구리 막대
+          const pole = sim && n !== undefined ? sim.netPole[n] : null;
+          const L = { x1: w.a[0] * G, y1: w.a[1] * G, x2: w.b[0] * G, y2: w.b[1] * G };
+          return (
+            <g key={w.id} strokeLinecap="butt">
+              {sel && <line {...L} stroke={c.select} strokeWidth={16} opacity={0.5} strokeLinecap="round" />}
+              <line {...L} stroke="#7c2d12" strokeWidth={11} strokeLinecap="square" />
+              <line {...L} stroke={w.color ? WIRE_HEX[w.color] : '#d97706'} strokeWidth={8.5} strokeLinecap="square" />
+              <line {...L} stroke="#ffffff" strokeWidth={1.4} opacity={0.35} />
+              {pole && pole !== 'short' && pole !== 'PE' && <line {...L} stroke="#ffffff" strokeWidth={1.8} strokeDasharray="5 5" className="cc-flow" />}
+            </g>
+          );
+        }
         if (w.color && !(n !== undefined && model.airNets.has(n))) {
           const pole = sim && n !== undefined ? sim.netPole[n] : null;
           return (
@@ -632,7 +667,12 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         ),
       )}
       {circuit.parts.map((p) => {
+        if (p.type === 'r_panel') return null;
         const st = partState(p, model, sim);
+        if (o.power) {
+          st.pw = o.power.loads.get(p.id);
+          st.amp = o.power.partI.get(p.id);
+        }
         const sel = o.selected?.has(p.id);
         const flag = o.flagged?.has(p.id);
         const [x0, y0, x1, y1] = partBox(p);
@@ -657,6 +697,24 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         );
       })}
       <WireEnds circuit={circuit} model={model} sim={sim} c={c} doneEnds={doneEnds} />
+      {circuit.parts
+        .filter((p) => p.type === 'r_panel')
+        .map((p) => (
+          <g key={`t${p.id}`} transform={`translate(${p.x * G},${p.y * G})`}>
+            <PanelTitle p={p} c={c} />
+          </g>
+        ))}
+      {o.currents?.map((n, i) => {
+        const w = n.text.length * 6.4 + 10;
+        return (
+          <g key={`c${i}`} pointerEvents="none">
+            <rect x={n.at[0] * G - w / 2} y={n.at[1] * G - 8} width={w} height={16} rx={8} fill={n.bad ? '#dc2626' : '#0f172a'} opacity={0.92} />
+            <text x={n.at[0] * G} y={n.at[1] * G + 4} textAnchor="middle" fontSize={10.5} fontWeight={800} fill={n.bad ? '#ffffff' : '#a7f3d0'} stroke="none">
+              {n.text}
+            </text>
+          </g>
+        );
+      })}
       {o.wireNos?.map((n, i) => {
         const t = String(n.no);
         const w = t.length * 6.2 + 8;

@@ -17,6 +17,7 @@ import { WEB_TRIAL } from '../env';
 import { CircuitSvg } from '../render/CircuitSvg';
 import { bomSummary, contactsLabel, partsList } from '../circuit/bom';
 import { termText, wireColorName, wiringList } from '../circuit/wiring';
+import { analyzePower, nominalVolt } from '../circuit/power';
 import { CircuitModel, opTimes } from '../circuit/engine';
 
 export interface ReportOpts {
@@ -50,6 +51,8 @@ export interface ReportOpts {
   bom: boolean;
   /** 회로도에서 만든 결선표 (단자 → 단자) */
   wiring: boolean;
+  /** 전기 해석 (허용전류 · 전압강하 · 차단기) */
+  power: boolean;
 }
 
 const OPTS_KEY = 'timechart-studio.report.v1';
@@ -104,6 +107,7 @@ export const DEFAULT_REPORT_OPTS: ReportOpts = {
   circuit: true,
   bom: true,
   wiring: true,
+  power: true,
 };
 
 function loadOpts(): ReportOpts {
@@ -348,6 +352,7 @@ export function ReportPanel() {
                   <Check checked={o.circuit} onChange={(v) => set({ circuit: v })} label={tr('회로도 · 조작 순서', 'Circuit diagram & operations')} />
                   <Check checked={o.bom} onChange={(v) => set({ bom: v })} label={tr('부품 리스트 (회로도에서 자동)', 'Parts list (from the circuit)')} />
                   <Check checked={o.wiring} onChange={(v) => set({ wiring: v })} label={tr('결선표 (단자 → 단자, 체크 칸)', 'Wiring list (terminal to terminal)')} />
+                  <Check checked={o.power} onChange={(v) => set({ power: v })} label={tr('전기 해석 (허용전류 · 전압강하 · 차단기)', 'Electrical analysis (ampacity, voltage drop)')} />
                 </>
               )}
               {project.sequence && <Check checked={o.sequence} onChange={(v) => set({ sequence: v })} label={tr('동작 순서표 (설계: 기기 · 순서 · I/O)', 'Sequence table (design)')} />}
@@ -1466,6 +1471,92 @@ function circuitBlocks(project: Project, o: ReportOpts): Block[] {
           </tr>
         )),
       });
+  }
+  if (o.power) {
+    const a = analyzePower(c, new CircuitModel(c, project.plc));
+    const f1 = (v: number) => (v >= 100 ? v.toFixed(0) : v.toFixed(1));
+    if (a.cables.length || a.loads.some((l) => l.i > 0)) {
+      if (a.issues.length)
+        blocks.push({
+          id: 'power-issues',
+          title: tr('전기 해석: 검토 결과', 'Electrical analysis: findings'),
+          head: (
+            <tr>
+              <th>No</th>
+              <th>{tr('구분', 'Level')}</th>
+              <th>{tr('내용', 'Finding')}</th>
+            </tr>
+          ),
+          rows: a.issues.map((i, k) => (
+            <tr key={k}>
+              <td>{k + 1}</td>
+              <td>{i.level === 'error' ? tr('문제', 'Problem') : i.level === 'warn' ? tr('주의', 'Warning') : tr('참고', 'Note')}</td>
+              <td>{i.msg}</td>
+            </tr>
+          )),
+        });
+      if (a.cables.length)
+        blocks.push({
+          id: 'power-cables',
+          title: tr('전기 해석: 케이블 (IB ≤ In ≤ Iz)', 'Electrical analysis: cables (IB ≤ In ≤ Iz)'),
+          head: (
+            <tr>
+              <th>{tr('구간', 'Run')}</th>
+              <th>{tr('규격', 'Spec')}</th>
+              <th>{tr('전류 IB (A)', 'IB (A)')}</th>
+              <th>{tr('차단기 In (A)', 'In (A)')}</th>
+              <th>{tr('허용전류 Iz (A)', 'Iz (A)')}</th>
+              <th>{tr('판정', 'Result')}</th>
+            </tr>
+          ),
+          rows: a.cables.map((r) => {
+            const bad = r.iz !== null && (r.ib > r.iz || (r.breakerAmps !== null && r.breakerAmps > r.iz));
+            return (
+              <tr key={r.id}>
+                <td className="mono">
+                  {r.from} → {r.to}
+                </td>
+                <td>{r.text}</td>
+                <td>{f1(r.ib)}</td>
+                <td>{r.breakerAmps === null ? '—' : `${r.breaker} ${r.breakerAmps}`}</td>
+                <td>{r.iz ?? '—'}</td>
+                <td>{r.iz === null ? '—' : bad ? tr('부적합', 'NG') : tr('적합', 'OK')}</td>
+              </tr>
+            );
+          }),
+        });
+      if (a.loads.length)
+        blocks.push({
+          id: 'power-loads',
+          title: tr(`전기 해석: 부하 전압강하 (${nominalVolt(a.vll)}/${nominalVolt(a.vln)} V, 최대 부하 ${a.peakKw} kW)`, `Electrical analysis: load voltage drop (${nominalVolt(a.vll)}/${nominalVolt(a.vln)} V, peak ${a.peakKw} kW)`),
+          head: (
+            <tr>
+              <th>{tr('기호', 'Tag')}</th>
+              <th>{tr('설명', 'Description')}</th>
+              <th>kW</th>
+              <th>{tr('전류 (A)', 'I (A)')}</th>
+              <th>{tr('단자 전압 (V)', 'Voltage (V)')}</th>
+              <th>{tr('전압강하', 'Drop')}</th>
+              <th>{tr('허용', 'Limit')}</th>
+              <th>{tr('판정', 'Result')}</th>
+            </tr>
+          ),
+          rows: a.loads.map((r) => (
+            <tr key={r.partId}>
+              <td className="mono">
+                <b>{r.tag}</b>
+              </td>
+              <td>{r.name}</td>
+              <td>{Math.round(r.watt / 10) / 100}</td>
+              <td>{f1(r.i)}</td>
+              <td>{r.v === null ? '—' : Math.round(r.v)}</td>
+              <td>{r.dropPct === null ? '—' : `${r.dropPct}%`}</td>
+              <td>{Math.round(r.limit * 100) / 100}%</td>
+              <td>{r.dropPct === null ? '—' : r.dropPct > r.limit ? tr('부적합', 'NG') : tr('적합', 'OK')}</td>
+            </tr>
+          )),
+        });
+    }
   }
   return blocks;
 }

@@ -33,10 +33,13 @@ export function normTag(tag: string): string {
   return tag.trim().toUpperCase();
 }
 
-interface Conductor {
+export interface Conductor {
   part: Part;
   a: number;
   b: number;
+  /** 두 단자의 번호 (부품의 단자 목록에서) */
+  ia: number;
+  ib: number;
   tag: string;
   nc: boolean;
   always: boolean;
@@ -174,7 +177,7 @@ export class CircuitModel {
         poles.forEach(([i, j], k) => {
           const a = this.net.pinNet.get(`${p.id}:${i}`)!;
           const b = this.net.pinNet.get(`${p.id}:${j}`)!;
-          this.conductors.push({ part: p, a, b, tag, nc: def.polesNc?.[k] ?? !!def.nc, always, inst: p.type === 'r_timer8' && !!p.inst13 && k < 2 });
+          this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: def.polesNc?.[k] ?? !!def.nc, always, inst: p.type === 'r_timer8' && !!p.inst13 && k < 2 });
         });
       }
       if (p.type === 'src' || p.type === 'r_term') this.sources.push({ net: this.net.pinNet.get(`${p.id}:0`)!, id: POLE_IDENTITY[p.pole ?? 'L'] });
@@ -185,7 +188,7 @@ export class CircuitModel {
       if (p.type === 'prox') {
         // PNP: 감지하면 출력이 + 에, NPN: 출력이 0V 에 이어진다
         this.proxs.push({ part: p, bn: pin(0), bu: pin(2) });
-        this.conductors.push({ part: p, a: p.npn ? pin(1) : pin(0), b: p.npn ? pin(2) : pin(1), tag, nc: false, always: false, power: p.id });
+        this.conductors.push({ part: p, a: p.npn ? pin(1) : pin(0), b: p.npn ? pin(2) : pin(1), ia: p.npn ? 1 : 0, ib: p.npn ? 2 : 1, tag, nc: false, always: false, power: p.id });
       } else if (p.type === 'smps') this.smpsList.push({ part: p, inL: pin(0), inN: pin(1), outP: pin(2), outM: pin(3) });
       else if (p.type === 'air') this.airSrc.push(pin(0));
       else if (p.type === 'frl' || p.type === 'fc') {
@@ -226,7 +229,7 @@ export class CircuitModel {
           inName: inDev.map((d) => info.get(d)?.comment ?? ''),
           outName: outDev.map((d) => info.get(d)?.comment ?? ''),
         });
-        for (let n = 0; n < PLC_IO; n++) this.conductors.push({ part: p, a: net(p, PLC_IO), b: net(p, PLC_IO + 1 + n), tag: tagKey(p), nc: false, always: false, plcOut: n });
+        for (let n = 0; n < PLC_IO; n++) this.conductors.push({ part: p, a: net(p, PLC_IO), b: net(p, PLC_IO + 1 + n), ia: PLC_IO, ib: PLC_IO + 1 + n, tag: tagKey(p), nc: false, always: false, plcOut: n });
       }
     }
     // 실린더 기호가 없는 리밋 스위치 연결은 조작 기기로
@@ -307,6 +310,8 @@ export class CircuitSim {
   readonly warnings: string[] = [];
   private readonly warned = new Set<string>();
   readonly tracks: Track[] = [];
+  /** 상태를 기록할 때마다 불린다 (전기 해석이 그때의 전류를 계산) */
+  onRecord?: () => void;
 
   constructor(readonly m: CircuitModel) {
     for (const [tag, k] of m.tagKind) if (k === 'operator' || k === 'thr') this.act.set(tag, m.operatorDefault.get(tag) ?? false);
@@ -440,6 +445,12 @@ export class CircuitSim {
     this.warnings.push(msg);
   }
 
+  /** 이 접점 (극) 이 지금 통하는가 */
+  conductorClosed(c: Conductor): boolean {
+    const closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || (c.inst ? !!this.timers.get(c.tag)?.coil : this.on(c.tag)) !== c.nc;
+    return closed && !(c.power && !this.powered.get(c.power));
+  }
+
   private evaluate(): void {
     const n = this.m.net.count;
     const parent = new Int32Array(n);
@@ -452,9 +463,7 @@ export class CircuitSim {
       return i;
     };
     for (const c of this.m.conductors) {
-      let closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || (c.inst ? !!this.timers.get(c.tag)?.coil : this.on(c.tag)) !== c.nc;
-      if (c.power && !this.powered.get(c.power)) closed = false;
-      if (closed) {
+      if (this.conductorClosed(c)) {
         const ra = find(c.a);
         const rb = find(c.b);
         if (ra !== rb) parent[ra] = rb;
@@ -494,7 +503,7 @@ export class CircuitSim {
       const def = PARTS[p.type];
       let nets = def.pins.map((_, i) => this.m.net.pinNet.get(`${p.id}:${i}`));
       if (def.selfCoil) nets = def.selfCoil.map((i) => nets[i]);
-      if (p.type === 'motor3' || p.type === 'r_motor3') {
+      if (p.type === 'motor3' || p.type === 'r_motor3' || p.type === 'r_load3') {
         const ph = nets.slice(0, 3).map(live);
         const idx = ph.map((x) => (x === 'L1' ? 0 : x === 'L2' ? 1 : x === 'L3' ? 2 : -1));
         const distinct = new Set(idx.filter((i) => i >= 0));
@@ -504,7 +513,7 @@ export class CircuitSim {
           this.motorDir.set(p.id, (v - u + 3) % 3 === 1 ? 1 : -1);
         } else if (distinct.size === 2) {
           this.openPhase.add(p.id);
-          this.warn(`${p.tag || 'M'}: 결상 - 두 상만 이어져서 돌지 않습니다`, `open:${p.id}`);
+          this.warn(p.type === 'r_load3' ? `${p.tag || 'LD'}: 결상 - 두 상만 이어졌습니다` : `${p.tag || 'M'}: 결상 - 두 상만 이어져서 돌지 않습니다`, `open:${p.id}`);
         }
         continue;
       }
@@ -855,6 +864,7 @@ export class CircuitSim {
       if (tr.last !== null) this.lastChangeT = Math.max(this.lastChangeT, t);
       tr.last = v;
     }
+    this.onRecord?.();
   }
 }
 
@@ -899,8 +909,12 @@ export interface ScenarioResult {
 }
 
 /** 조작 순서대로 회로를 돌려 신호 기록을 얻는다 */
-export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c)): ScenarioResult {
+export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c), hook?: (sim: CircuitSim) => void): ScenarioResult {
   const sim = new CircuitSim(model);
+  if (hook) {
+    hook(sim);
+    sim.onRecord = () => hook(sim);
+  }
   const events = opsToEvents(c.ops);
   const fixed = c.duration && c.duration > 0 ? c.duration : null;
   const missing = new Set<string>();

@@ -316,12 +316,22 @@ function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primar
   );
 }
 
-const WHATS_NEW_KEY = 'timechart-studio.whats-new.v5';
+const WHATS_NEW_KEY = 'timechart-studio.whats-new.v6';
 
 /** 이전 버전을 쓰던 사람에게 한 번만: 새로 생긴 기능 */
 export function WhatsNew({ onClose }: { onClose: () => void }) {
   const setTab = useStore((s) => s.setTab);
   const items: { icon: string; title: string; desc: string; go?: () => void; goLabel?: string }[] = [
+    {
+      icon: 'ruleCheck',
+      title: tr('분전반 · 케이블 해석 (허용전류 · 전압강하)', 'Panel and cable analysis (ampacity, voltage drop)'),
+      desc: tr(
+        '분전반 · 변전함을 상자로 나눠 급전선으로 잇고, 전선마다 케이블 규격 (굵기 · 공사방법 · 길이) 을 정하면 [해석] 탭이 허용전류 · 전압강하 · 차단기 정격을 검토합니다. 시뮬레이션 중 전선에 마우스를 올리면 클램프 미터처럼 전류가 보입니다.',
+        'Draw panels as boxes joined by feeders, give wires a cable spec, and the Analysis tab checks ampacity, voltage drop and breaker ratings. Hover a wire in the simulation to read its current.',
+      ),
+      go: () => F.openCircuitExample('feeders'),
+      goLabel: tr('예제 열기', 'Open example'),
+    },
     {
       icon: 'play',
       title: tr('타임 스위치로 전등 자동 점멸', 'Lights on a 24-hour time switch'),

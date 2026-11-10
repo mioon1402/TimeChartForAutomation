@@ -1,5 +1,6 @@
 import type { Part, WireColor } from '../circuit/types';
-import { LAMP_HEX, schedOn, tbSize, tswSched } from '../circuit/parts';
+import { LAMP_HEX, panelSize, schedOn, tbSize, tswSched } from '../circuit/parts';
+import { loadRating } from '../circuit/power';
 import { formatClock, formatTime } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
 import type { CircuitColors, PartState } from './CircuitSvg';
@@ -74,7 +75,10 @@ export function McbGlyph({ p, st }: { p: Part; st: PartState }) {
       <rect x={-half} y={-100} width={half * 2} height={200} rx={4} fill={BODY} stroke={BODY_EDGE} />
       <rect x={-half} y={-100} width={half * 2} height={42} rx={4} fill={BAND} stroke={BODY_EDGE} />
       <rect x={-half} y={58} width={half * 2} height={42} rx={4} fill={BAND} stroke={BODY_EDGE} />
-      <Label x={0} y={-46} text={p.spec?.trim() || 'AC/25A'} size={8.5} />
+      <Label x={0} y={-46} text={p.amps ? `AC/${p.amps}A` : p.spec?.trim() || 'AC/25A'} size={8.5} />
+      {st.amp !== undefined && st.amp > 0.05 && (
+        <Label x={half + 5} y={4} text={`${st.amp.toFixed(1)} A`} anchor="start" size={10.5} weight={800} fill={p.amps && st.amp > p.amps ? '#dc2626' : '#2563eb'} />
+      )}
       {xs.map((x) => (
         <g key={x}>
           <rect x={x - 4} y={-40} width={8} height={7} fill={on ? '#16a34a' : '#dc2626'} />
@@ -587,6 +591,61 @@ export function Sw3Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColor
       <Label x={40} y={-36} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
       {p.name && <Label x={40} y={-23} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
       <Label x={40} y={p.name ? -10 : -23} text={to3 ? '0-3' : '0-1'} anchor="start" size={9} weight={700} fill={c.accent} />
+    </g>
+  );
+}
+
+/** 부하 (용량으로 전류를 계산하는 상자): 위에 단자, 가운데 용량, 시뮬레이션 중에는 전류 · 전압 */
+export function LoadGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const three = p.type === 'r_load3';
+  const xs = three ? [-40, 0, 40] : [-20, 20];
+  const names = three ? ['L1', 'L2', 'L3'] : ['L', 'N'];
+  const half = three ? 68 : 60;
+  const r = loadRating(p);
+  const kw = r ? r.out / 1000 : 0;
+  const on = st.on;
+  return (
+    <g>
+      <rect x={-half} y={-76} width={half * 2} height={34} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={-half} y={-44} width={half * 2} height={100} rx={6} fill={on ? '#fef3c7' : '#f8fafc'} stroke={on ? '#d97706' : BODY_EDGE} strokeWidth={1.6} />
+      {xs.map((x, i) => (
+        <g key={x}>
+          <Screw x={x} y={-60} />
+          <Label x={x} y={-33} text={names[i]} size={8} weight={800} />
+        </g>
+      ))}
+      <Label x={0} y={-12} text={p.tag} fill="#111827" size={12} weight={800} />
+      <Label x={0} y={6} text={`${kw >= 10 ? kw.toFixed(1) : Number(kw.toFixed(2))} kW`} fill="#111827" size={13} weight={800} />
+      <Label x={0} y={20} text={`${three ? tr('3상', '3-ph') : tr('단상', '1-ph')} · pf ${r?.pf ?? 1}${p.lighting ? ` · ${tr('조명', 'light')}` : ''}`} fill="#64748b" size={8} weight={600} />
+      <rect x={-half + 8} y={28} width={half * 2 - 16} height={20} rx={3} fill="#0f172a" />
+      <Label x={0} y={42} text={st.pw && st.pw.i > 0.005 ? `${st.pw.i.toFixed(1)} A · ${st.pw.v.toFixed(0)} V` : '0 A'} fill={st.pw && st.pw.i > 0.005 ? '#a7f3d0' : '#64748b'} size={10.5} weight={800} />
+      {p.name && <Label x={0} y={70} text={p.name} size={10} weight={600} fill={c.ink} />}
+    </g>
+  );
+}
+
+/** 분전반 · 변전함 테두리: 왼쪽 위가 기준점. 이름표 줄을 잡고 옮긴다 */
+export function PanelGlyph({ p, c }: { p: Part; c: CircuitColors }) {
+  const [w, h] = panelSize(p);
+  return (
+    <g>
+      <rect x={0} y={0} width={w * 20} height={h * 20} rx={10} fill={c.ink} fillOpacity={0.035} stroke={c.muted} strokeWidth={2.2} />
+      <path d={`M0,30H${w * 20}`} stroke={c.muted} strokeWidth={1.2} />
+      <rect x={0} y={0} width={w * 20} height={30} rx={10} fill={c.muted} fillOpacity={0.16} stroke="none" />
+    </g>
+  );
+}
+
+/** 분전반 이름표: 선 위에 그려서 급전선이 지나가도 읽힌다 */
+export function PanelTitle({ p, c }: { p: Part; c: CircuitColors }) {
+  const text = [p.tag, p.name].filter(Boolean).join('  ');
+  const w = [...text].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 14 : 8.2), 0) + 18;
+  return (
+    <g pointerEvents="none">
+      <rect x={6} y={4} width={w} height={22} rx={5} fill={c.bg} stroke={c.muted} strokeWidth={1.2} />
+      <text x={15} y={20} fontSize={14} fontWeight={800} fill={c.ink} stroke="none">
+        {text}
+      </text>
     </g>
   );
 }
