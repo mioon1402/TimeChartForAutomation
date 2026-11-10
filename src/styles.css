@@ -4312,7 +4312,7 @@ button.seq-kpi {
   overflow-y: auto;
   background: var(--panel);
   border-right: 1px solid var(--border);
-  padding: 4px 6px 10px;
+  padding: 0 6px 10px;
 }
 
 .cc-palette.off {
@@ -4477,8 +4477,131 @@ button.seq-kpi {
   margin: 8px 0;
 }
 
+/* 실물 / 기호 전환: 목록을 내려도 위에 붙어 있게 */
+.cc-pal-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0 -6px;
+  padding: 6px 6px 5px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
 .cc-pal-mode {
-  margin: 4px 0 2px;
+  margin: 0;
+  width: 100%;
+}
+
+/* 부품 쓰는 법 */
+.cc-guide {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.cc-guide summary {
+  cursor: pointer;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  list-style: none;
+}
+
+.cc-guide summary::-webkit-details-marker {
+  display: none;
+}
+
+.cc-guide summary::after {
+  content: '▾';
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.cc-guide:not([open]) summary::after {
+  content: '▸';
+}
+
+.cc-guide p {
+  margin: 6px 0;
+}
+
+.cc-guide-h {
+  margin: 8px 0 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.cc-guide-pins {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cc-guide-pins th {
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  padding: 2px 8px 2px 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--accent);
+  max-width: 130px;
+  white-space: normal;
+}
+
+.cc-guide-pins td {
+  padding: 2px 0;
+}
+
+.cc-guide ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.cc-guide ol li {
+  margin: 2px 0;
+}
+
+.cc-guide-sim {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cc-guide .btn {
+  margin-top: 2px;
+}
+
+/* 타임 스위치 설정 */
+.cc-sched {
+  margin: 8px 0;
+}
+
+.cc-sched-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.cc-sched-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.cc-sched-row .input {
+  width: auto;
+  flex: 1;
+  min-width: 0;
 }
 
 .cc-pal-mode button {
@@ -4681,6 +4804,45 @@ button.seq-kpi {
   transition: width 0.2s;
 }
 
+.cc-wiring-opts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.cc-wiring-step {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  padding: 8px 10px;
+  margin: 0 0 10px;
+}
+
+.cc-wiring-step-no {
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.cc-wiring-step-main {
+  font-size: 15px;
+  margin: 4px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+.cc-wiring-arrow {
+  color: var(--muted);
+}
+
+.cc-wiring-step .cc-btnrow {
+  margin-top: 6px;
+}
+
 .cc-wiring-tbl tbody tr {
   cursor: pointer;
 }
@@ -4788,6 +4950,24 @@ button.seq-kpi {
     display: flex;
     gap: 2px;
     align-items: center;
+  }
+
+  /* 가로로 넘기는 목록: 전환 버튼은 왼쪽에 붙어 있게 */
+  .cc-pal-sticky {
+    top: auto;
+    left: 0;
+    margin: -4px 0 -4px -4px;
+    padding: 4px;
+    border-bottom: 0;
+    border-right: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    flex: none;
+  }
+
+  .cc-pal-mode {
+    flex-direction: column;
+    width: auto;
   }
 
   .cc-pal-title {

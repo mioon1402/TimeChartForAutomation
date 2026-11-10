@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { isLinkedSensor, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, VALVES } from './parts';
+import { isLinkedSensor, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, schedOn, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import type { PlcConfig, SimSettings } from '../plc/types';
 import { parseProgram, type ParsedProgram } from '../plc/program';
@@ -19,7 +19,9 @@ import type { PlcRuntime } from '../plc/runtime';
  *  - 타이머 만료, 실린더 도착 시각을 다음 사건으로 잡아서 시간을 건너뛴다.
  */
 
-export type TagKind = 'coil' | 'timer' | 'thr' | 'sensor' | 'operator';
+export type TagKind = 'coil' | 'timer' | 'tsw' | 'thr' | 'sensor' | 'operator';
+
+const DAY = 86400000;
 
 /** 부품이 따르는 기호 (대소문자 무시, 기호 없는 조작 기기는 부품마다 따로) */
 export function tagKey(p: Pick<Part, 'id' | 'tag'>): string {
@@ -70,7 +72,7 @@ export interface PlcBlock {
   outName: string[];
 }
 
-export type TrackKind = 'operator' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut';
+export type TrackKind = 'operator' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'tsw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut';
 
 export interface Track {
   key: string;
@@ -94,6 +96,8 @@ export class CircuitModel {
   readonly coilParts = new Map<string, string[]>();
   readonly timerParts = new Map<string, string[]>();
   readonly timerDef = new Map<string, { mode: 'on' | 'off' | 'flicker'; preset: number }>();
+  /** 24시간 타임 스위치: 시계 전원 넷 (L · N) 과 켜지는 구간 */
+  readonly tswDef = new Map<string, { part: Part; l: number; n: number; sched: [number, number][] }>();
   readonly cylDef = new Map<string, Part>();
   readonly sensorDef = new Map<string, { cyl: string; end: '+' | '-' }>();
   readonly operatorDefault = new Map<string, boolean>();
@@ -125,7 +129,7 @@ export class CircuitModel {
     plc?: PlcConfig,
   ) {
     this.net = buildNetlist(circuit);
-    const rank: Record<TagKind, number> = { coil: 5, timer: 5, thr: 4, sensor: 3, operator: 2 };
+    const rank: Record<TagKind, number> = { coil: 5, timer: 5, tsw: 5, thr: 4, sensor: 3, operator: 2 };
     const setKind = (tag: string, k: TagKind, p: Part) => {
       const cur = this.tagKind.get(tag);
       if (!cur || rank[k] > rank[cur]) {
@@ -143,6 +147,9 @@ export class CircuitModel {
         setKind(tag, 'timer', p);
         push(this.timerParts, tag, p.id);
         if (!this.timerDef.has(tag)) this.timerDef.set(tag, { mode: p.timerMode ?? 'on', preset: Math.max(0, p.preset ?? 3000) });
+      } else if (p.type === 'r_tsw') {
+        setKind(tag, 'tsw', p);
+        if (!this.tswDef.has(tag)) this.tswDef.set(tag, { part: p, l: this.net.pinNet.get(`${p.id}:0`)!, n: this.net.pinNet.get(`${p.id}:1`)!, sched: tswSched(p) });
       } else if (p.type === 'coil' || def.selfCoil) {
         setKind(tag, 'coil', p);
         push(this.coilParts, tag, p.id);
@@ -273,6 +280,8 @@ export class CircuitSim {
   readonly act = new Map<string, boolean>();
   readonly coilOn = new Map<string, boolean>();
   readonly timers = new Map<string, { coil: boolean; out: boolean; since: number }>();
+  /** 타임 스위치: 다이얼이 가리키는 시각 (하루 안의 ms), 접점, 시계가 도는 중 (전원이 있을 때만 돈다) */
+  readonly tsw = new Map<string, { dial: number; out: boolean; run: boolean }>();
   readonly cyl = new Map<string, CylState>();
   /** 넷마다 닿은 극 ('short' = 단락, null = 전압 없음) */
   netPole: (string | null)[] = [];
@@ -303,6 +312,7 @@ export class CircuitSim {
     for (const [tag, k] of m.tagKind) if (k === 'operator' || k === 'thr') this.act.set(tag, m.operatorDefault.get(tag) ?? false);
     for (const tag of m.coilParts.keys()) this.coilOn.set(tag, false);
     for (const tag of m.timerParts.keys()) this.timers.set(tag, { coil: false, out: false, since: 0 });
+    for (const [tag, d] of m.tswDef) this.tsw.set(tag, { dial: this.clock0, out: schedOn(d.sched, this.clock0), run: false });
     for (const tag of m.cylDef.keys()) this.cyl.set(tag, { pos: 0, target: 0, atPlus: false, atMinus: true, hold: false });
     for (const v of m.valves) this.valvePos.set(v.part.id, v.part.type === 'v53' ? 'c' : 'b');
     for (const b of m.plcs) {
@@ -325,6 +335,17 @@ export class CircuitSim {
       this.settle();
     }
     this.record();
+  }
+
+  /** 시뮬레이션을 시작한 시각 (하루 안의 ms) */
+  get clock0(): number {
+    const c = this.m.circuit.clock ?? 0;
+    return ((c % DAY) + DAY) % DAY;
+  }
+
+  /** 지금 시각 (하루 안의 ms) */
+  get clock(): number {
+    return (this.clock0 + this.t) % DAY;
   }
 
   get hasPlc(): boolean {
@@ -360,6 +381,8 @@ export class CircuitSim {
         return this.coilOn.get(tag) ?? false;
       case 'timer':
         return this.timers.get(tag)?.out ?? false;
+      case 'tsw':
+        return this.tsw.get(tag)?.out ?? false;
       case 'thr':
       case 'operator':
         return this.act.get(tag) ?? false;
@@ -519,6 +542,20 @@ export class CircuitSim {
       else if (def.preset <= 0) st.out = false;
       return true;
     }
+    // 타임 스위치: 시계 전원, 다이얼 위치에 따른 접점
+    for (const [tag, d] of this.m.tswDef) {
+      const st = this.tsw.get(tag)!;
+      const run = powerBetween(this.netPole[d.l], this.netPole[d.n]);
+      if (run !== st.run) {
+        st.run = run;
+        return true;
+      }
+      const out = schedOn(d.sched, st.dial);
+      if (out !== st.out) {
+        st.out = out;
+        return true;
+      }
+    }
     // 3선식 센서·SMPS 전원
     for (const s of this.m.proxs) {
       const want = powerBetween(this.netPole[s.bn], this.netPole[s.bu], true);
@@ -669,6 +706,14 @@ export class CircuitSim {
       if (st.atPlus && st.target === 0) best = Math.min(best, this.t + Math.max(0, st.pos - (1 - SENSOR_BAND)) * time);
       if (st.atMinus && st.target === 1) best = Math.min(best, this.t + Math.max(0, SENSOR_BAND - st.pos) * time);
     }
+    // 타임 스위치: 다이얼이 다음 켜짐·꺼짐 시각에 닿을 때
+    for (const [tag, st] of this.tsw) {
+      if (!st.run) continue;
+      for (const b of this.m.tswDef.get(tag)!.sched.flat()) {
+        const d = (b - st.dial + DAY) % DAY;
+        if (d > 1e-3) best = Math.min(best, this.t + d);
+      }
+    }
     return best === Infinity ? null : Math.max(best, this.t);
   }
 
@@ -686,6 +731,14 @@ export class CircuitSim {
       else if (st.pos <= 1 - SENSOR_BAND + EPS) st.atPlus = false;
       if (st.pos <= EPS) st.atMinus = true;
       else if (st.pos >= SENSOR_BAND - EPS) st.atMinus = false;
+    }
+    if (dt > 0) {
+      for (const [tag, st] of this.tsw) {
+        if (!st.run) continue;
+        st.dial = (st.dial + dt) % DAY;
+        // 켜짐·꺼짐 시각에 딱 맞춘다 (소수 오차로 한 사건을 놓치지 않게)
+        for (const b of this.m.tswDef.get(tag)!.sched.flat()) if (Math.abs(st.dial - b) < 1e-3 || Math.abs(st.dial - b - DAY) < 1e-3) st.dial = b;
+      }
     }
     this.t = Math.max(this.t, t2);
   }
@@ -732,7 +785,7 @@ export class CircuitSim {
       else if (k === 'timer') {
         add(`tc:${tag}`, tag, 'timerCoil');
         add(`tq:${tag}`, tag, 'timerOut');
-      }
+      } else if (k === 'tsw') add(`ts:${tag}`, tag, 'tsw');
     }
     for (const [tag, ids] of m.loadParts) {
       const k = m.tagKind.get(tag);
@@ -768,6 +821,8 @@ export class CircuitSim {
         return this.timers.get(tag)?.coil ? 1 : 0;
       case 'timerOut':
         return this.timers.get(tag)?.out ? 1 : 0;
+      case 'tsw':
+        return this.tsw.get(tag)?.out ? 1 : 0;
       case 'load':
         return this.loadOn(tag) ? 1 : 0;
       case 'motor': {
@@ -860,7 +915,10 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
     sim.setAct(ev.tag, ev.on);
   }
   const lastOp = events.length ? events[events.length - 1].t : 0;
+  // 타임 스위치가 있으면 하루 단위로 (조작이 하루를 넘으면 그만큼 더)
+  const days = model.tswDef.size && fixed === null ? Math.max(1, Math.ceil(lastOp / DAY + 1e-9)) * DAY : null;
   if (fixed !== null) sim.advanceTo(fixed);
+  else if (days !== null) sim.advanceTo(days);
   else {
     // 마지막 조작 뒤: 타이머·실린더가 멈출 때까지 (최대 60초). PLC 는 늘 스캔하므로 20초 동안 바뀐 것이 없으면 멈춤
     const limit = lastOp + 60000;
@@ -878,7 +936,7 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
   }
   const warnings = [...sim.warnings];
   for (const t of missing) warnings.push(`조작 순서의 ${t}: 회로에 그런 조작 기기가 없습니다`);
-  return { model, tracks: sim.tracks, end: fixed ?? Math.max(sim.t, last), lastChange: last, warnings, times: opTimes(c.ops) };
+  return { model, tracks: sim.tracks, end: fixed ?? days ?? Math.max(sim.t, last), lastChange: last, warnings, times: opTimes(c.ops) };
 }
 
 /** 대표 부품의 종류 */

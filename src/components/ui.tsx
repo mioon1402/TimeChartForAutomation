@@ -214,7 +214,14 @@ export function NumberInput({ value, onChange, min, max, step, placeholder, allo
 /** 시간 입력: "500", "1.5s", "T#2s" 등 허용, ms 로 저장 */
 export function TimeInput({ value, onChange, allowEmpty, placeholder }: { value: number | undefined; onChange: (v: number | undefined) => void; allowEmpty?: boolean; placeholder?: string }) {
   const unit = useStore((s) => s.project.settings.timeUnit);
-  const show = (t: number | undefined) => (t === undefined ? '' : unit === 's' ? formatTime(t, 's').replace(' ', '') : String(Math.round(t * 1000) / 1000));
+  const show = (t: number | undefined) => {
+    if (t === undefined) return '';
+    if (unit === 's' || unit === 'min' || unit === 'h') return formatTime(t, unit).replace(' ', '');
+    // 자동: 긴 시간은 시 · 분으로 (6h, 30min)
+    if (unit === 'auto' && t >= 3600000) return formatTime(t, 'h').replace(' ', '');
+    if (unit === 'auto' && t >= 60000 && t % 60000 === 0) return formatTime(t, 'min').replace(' ', '');
+    return String(Math.round(t * 1000) / 1000);
+  };
   const [v, setV] = useState(show(value));
   useEffect(() => setV(show(value)), [value, unit]); // eslint-disable-line react-hooks/exhaustive-deps
   const commit = () => {
@@ -223,7 +230,7 @@ export function TimeInput({ value, onChange, allowEmpty, placeholder }: { value:
       else setV(show(value));
       return;
     }
-    const t = parseTime(v, unit === 's' ? 's' : 'ms');
+    const t = parseTime(v, unit === 'auto' ? 'ms' : unit);
     if (t === null || t < 0) {
       setV(show(value));
       return;
@@ -234,8 +241,8 @@ export function TimeInput({ value, onChange, allowEmpty, placeholder }: { value:
     <input
       className="input num"
       value={v}
-      placeholder={placeholder ?? (unit === 's' ? 's' : 'ms')}
-      title={tr('예: 500, 1.5s, T#2s', 'e.g. 500, 1.5s, T#2s')}
+      placeholder={placeholder ?? (unit === 'auto' ? 'ms' : unit)}
+      title={tr('예: 500, 1.5s, 30min, 6h, T#2s', 'e.g. 500, 1.5s, 30min, 6h, T#2s')}
       onChange={(e) => setV(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}

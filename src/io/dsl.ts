@@ -256,7 +256,7 @@ export function parseDsl(text: string, base?: Project): DslResult {
       if ((META_KEYS as string[]).includes(key)) (p.meta as unknown as Record<string, string>)[key] = val;
       else if (key === 'duration') p.settings.duration = timeOf(val, ln, errors) || p.settings.duration;
       else if (key === 'grid') p.settings.grid = timeOf(val, ln, errors) || p.settings.grid;
-      else if (key === 'unit') p.settings.timeUnit = val === 's' ? 's' : val === 'auto' ? 'auto' : 'ms';
+      else if (key === 'unit') p.settings.timeUnit = val === 's' || val === 'min' || val === 'h' || val === 'auto' ? val : 'ms';
       else errors.push({ line: ln, message: `알 수 없는 설정 "${key}"` });
       return;
     }

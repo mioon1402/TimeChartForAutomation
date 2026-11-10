@@ -316,12 +316,24 @@ function TourButtons({ onTour, primary }: { onTour: (id: TourId) => void; primar
   );
 }
 
-const WHATS_NEW_KEY = 'timechart-studio.whats-new.v4';
+const WHATS_NEW_KEY = 'timechart-studio.whats-new.v5';
 
 /** 이전 버전을 쓰던 사람에게 한 번만: 새로 생긴 기능 */
 export function WhatsNew({ onClose }: { onClose: () => void }) {
   const setTab = useStore((s) => s.setTab);
   const items: { icon: string; title: string; desc: string; go?: () => void; goLabel?: string }[] = [
+    {
+      icon: 'play',
+      title: tr('타임 스위치로 전등 자동 점멸', 'Lights on a 24-hour time switch'),
+      desc: tr('24시간 다이얼 타임 스위치 · 전등 · 3로 스위치가 생겼습니다. 켜지는 시각을 정하고 시뮬레이션하면 1초에 1시간씩 흐르며 전등이 켜지고 꺼집니다. 타임차트는 0~24시로 나옵니다.', 'A 24-hour dial time switch, lights and 3-way switches. The simulation runs at 1 hour per second and the chart covers 0–24 h.'),
+      go: () => F.openCircuitExample('tsw-light'),
+      goLabel: tr('예제 열기', 'Open example'),
+    },
+    {
+      icon: 'help',
+      title: tr('부품 쓰는 법 · 따라 배선하기', 'How to use each part · follow-along wiring'),
+      desc: tr('부품을 누르면 속성에 단자 뜻 · 잇는 순서 · 예제가 나옵니다. 결선표의 [따라 배선하기]는 전선을 한 가닥씩 안내하고, 그림에 선번호도 적을 수 있습니다.', 'Click a part to see what its terminals mean and how to wire it. The wiring list can guide you wire by wire and print wire numbers on the drawing.'),
+    },
     {
       icon: 'wire',
       title: tr('제어반 실물 배선 · 결선표', 'Control panel wiring & wiring list'),

@@ -71,7 +71,7 @@ function ProjectProps() {
             <TimeInput value={st.grid} onChange={(v) => v && setSettings({ grid: v })} />
           </Field>
           <Field label={tr('시간 단위', 'Time unit')}>
-            <Select value={st.timeUnit} onChange={(v) => setSettings({ timeUnit: v })} options={[{ value: 'ms', label: 'ms' }, { value: 's', label: 's' }, { value: 'auto', label: tr('자동', 'Auto') }]} />
+            <Select value={st.timeUnit} onChange={(v) => setSettings({ timeUnit: v })} options={[{ value: 'ms', label: 'ms' }, { value: 's', label: 's' }, { value: 'min', label: tr('분 (min)', 'min') }, { value: 'h', label: tr('시간 (h)', 'h') }, { value: 'auto', label: tr('자동', 'Auto') }]} />
           </Field>
           <Field label={tr('행 높이 (px)', 'Row height')}>
             <NumberInput value={st.rowHeight} min={20} max={120} onChange={(v) => v && setSettings({ rowHeight: v })} />

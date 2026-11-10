@@ -1,8 +1,8 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, VALVES } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
-import { formatTime } from '../model/format';
+import { formatClock, formatTime } from '../model/format';
 import { tr } from '../i18n';
 
 /** 부품 리스트 한 줄 = 기호 하나 (코일과 그 접점들은 한 기기) */
@@ -65,6 +65,10 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_ss: 6,
   r_estop: 6,
   r_tb: 12,
+  r_tsw: 4,
+  r_light: 8,
+  r_sw: 6,
+  r_sw3: 6,
   frl: 10,
   v32: 10,
   v52: 10,
@@ -83,7 +87,7 @@ const VALVE_KIND: Partial<Record<PartType, [string, string]>> = {
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
 function mainOf(parts: Part[]): Part {
   const rank = (p: Part) =>
-    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_timer8'
+    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_tsw'
       ? 0
       : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3'
         ? 1
@@ -179,6 +183,18 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('비상정지 스위치', 'Emergency stop'), spec: [tr('적색 버섯, 잠김', 'red mushroom, latching'), ab].join(', ') };
     case 'r_tb':
       return { kind: tr('단자대', 'Terminal block'), spec: `${tbSize(p)}P` };
+    case 'r_tsw': {
+      const on = tswSched(p)
+        .map(([s, e]) => `${formatClock(s)}~${formatClock(e)}`)
+        .join(', ');
+      return { kind: tr('24시간 타임 스위치 (다이얼식)', '24-hour dial time switch'), spec: [tr('AC 220V, 접점 1c', 'AC 220V, 1 c/o contact'), on ? `ON ${on}` : ''].filter(Boolean).join(', ') };
+    }
+    case 'r_light':
+      return { kind: tr('전등', 'Light'), spec: 'AC 220V' };
+    case 'r_sw':
+      return { kind: tr('스위치 (단로)', 'Switch (1-way)'), spec: '' };
+    case 'r_sw3':
+      return { kind: tr('3로 스위치', '3-way switch'), spec: '' };
     case 'fuse3':
     case 'fuse':
       return { kind: tr('퓨즈', 'Fuse'), spec: p.type === 'fuse3' ? '3P' : '1P' };
@@ -302,7 +318,7 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   for (const p of c.parts) {
     const pins = PARTS[p.type].pins;
     // 단자가 많은 실물 기기는 안 쓰는 단자(예비 접점, 남는 극)가 있는 게 보통
-    if (!pins.length || p.type === 'src' || p.type === 'plc' || p.type === 'cyl' || (REAL.has(p.type) && p.type !== 'r_lamp')) continue;
+    if (!pins.length || p.type === 'src' || p.type === 'plc' || p.type === 'cyl' || (REAL.has(p.type) && p.type !== 'r_lamp' && p.type !== 'r_light' && p.type !== 'r_sw')) continue;
     const nets = pins.map((_, i) => model.net.pinNet.get(`${p.id}:${i}`)!);
     // 공압 포트는 안 쓰는 것이 있어도 정상 (5/2 밸브로 단동 실린더 등)
     const floating = nets.filter((n, i) => !pins[i].air && model.net.pinCount[n] <= 1 && !model.net.hasWire[n]).length;
@@ -349,6 +365,13 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
     for (const s of [p.solA, p.type === 'v52d' || p.type === 'v53' ? p.solB : undefined]) {
       if (s?.trim() && !model.loadParts.has(normTag(s))) out.push({ level: 'error', msg: tr(`${name}: 솔레노이드 ${s} 이(가) 회로에 없습니다`, `${name}: solenoid ${s} not in the circuit`), partIds: [p.id] });
     }
+  }
+  // 타임 스위치: 시계 전원, 설정
+  for (const d of model.tswDef.values()) {
+    const p = d.part;
+    const wired = (n: number) => model.net.pinCount[n] > 1 || model.net.hasWire[n];
+    if (!wired(d.l) || !wired(d.n)) out.push({ level: 'warn', msg: tr(`${p.tag}: 시계 전원 L · N 을 이어야 다이얼이 돕니다`, `${p.tag}: wire L and N so the dial runs`), partIds: [p.id] });
+    if (!d.sched.some(([a, b]) => a !== b)) out.push({ level: 'warn', msg: tr(`${p.tag}: 켜지는 시각을 정하세요`, `${p.tag}: set the ON periods`), partIds: [p.id] });
   }
   const plcParts = c.parts.filter((p) => p.type === 'plc').map((p) => p.id);
   for (const msg of model.plcIssues) out.push({ level: model.prog ? 'error' : 'warn', msg, partIds: plcParts });

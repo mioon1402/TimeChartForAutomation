@@ -567,7 +567,7 @@ export const useStore = create<State>((set, get) => {
       set({ range });
     },
     setZoom(z) {
-      set({ zoom: Math.min(Math.max(z, 0.0005), 50) });
+      set({ zoom: Math.min(Math.max(z, 1e-7), 50) });
     },
     setSnap(snap) {
       set({ snap });
@@ -616,7 +616,7 @@ export const useStore = create<State>((set, get) => {
     fitZoom() {
       const { project, viewWidth } = get();
       const d = Math.max(project.settings.duration, 1);
-      set({ zoom: Math.max((viewWidth - 24) / d, 0.0005) });
+      set({ zoom: Math.max((viewWidth - 24) / d, 1e-7) });
     },
     revealTime(t) {
       set({ scrollToTime: t });

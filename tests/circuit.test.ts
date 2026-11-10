@@ -646,3 +646,134 @@ describe('wiring list', () => {
     expect(realRows.map((r) => `${termText(r.from)}-${termText(r.to)}`)).toContain('MC1 2/T1-M1 U');
   });
 });
+
+describe('24-hour dial time switch and lighting', () => {
+  const H = 3600000;
+  const hours = (res: ScenarioResult, key: string) => edges(res, key).map((e) => [e.t / H, e.v]);
+
+  it('switches the lights at the set times over one day', () => {
+    const c = example('tsw-light');
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    expect(res.warnings).toEqual([]);
+    expect(res.end).toBe(24 * H);
+    // 05:00~07:00, 18:00~23:00
+    expect(hours(res, 'ts:TS1')).toEqual([[0, 0], [5, 1], [7, 0], [18, 1], [23, 0]]);
+    expect(hours(res, 'load:EL1')).toEqual([[0, 0], [5, 1], [7, 0], [18, 1], [23, 0]]);
+    expect(hours(res, 'load:EL2')).toEqual(hours(res, 'load:EL1'));
+    // 차트는 0~24시, 시간 단위
+    const p = applyCircuit({ ...createProject(), circuit: c });
+    expect(p.settings.duration).toBe(24 * H);
+    expect(p.settings.timeUnit).toBe('h');
+    expect(p.signals.find((s) => s.address === 'TS1')?.name).toBe('전등 타이머 접점');
+    const rows = partsList(c);
+    expect(rows.find((r) => r.tag === 'TS1')?.kind).toBe('24시간 타임 스위치 (다이얼식)');
+    expect(rows.find((r) => r.tag === 'TS1')?.spec).toContain('ON 18:00~23:00, 05:00~07:00');
+    expect(rows.find((r) => r.tag === 'EL1')?.kind).toBe('전등');
+  });
+
+  it('runs past midnight, starts from the chosen clock time and stops while the supply is off', () => {
+    const c = example('tsw-light');
+    c.parts.find((p) => p.type === 'r_tsw')!.sched = [[22 * H, 2 * H]];
+    // 21:00 에 시작: 1시간 뒤(22:00) 켜지고, 5시간 뒤(02:00) 꺼진다
+    c.clock = 21 * H;
+    expect(hours(runScenario(c), 'load:EL1')).toEqual([[0, 0], [1, 1], [5, 0]]);
+    // 23:00 (t = 2h) 에 차단기를 1시간 내리면 시계가 1시간 늦어진다: 꺼지는 것은 t = 6h
+    c.ops = [
+      { id: 'a', wait: 2 * H, tag: 'MCB1', action: 'off', hold: 0 },
+      { id: 'b', wait: 1 * H, tag: 'MCB1', action: 'on', hold: 0 },
+    ];
+    const res = runScenario(c);
+    expect(hours(res, 'load:EL1')).toEqual([[0, 0], [1, 1], [2, 0], [3, 1], [6, 0]]);
+    expect(hours(res, 'ts:TS1')).toEqual([[0, 0], [1, 1], [6, 0]]);
+  });
+
+  it('time switch + auto/manual selector + contactor', () => {
+    const c = example('tsw-panel');
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    expect(res.warnings).toEqual([]);
+    // 자동: 18:00 ~ 다음 날 06:00, 수동: 10시부터 1시간
+    expect(hours(res, 'coil:MC1')).toEqual([[0, 1], [6, 0], [10, 1], [11, 0], [18, 1]]);
+    expect(hours(res, 'load:EL3')).toEqual(hours(res, 'coil:MC1'));
+  });
+
+  it('3-way switches control one light from two places', () => {
+    const c = example('stair');
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    expect(edges(res, 'load:EL1')).toEqual([
+      { t: 0, v: 1 },
+      { t: 1000, v: 0 },
+      { t: 3000, v: 1 },
+      { t: 5000, v: 0 },
+    ]);
+  });
+
+  it('keeps the schedule and start clock through saving, and warns about a missing clock supply', () => {
+    const ts = part('r_tsw', 0, 0, 'TS1', { sched: [[18 * H, 23 * H]] });
+    const c: Circuit = { parts: [ts, part('src', -10, -10, '', { pole: 'L' })], wires: [], ops: [], clock: 6 * H };
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify(c)))!;
+    expect(back.parts[0].sched).toEqual([[18 * H, 23 * H]]);
+    expect(back.clock).toBe(6 * H);
+    expect(checkCircuit(c).some((i) => i.msg.includes('시계 전원'))).toBe(true);
+  });
+});
+
+describe('time formatting for long charts', () => {
+  it('formats and parses hours, minutes and clock times', async () => {
+    const { formatTime, parseTime, formatClock, parseClock, tickSteps } = await import('../src/model/format');
+    expect(formatTime(6 * 3600000, 'h')).toBe('6 h');
+    expect(formatTime(90 * 60000, 'min')).toBe('90 min');
+    expect(formatTime(86400000, 'auto')).toBe('24 h');
+    expect(formatTime(1500, 'auto')).toBe('1.5 s');
+    expect(parseTime('6h')).toBe(6 * 3600000);
+    expect(parseTime('30min')).toBe(30 * 60000);
+    expect(parseTime('1m30s')).toBe(90000);
+    expect(parseTime('2', 'h')).toBe(2 * 3600000);
+    expect(formatClock(18.5 * 3600000)).toBe('18:30');
+    expect(formatClock(25 * 3600000)).toBe('01:00');
+    expect(parseClock('18:30')).toBe(18.5 * 3600000);
+    expect(parseClock('25:00')).toBeNull();
+    // 하루를 1000px 에: 큰 눈금 2시간
+    expect(tickSteps(1000 / 86400000, 'h').major).toBe(2 * 3600000);
+    expect(tickSteps(0.1, 'ms').major).toBe(1000);
+  });
+});
+
+describe('device guide and wire numbers', () => {
+  it('explains every part and points to examples that exist', async () => {
+    const { partGuide } = await import('../src/circuit/guide');
+    const { PARTS } = await import('../src/circuit/parts');
+    const ids = new Set(circuitExamples().map((e) => e.id));
+    for (const type of Object.keys(PARTS) as PartType[]) {
+      const g = partGuide(type);
+      if (type === 'text') {
+        expect(g).toBeNull();
+        continue;
+      }
+      expect(g, type).not.toBeNull();
+      expect(g!.what.length, type).toBeGreaterThan(10);
+      expect(g!.pins.length, type).toBeGreaterThan(0);
+      expect(g!.steps.length, type).toBeGreaterThan(0);
+      if (g!.example) expect(ids.has(g!.example), `${type} → ${g!.example}`).toBe(true);
+    }
+    // 예제가 그 부품을 실제로 쓴다
+    for (const type of ['r_mc', 'r_tsw', 'r_relay8', 'r_sw3'] as PartType[]) {
+      const ex = circuitExamples().find((e) => e.id === partGuide(type)!.example)!;
+      expect(ex.build().parts.some((p) => p.type === type), type).toBe(true);
+    }
+  });
+
+  it('places one wire number per wire on the drawing', async () => {
+    const { wiringList, wireNoLabels } = await import('../src/circuit/wiring');
+    const c = example('tsw-light');
+    const rows = wiringList(c, new CircuitModel(c));
+    const labels = wireNoLabels(rows);
+    expect(labels).toHaveLength(rows.length);
+    expect(new Set(labels.map((l) => l.no))).toEqual(new Set(rows.map((r) => r.no)));
+    // L 은 1번, N 은 2번
+    expect(rows[0].no).toBe(1);
+    expect(rows[0].from.dev).toBe('L');
+  });
+});

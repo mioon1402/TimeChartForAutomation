@@ -425,6 +425,105 @@ function controlPanel(): Circuit {
   return b.done();
 }
 
+const H = 3600000;
+
+/**
+ * 타임 스위치로 전등 자동 점멸 (기본): 차단기 2P → 타임 스위치 시계 전원 L · N,
+ * L 을 COM 에 점퍼, NO → 전등 L, 전등 N → N. 18:00~23:00 과 05:00~07:00 에 켜진다.
+ */
+function timeSwitchLight(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 5, 0, '', { pole: 'L' });
+  b.part('r_term', 7, 0, '', { pole: 'N' });
+  b.part('r_mcb2', 6, 7, 'MCB1', { name: tr('전등 회로', 'Lighting'), spec: 'AC/20A' });
+  b.cable('brown', [5, 0], [5, 3]);
+  b.cable('blue', [7, 0], [7, 3]);
+  b.part('r_tsw', 16, 9, 'TS1', {
+    name: tr('전등 타이머', 'Light timer'),
+    sched: [
+      [18 * H, 23 * H],
+      [5 * H, 7 * H],
+    ],
+  });
+  // 시계 전원 L · N, L → COM 점퍼
+  b.cable('brown', [5, 11], [5, 18], [12, 18], [12, 14]);
+  b.cable('brown', [12, 18], [16, 18], [16, 14]);
+  b.cable('blue', [7, 11], [7, 20], [28, 20], [28, 10]);
+  b.cable('blue', [14, 14], [14, 20]);
+  b.cable('blue', [28, 20], [34, 20], [34, 10]);
+  // NO → 전등
+  b.part('r_light', 27, 8, 'EL1', { name: tr('현관등', 'Porch light') });
+  b.part('r_light', 33, 8, 'EL2', { name: tr('간판등', 'Sign light') });
+  b.cable('red', [18, 14], [18, 16], [26, 16], [26, 10]);
+  b.cable('red', [26, 16], [32, 16], [32, 10]);
+  b.part('text', 1, -3, '', { text: tr('타임 스위치로 전등 자동 점멸: 18:00 켜짐 → 23:00 꺼짐, 05:00 켜짐 → 07:00 꺼짐', 'Lights on a 24-hour time switch: on 18:00–23:00 and 05:00–07:00') });
+  return b.done();
+}
+
+/**
+ * 타임 스위치 + 자동/수동 셀렉터 + 전자접촉기: 전등이 많으면 타임 스위치 접점으로 직접 켜지 않고 MC 코일만 움직인다.
+ *  - 자동 (SS = 0): L → SS 11-12 → TS1 COM-NO → MC1 A1, A2 → N
+ *  - 수동 (SS = 1): L → SS 23-24 → MC1 A1 (시각과 관계없이 점등)
+ *  - 전등: L → MC1 1/L1-2/T1 → 전등 → N
+ */
+function timeSwitchPanel(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 5, 0, '', { pole: 'L' });
+  b.part('r_term', 7, 0, '', { pole: 'N' });
+  b.part('r_mcb2', 6, 7, 'MCB1', { name: tr('전등 회로', 'Lighting'), spec: 'AC/30A' });
+  b.cable('brown', [5, 0], [5, 3]);
+  b.cable('blue', [7, 0], [7, 3]);
+  b.part('r_tsw', 16, 9, 'TS1', { name: tr('가로등 타이머', 'Street light timer'), sched: [[18 * H, 6 * H]] });
+  b.part('r_ss', 27, 8, 'SS', { name: tr('0 자동 · 1 수동', '0 auto · 1 manual') });
+  b.part('r_mc', 12, 30, 'MC1', { name: tr('전등 점멸', 'Lights'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  // L: 차단기 2 → MC 1/L1, 타임 스위치 L, 셀렉터 11 · 23
+  b.cable('brown', [5, 11], [5, 22], [9, 22], [9, 26]);
+  b.cable('brown', [12, 14], [12, 18], [5, 18]);
+  b.cable('red', [12, 18], [22, 18], [22, 8], [26, 8]);
+  b.cable('red', [22, 10], [26, 10]);
+  // N: 차단기 4 → 타임 스위치 N, MC A2, 전등 N
+  b.cable('blue', [7, 11], [7, 40], [37, 40], [37, 32]);
+  b.cable('blue', [14, 14], [14, 16], [7, 16]);
+  b.cable('blue', [14, 36], [14, 40]);
+  b.cable('blue', [25, 32], [25, 40]);
+  b.cable('blue', [31, 32], [31, 40]);
+  // 자동: SS 12 → TS COM, TS NO → MC A1.  수동: SS 24 → MC A1
+  b.cable('red', [28, 8], [30, 8], [30, 16], [16, 16], [16, 14]);
+  b.cable('red', [18, 14], [18, 20], [10, 20], [10, 24]);
+  b.cable('red', [28, 10], [29, 10], [29, 20], [18, 20]);
+  // 전등: MC 2/T1 → 전등 L
+  b.part('r_light', 24, 30, 'EL1', { name: tr('가로등 1', 'Light 1') });
+  b.part('r_light', 30, 30, 'EL2', { name: tr('가로등 2', 'Light 2') });
+  b.part('r_light', 36, 30, 'EL3', { name: tr('가로등 3', 'Light 3') });
+  b.cable('black', [9, 34], [9, 38], [35, 38], [35, 32]);
+  b.cable('black', [23, 32], [23, 38]);
+  b.cable('black', [29, 32], [29, 38]);
+  b.part('text', 1, -3, '', { text: tr('타임 스위치 + 자동/수동 + 전자접촉기: 18:00 ~ 다음 날 06:00 점등, 수동으로 강제 점등', 'Time switch + auto/manual + contactor: on 18:00–06:00, manual override') });
+  b.op(10 * H, 'SS', 'on', tr('수동 점등 (점검)', 'Manual on (check)'));
+  b.op(1 * H, 'SS', 'off', tr('자동으로', 'Back to auto'));
+  return b.done();
+}
+
+/** 3로 스위치 2개로 계단등: L → S1 0, S1 1-S2 1, S1 3-S2 3, S2 0 → 전등 → N. 어느 쪽에서 눌러도 바뀐다 */
+function stairLight(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 3, 5, '', { pole: 'L' });
+  b.part('r_term', 31, 11, '', { pole: 'N' });
+  b.part('r_sw3', 8, 8, 'S1', { name: tr('아래층', 'Downstairs') });
+  b.part('r_sw3', 18, 8, 'S2', { name: tr('위층', 'Upstairs') });
+  b.part('r_light', 26, 6, 'EL1', { name: tr('계단등', 'Stair light') });
+  b.cable('brown', [3, 5], [8, 5]);
+  b.cable('red', [7, 10], [7, 14], [17, 14], [17, 10]);
+  b.cable('black', [9, 10], [9, 12], [19, 12], [19, 10]);
+  b.cable('red', [18, 5], [18, 2], [23, 2], [23, 11], [25, 11], [25, 8]);
+  b.cable('blue', [27, 8], [27, 11], [31, 11]);
+  b.part('text', 1, -2, '', { text: tr('3로 스위치 계단등: 아래층 · 위층 어디서나 켜고 끈다', '3-way stair light: switch from either floor') });
+  b.op(1000, 'S1', 'on', tr('아래층에서 끔', 'Off from downstairs'));
+  b.op(2000, 'S2', 'on', tr('위층에서 켬', 'On from upstairs'));
+  b.op(2000, 'S1', 'off', tr('아래층에서 끔', 'Off from downstairs'));
+  return b.done();
+}
+
 /** PLC 자기유지: 기동 PB → X0, 정지 PB → X1, Y0 운전 램프, T0(3초) 뒤 Y1 램프 */
 function plcSelfHold(): Circuit {
   const b = new Builder();
@@ -478,6 +577,9 @@ export interface CircuitExample {
 
 export function circuitExamples(): CircuitExample[] {
   return [
+    { id: 'tsw-light', name: tr('타임 스위치로 전등 자동 점멸 (기본)', 'Lights on a time switch (basic)'), desc: tr('24시간 다이얼 타임 스위치 하나로 전등 2개를 정해진 시각에 켜고 끕니다', 'One 24-hour dial time switch turns two lights on and off'), build: timeSwitchLight },
+    { id: 'tsw-panel', name: tr('타임 스위치 + 자동/수동 + 전자접촉기', 'Time switch + auto/manual + contactor'), desc: tr('전등이 많을 때: 타임 스위치는 MC 코일만 움직이고, 셀렉터로 수동 점등', 'Many lights: the time switch drives a contactor coil, selector for manual on'), build: timeSwitchPanel },
+    { id: 'stair', name: tr('3로 스위치 계단등', '3-way stair light'), desc: tr('3로 스위치 2개로 두 곳에서 전등 하나를 켜고 끕니다', 'Two 3-way switches control one light'), build: stairLight },
     { id: 'panel', name: tr('제어반 실물 배선: 릴레이 · 타이머 · 단자대', 'Control panel: relay, timer, terminal block'), desc: tr('비상정지 · 셀렉터 · 푸시버튼 · 램프 (문) ↔ 단자대 ↔ 8핀 릴레이 · 타이머 (판넬). 결선표를 따라 배선 연습', 'Door devices ↔ terminal block ↔ 8-pin relay and timer; follow the wiring list'), build: controlPanel },
     { id: 'real', name: tr('실물 배선도: 전동기 기동·정지', 'Wiring diagram: motor start/stop'), desc: tr('차단기 3P·2P, 전자접촉기, 푸시버튼 유닛, 전동기를 실제 단자 번호와 전선 색으로', 'Real devices with terminal numbers and wire colours'), build: realWiring },
     { id: 'self-hold', name: tr('자기유지 (전동기 기동·정지)', 'Self-holding (motor start/stop)'), desc: tr('기동 PB로 MC1 자기유지, 정지 PB로 해제. 주회로와 표시등 포함', 'Start latches MC1, stop releases it; power circuit and lamps'), build: selfHold },

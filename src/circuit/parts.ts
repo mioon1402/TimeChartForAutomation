@@ -303,11 +303,55 @@ export const PARTS: Record<PartType, PartDef> = {
   r_estop: { type: 'r_estop', cat: 'switch', pins: [pin(-1, 0, '11'), pin(1, 0, '12'), pin(-1, 2, '23'), pin(1, 2, '24')], poles: PB_POLES, polesNc: [true, false], operate: 'toggle', box: [-2.6, -4.4, 2.6, 3], prefix: 'EMS' },
   // 단자대: 극마다 위·아래 나사 (극수는 부품마다, partPins 참고)
   r_tb: { type: 'r_tb', cat: 'misc', pins: [], box: [-1.2, -2.6, 11.2, 2.6], prefix: 'TB' },
+  // 24시간 타임 스위치: 아래 단자 L · N (시계 전원), COM · NO · NC (접점)
+  r_tsw: {
+    type: 'r_tsw',
+    cat: 'relay',
+    pins: [pin(-4, 5, 'L'), pin(-2, 5, 'N'), pin(0, 5, 'COM'), pin(2, 5, 'NO'), pin(4, 5, 'NC')],
+    poles: [
+      [2, 3],
+      [2, 4],
+    ],
+    polesNc: [false, true],
+    box: [-4.8, -5.8, 4.8, 5.8],
+    prefix: 'TS',
+  },
+  r_light: { type: 'r_light', cat: 'output', pins: [pin(-1, 2, 'L'), pin(1, 2, 'N')], load: true, box: [-2.2, -3.6, 2.2, 2.8], prefix: 'EL' },
+  r_sw: { type: 'r_sw', cat: 'switch', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], poles: [[0, 1]], operate: 'toggle', box: [-2, -2.6, 2, 2.8], prefix: 'S' },
+  r_sw3: {
+    type: 'r_sw3',
+    cat: 'switch',
+    pins: [pin(0, -3, '0'), pin(-1, 2, '1'), pin(1, 2, '3')],
+    poles: [
+      [0, 1],
+      [0, 2],
+    ],
+    polesNc: [true, false],
+    operate: 'toggle',
+    box: [-2, -3.8, 2, 2.8],
+    prefix: 'S',
+  },
   text: { type: 'text', cat: 'misc', pins: [], box: [0, -0.8, 4, 0.4], prefix: '' },
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_ss', 'r_estop', 'r_tb']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3']);
+
+/** 타임 스위치: 기본 설정 (18:00 켜짐 ~ 23:00 꺼짐) */
+export const DEFAULT_SCHED: [number, number][] = [[18 * 3600000, 23 * 3600000]];
+
+const DAY_MS = 86400000;
+
+/** 타임 스위치가 그 시각(하루 안의 ms)에 켜져 있는가. 꺼짐이 켜짐보다 이르면 자정을 넘기는 구간 */
+export function schedOn(sched: [number, number][], dial: number): boolean {
+  const e = 1e-6;
+  return sched.some(([a, b]) => (a < b ? dial >= a - e && dial < b - e : a > b ? dial >= a - e || dial < b - e : false));
+}
+
+/** 타임 스위치의 설정 (없으면 기본) */
+export function tswSched(p: Part): [number, number][] {
+  return (p.sched ?? DEFAULT_SCHED).map(([a, b]) => [((a % DAY_MS) + DAY_MS) % DAY_MS, ((b % DAY_MS) + DAY_MS) % DAY_MS] as [number, number]);
+}
 
 /** 단자대 극수 */
 export function tbSize(p: Part): number {
@@ -485,6 +529,14 @@ export function partKindName(type: PartType): string {
       return tr('비상정지 스위치 (1a1b)', 'Emergency stop (1 NO 1 NC)');
     case 'r_tb':
       return tr('단자대', 'Terminal block');
+    case 'r_tsw':
+      return tr('24시간 타임 스위치 (다이얼식)', '24-hour dial time switch');
+    case 'r_light':
+      return tr('전등', 'Light');
+    case 'r_sw':
+      return tr('스위치 (단로)', 'Switch (1-way)');
+    case 'r_sw3':
+      return tr('3로 스위치', '3-way switch');
     case 'text':
       return tr('글자', 'Text');
   }
@@ -529,6 +581,16 @@ export function palette(): PaletteGroup[] {
       title: tr('릴레이 · 타이머 (8핀)', '8-pin relay & timer'),
       mode: 'real',
       items: [it('r_relay8', tr('8핀 릴레이 + 소켓', '8-pin relay + socket')), it('r_timer8', tr('8핀 타이머 + 소켓', '8-pin timer + socket'), { timerMode: 'on', preset: 3000 })],
+    },
+    {
+      title: tr('전등 · 타임 스위치', 'Lighting & time switch'),
+      mode: 'real',
+      items: [
+        it('r_tsw', tr('24시간 타임 스위치', '24-h time switch'), { sched: [[18 * 3600000, 23 * 3600000]] }),
+        it('r_light', tr('전등', 'Light')),
+        it('r_sw', tr('스위치 (단로)', 'Switch (1-way)')),
+        it('r_sw3', tr('3로 스위치', '3-way switch')),
+      ],
     },
     {
       title: tr('조작 · 표시', 'Buttons & lamps'),
@@ -677,7 +739,7 @@ export const POLE_SYSTEM: Record<string, 'dc' | 'ac' | 'pe'> = { '+24V': 'dc', '
 
 /** 기호를 따라 움직이는 접점 (코일·타이머·THR·스위치) */
 export const FOLLOWER: ReadonlySet<PartType> = new Set(['no', 'nc', 'km3']);
-export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_pb', 'r_thr', 'r_ss', 'r_estop']);
+export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3']);
 export const VALVES: ReadonlySet<PartType> = new Set(['v32', 'v52', 'v52d', 'v53']);
 export const CONTACT_A: ReadonlySet<PartType> = new Set(['no', 'pb_no', 'sw_no', 'ls_no']);
 export const CONTACT_B: ReadonlySet<PartType> = new Set(['nc', 'pb_nc', 'sw_nc', 'ls_nc', 'estop']);

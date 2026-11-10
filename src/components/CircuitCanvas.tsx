@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
 import { autoWireColor } from '../circuit/wires';
-import { OPERATOR, partBox, pinPositions, type PaletteItem } from '../circuit/parts';
+import { OPERATOR, partBox, partPins, pinPositions, type PaletteItem } from '../circuit/parts';
 import { tagKey, type CircuitModel, type CircuitSim } from '../circuit/engine';
 import { uid } from '../model/wave';
 import { CircuitLayer, circuitBounds, G, PartGlyph, partState, type CircuitColors, type LayerOptions } from '../render/CircuitSvg';
@@ -93,6 +93,8 @@ export interface CanvasProps {
   fitKey: number;
   /** 결선표에서 고른 전선 (강조, 화면 밖이면 그쪽으로 이동) */
   highlight?: LayerOptions['highlight'];
+  wireNos?: LayerOptions['wireNos'];
+  progress?: LayerOptions['progress'];
 }
 
 export function CircuitCanvas(props: CanvasProps) {
@@ -367,6 +369,18 @@ export function CircuitCanvas(props: CanvasProps) {
   const W = (x1 - x0) * G;
   const H = (y1 - y0) * G;
   const pinHot = !sim && !placing && hover && (tool === 'wire' || circuit.parts.some((p) => pinPositions(p).some((q) => q[0] === hover[0] && q[1] === hover[1])));
+  // 단자 위에 마우스를 올리면 어느 기기의 몇 번 단자인지 (MC1 13NO)
+  const pinName = useMemo(() => {
+    if (sim || placing || !hover) return '';
+    for (const p of circuit.parts) {
+      const i = pinPositions(p).findIndex((q) => q[0] === hover[0] && q[1] === hover[1]);
+      if (i < 0) continue;
+      const label = partPins(p)[i]?.label ?? '';
+      const dev = p.tag.trim() || (p.type === 'src' || p.type === 'r_term' ? p.pole ?? 'L' : '');
+      return [dev, p.type === 'src' || p.type === 'r_term' ? '' : label].filter(Boolean).join(' ');
+    }
+    return '';
+  }, [circuit.parts, hover, sim, placing]);
   const cursor = sim ? (hoverOp ? 'pointer' : 'grab') : placing ? 'copy' : tool === 'wire' || pinHot ? 'crosshair' : 'default';
 
   let preview: Pt[] | null = null;
@@ -404,9 +418,17 @@ export function CircuitCanvas(props: CanvasProps) {
         </defs>
         <rect x={x0 * G} y={y0 * G} width={W} height={H} fill="url(#cc-grid)" />
         <rect x={x0 * G} y={y0 * G} width={W} height={H} fill="url(#cc-grid5)" />
-        <CircuitLayer circuit={circuit} model={model} c={c} o={{ sim, selected, flagged: props.flagged, showPins: !sim, highlight: props.highlight }} />
+        <CircuitLayer circuit={circuit} model={model} c={c} o={{ sim, selected, flagged: props.flagged, showPins: !sim, highlight: props.highlight, wireNos: props.wireNos, progress: sim ? null : props.progress }} />
         {preview && <polyline points={preview.map((p) => `${p[0] * G},${p[1] * G}`).join(' ')} fill="none" stroke={c.accent} strokeWidth={2} strokeDasharray="5 4" />}
         {pinHot && hover && <circle cx={hover[0] * G} cy={hover[1] * G} r={6} fill="none" stroke={c.accent} strokeWidth={1.6} />}
+        {pinName && hover && (
+          <g pointerEvents="none" transform={`translate(${hover[0] * G + 10},${hover[1] * G - 12})`}>
+            <rect x={0} y={-12} width={pinName.length * 7.2 + 12} height={17} rx={4} fill="#111827" opacity={0.92} />
+            <text x={6} y={1} fontSize={11} fontWeight={700} fill="#f9fafb" fontFamily="ui-monospace, monospace">
+              {pinName}
+            </text>
+          </g>
+        )}
         {ghost && (
           <g transform={`translate(${ghost.x * G},${ghost.y * G})${ghost.rot ? ` rotate(${ghost.rot})` : ''}`} opacity={0.55} fill="none" strokeWidth={1.6} pointerEvents="none">
             <PartGlyph part={ghost} st={partState(ghost, model, null)} c={c} />
