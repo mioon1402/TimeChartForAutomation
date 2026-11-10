@@ -440,3 +440,39 @@ describe('analysis on any circuit, automatic sizing', () => {
     expect(a.loads.find((l) => l.tag === 'M1')!.dropPct).toBeLessThan(0.1);
   });
 });
+
+describe('ease of use helpers', () => {
+  it('selects the parallel conductors between the same two devices', async () => {
+    const { parallelWires, wireChain } = await import('../src/circuit/wires');
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const c = circuitExamples().find((e) => e.id === 'feeders')!.build();
+    // LP-1 급전선의 L1 한 가닥 → L2 · L3 까지 세 가닥
+    const l1 = c.wires.find((w) => w.a[0] === 4 && w.a[1] === 24)!;
+    const all = parallelWires(c, [l1.id]);
+    expect(wireChain(c, [l1.id])).toHaveLength(1);
+    expect(all).toHaveLength(3);
+    expect(all.map((id) => c.wires.find((w) => w.id === id)!.a[0]).sort((a, b) => a - b)).toEqual([4, 6, 8]);
+    // 분기점에서 끝나는 가닥 (부스바) 은 혼자
+    const bus = c.wires.find((w) => w.cable?.kind === 'bus')!;
+    expect(parallelWires(c, [bus.id])).toEqual([bus.id]);
+  });
+
+  it('sizes the line in front of the main breaker for that breaker', async () => {
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const real = circuitExamples().find((e) => e.id === 'real')!.build();
+    const incoming = analyzePower(real).bare.find((r) => r.from === '전원')!;
+    // 위쪽에 차단기는 없지만 끝에 물린 MCB1 (25 A) 이 전류를 제한한다 → 2.5 mm² (28 A)
+    expect(incoming).toMatchObject({ to: 'MCB1', count: 3, breaker: 'MCB1', breakerAmps: 25, suggest: 2.5 });
+  });
+
+  it('auto-sizing keeps the L and N of one load the same size', async () => {
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const { autoSize } = await import('../src/circuit/power');
+    const res = autoSize(circuitExamples().find((e) => e.id === 'feeders')!.build());
+    const a = analyzePower(res.circuit);
+    const legs = a.cables.filter((r) => r.to.startsWith('LD2 '));
+    expect(legs).toHaveLength(2);
+    expect(legs[0].spec.mm2).toBe(legs[1].spec.mm2);
+    expect(a.issues.filter((i) => i.level === 'error')).toEqual([]);
+  });
+});

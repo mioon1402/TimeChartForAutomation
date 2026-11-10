@@ -353,6 +353,8 @@ export class PowerModel {
   /** 점에 있는 단자 이름 (기기 기호 + 단자 번호) 과 기기 기호 */
   readonly pinName = new Map<number, string>();
   readonly pinDev = new Map<number, string>();
+  /** 점에 단자가 있는 차단기 */
+  private readonly breakerAt = new Map<number, Part>();
   private readonly phasor: Record<string, C>;
 
   constructor(
@@ -386,6 +388,7 @@ export class PowerModel {
         const n = node(pt);
         pinNode.set(`${p.id}:${i}`, n);
         pinsAt.add(n);
+        if (BREAKER.has(p.type) && !this.breakerAt.has(n)) this.breakerAt.set(n, p);
         const dev = p.tag.trim() || (p.type === 'src' || p.type === 'r_term' ? p.pole ?? 'L' : partKindName(p.type));
         if (!this.pinName.has(n)) {
           this.pinName.set(n, [dev, p.type === 'src' || p.type === 'r_term' ? '' : defs[i]?.label ?? ''].filter(Boolean).join(' '));
@@ -618,7 +621,16 @@ export class PowerModel {
     const nodes = this.segs.filter((s) => ids.has(s.wire)).flatMap((s) => [s.a, s.b]);
     let best = -1;
     for (const nd of nodes.length ? nodes : r.ends) if (best < 0 || this.depth[nd] < this.depth[best]) best = nd;
-    return best < 0 ? null : this.prot[best];
+    return (best < 0 ? null : this.prot[best]) ?? this.endBreaker(r.ends);
+  }
+
+  /**
+   * 위쪽에 차단기가 없는 가닥 (전원에서 메인 차단기까지) 은 그 끝에 물린 차단기가 전류를 제한한다:
+   * 중간에 분기가 없으면 과부하 보호 장치는 선의 어느 쪽에 있어도 된다
+   */
+  private endBreaker(ends: number[]): Part | null {
+    for (const nd of ends) if (this.breakerAt.has(nd)) return this.breakerAt.get(nd)!;
+    return null;
   }
 
   /** 케이블을 보호하는 차단기 (전원 쪽 끝에서 가장 가까운 것) */
@@ -627,7 +639,7 @@ export class PowerModel {
     const nodes = this.segs.filter((s) => s.cable === ci).flatMap((s) => [s.a, s.b]);
     let best = -1;
     for (const nd of nodes.length ? nodes : c.ends) if (best < 0 || this.depth[nd] < this.depth[best]) best = nd;
-    return best < 0 ? null : this.prot[best];
+    return (best < 0 ? null : this.prot[best]) ?? this.endBreaker(c.ends);
   }
 
   /** 케이블 양 끝: [단자 이름, 기기 기호] (전원 쪽이 먼저) */
@@ -1259,6 +1271,26 @@ export function autoSize(c: Circuit, makeModel: (c: Circuit) => CircuitModel = (
     if (!specs.size) break;
     apply(specs);
     a = analyzePower(cur, makeModel(cur));
+  }
+  // 한 부하로 들어가는 가닥끼리 (단상의 L 과 N) 는 같은 굵기로: 굵은 쪽에 맞춘다
+  {
+    const specs = new Map<string, CableSpec>();
+    for (const l of a.loads) {
+      const legs = a.cables.filter((r) => r.spec.kind !== 'bus' && l.path.includes(r.id) && (r.to === l.tag || r.to.startsWith(`${l.tag} `)));
+      const big = Math.max(0, ...legs.map((r) => r.spec.mm2));
+      for (const r of legs) {
+        if (r.spec.mm2 >= big || !r.wires.some((w) => touched.has(w)) && !legs.some((x) => x.wires.some((w) => touched.has(w)))) continue;
+        if (!cableSizes(r.spec.ins, r.spec.cores, r.spec.method).includes(big)) continue;
+        for (const w of r.wires) {
+          specs.set(w, { ...r.spec, mm2: big });
+          touched.add(w);
+        }
+      }
+    }
+    if (specs.size) {
+      apply(specs);
+      a = analyzePower(cur, makeModel(cur));
+    }
   }
   const rows = new Set(a.cables.filter((r) => r.wires.some((w) => touched.has(w))).map((r) => r.id));
   return { circuit: cur, assigned, resized: rows.size, left: a.issues.filter((i) => i.level === 'error').length };

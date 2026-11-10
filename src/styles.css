@@ -4833,6 +4833,24 @@ button.seq-kpi {
   margin-top: 10px;
 }
 
+.cc-power-auto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.cc-power-more {
+  margin: 10px 0 4px;
+}
+
+.cc-power-more summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
 .cc-power-note summary {
   cursor: pointer;
   font-size: 12px;
