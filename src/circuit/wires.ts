@@ -49,3 +49,30 @@ export function autoWireColor(c: Circuit, model: CircuitModel, from: Pt, to: Pt)
   }
   return 'grey';
 }
+
+/**
+ * 꺾여 이어진 한 가닥: 고른 선에서 모퉁이 (선 끝 둘만 만나고 단자 · 분기가 없는 점) 를 따라 이어진 선 전부.
+ * 케이블 규격은 이 한 가닥에 같은 값을 준다 (길이는 한 가닥 전체의 길이).
+ */
+export function wireChain(c: Circuit, ids: string[]): string[] {
+  const k = (p: Pt) => `${p[0]},${p[1]}`;
+  const ends = new Map<string, Circuit['wires']>();
+  for (const w of c.wires) for (const e of [w.a, w.b]) ends.set(k(e), [...(ends.get(k(e)) ?? []), w]);
+  const pins = new Set<string>();
+  for (const p of c.parts) for (const q of pinPositions(p)) pins.add(k(q));
+  const out = new Set(ids);
+  const stack = c.wires.filter((w) => out.has(w.id));
+  while (stack.length) {
+    const w = stack.pop()!;
+    for (const e of [w.a, w.b]) {
+      const ws = ends.get(k(e)) ?? [];
+      if (ws.length !== 2 || pins.has(k(e)) || c.wires.some((x) => onWireInterior(x, e[0], e[1]))) continue;
+      for (const x of ws) {
+        if (out.has(x.id)) continue;
+        out.add(x.id);
+        stack.push(x);
+      }
+    }
+  }
+  return [...out];
+}

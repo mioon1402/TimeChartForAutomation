@@ -1,4 +1,4 @@
-import type { Circuit, OpStep, Part, PartType, Wire, WireColor } from './types';
+import type { CableSpec, Circuit, OpStep, Part, PartType, Wire, WireColor } from './types';
 import { uid } from '../model/wave';
 import { tr } from '../i18n';
 import { defaultSimSettings, type PlcConfig } from '../plc/types';
@@ -23,6 +23,11 @@ class Builder {
   /** 색이 있는 실제 전선 */
   cable(color: WireColor, ...pts: [number, number][]): void {
     for (let i = 1; i < pts.length; i++) this.wires.push({ id: uid('cw'), a: pts[i - 1], b: pts[i], color });
+  }
+
+  /** 케이블 규격이 있는 전선 (꺾인 한 가닥 전체가 그 규격 · 길이) */
+  run(color: WireColor, spec: CableSpec, ...pts: [number, number][]): void {
+    for (let i = 1; i < pts.length; i++) this.wires.push({ id: uid('cw'), a: pts[i - 1], b: pts[i], color, cable: { ...spec } });
   }
 
   op(wait: number, tag: string, action: OpStep['action'] = 'press', note = '', hold = 300): void {
@@ -524,6 +529,64 @@ function stairLight(): Circuit {
   return b.done();
 }
 
+/**
+ * 분전반 급전 해석: MAIN (메인 차단기 100 A → 부스바 → 분기 차단기) 에서 급전선으로 LP-1 · LP-2 로.
+ *  - LP-1: 생산 라인 15 kW (10 mm² 40 m 급전, 6 mm² 15 m 분기) → 문제 없음
+ *  - LP-2: 급전선이 2.5 mm² (허용 28 A) 인데 분기 차단기는 30 A → In > Iz
+ *  - LP-2 조명 2 kW 를 1.5 mm² 80 m 로 → 전압강하가 3% 를 넘는다
+ * 일부러 문제를 넣어 둔 연습용 회로다 (LP-2 급전선 6 mm², 조명 회로 10 mm² 로 키우면 해결).
+ */
+function feederAnalysis(): Circuit {
+  const b = new Builder();
+  const COL: WireColor[] = ['brown', 'black', 'grey'];
+  const xl = (mm2: number, len: number, cores: 2 | 3 = 3): CableSpec => ({ ins: 'xlpe', mm2, method: 'B1', cores, len });
+  // 부스바 허용전류 200 A 는 예로 적은 값 (실제로는 제조사 표)
+  const bus: CableSpec = { kind: 'bus', ins: 'xlpe', mm2: 60, method: 'C', cores: 3, len: 0.5, iz: 200 };
+  // ── MAIN: 수전 → 메인 차단기 → 부스바 → 분기 차단기 2개
+  b.part('r_panel', 0, -4, 'MAIN', { name: tr('메인 분전반 380/220 V', 'Main panel 380/220 V'), w: 24, h: 31 });
+  b.part('r_term', 4, 0, '', { pole: 'L1' });
+  b.part('r_term', 6, 0, '', { pole: 'L2' });
+  b.part('r_term', 8, 0, '', { pole: 'L3' });
+  b.part('r_term', 20, 0, '', { pole: 'N' });
+  b.part('r_mcb3', 6, 6, 'MCB0', { name: tr('메인', 'Main'), amps: 100 });
+  b.part('r_mcb3', 6, 20, 'MCB1', { name: 'LP-1', amps: 50 });
+  b.part('r_mcb3', 16, 20, 'MCB2', { name: 'LP-2', amps: 30 });
+  [4, 6, 8].forEach((x, k) => {
+    b.cable(COL[k], [x, 0], [x, 2]);
+    b.cable(COL[k], [x, 10], [x, 12 + k]);
+    // 부스바 (가로) 와 분기 차단기로 내려가는 선
+    b.run(COL[k], bus, [x, 12 + k], [x + 10, 12 + k]);
+    b.cable(COL[k], [x, 12 + k], [x, 16]);
+    b.cable(COL[k], [x + 10, 12 + k], [x + 10, 16]);
+  });
+  // ── LP-1: 급전 10 mm² 40 m → 차단기 40 A → 생산 라인 15 kW
+  b.part('r_panel', 0, 31, 'LP-1', { name: tr('1라인 분전반', 'Line 1 panel'), w: 12, h: 27 });
+  b.part('r_mcb3', 6, 40, 'MCB11', { amps: 40 });
+  b.part('r_load3', 6, 51, 'LD1', { name: tr('생산 라인 1', 'Production line 1'), watt: 15000, pf: 0.9 });
+  [4, 6, 8].forEach((x, k) => {
+    b.run(COL[k], xl(10, 40), [x, 24], [x, 36]);
+    b.run(COL[k], xl(6, 15), [x, 44], [x, 48]);
+  });
+  // ── LP-2: 급전 2.5 mm² 60 m → 차단기 20 A → 컴프레서 3.7 kW, 조명 2 kW (L3 · N)
+  b.part('r_panel', 13, 31, 'LP-2', { name: tr('2라인 분전반', 'Line 2 panel'), w: 19, h: 27 });
+  b.part('r_mcb3', 16, 40, 'MCB21', { amps: 20 });
+  b.part('r_motor3', 16, 51, 'M1', { name: tr('컴프레서', 'Compressor'), watt: 3700 });
+  [14, 16, 18].forEach((x, k) => {
+    b.run(COL[k], xl(2.5, 60), [x, 24], [x, 36]);
+    b.run(COL[k], xl(2.5, 10), [x, 44], [x, 48]);
+  });
+  b.part('r_mcb1', 26, 42, 'MCB22', { name: tr('조명', 'Lighting'), amps: 16 });
+  b.part('r_load1', 27, 53, 'LD2', { name: tr('작업장 조명', 'Workshop lighting'), watt: 2000, pf: 1, lighting: true });
+  b.cable('grey', [18, 45], [22, 45], [22, 37], [26, 37], [26, 38]);
+  const light: CableSpec = { ins: 'pvc', mm2: 1.5, method: 'B1', cores: 2, len: 80 };
+  b.run('grey', light, [26, 46], [26, 50]);
+  b.run('blue', light, [20, 0], [20, 48], [28, 48], [28, 50]);
+  b.part('text', 1, -7, '', { text: tr('분전반 급전 해석: MAIN → LP-1 · LP-2 (일부러 넣은 문제 2개를 [해석] 탭에서 찾아 고쳐 보세요)', 'Feeder analysis: MAIN → LP-1, LP-2 (find and fix the two problems in the Analysis tab)') });
+  b.op(3000, 'MCB1', 'off', tr('LP-1 차단', 'LP-1 off'));
+  b.op(3000, 'MCB1', 'on', tr('LP-1 투입', 'LP-1 on'));
+  return b.done();
+}
+
 /** PLC 자기유지: 기동 PB → X0, 정지 PB → X1, Y0 운전 램프, T0(3초) 뒤 Y1 램프 */
 function plcSelfHold(): Circuit {
   const b = new Builder();
@@ -577,6 +640,7 @@ export interface CircuitExample {
 
 export function circuitExamples(): CircuitExample[] {
   return [
+    { id: 'feeders', name: tr('분전반 급전 해석 (케이블 · 전압강하)', 'Feeder analysis (cables, voltage drop)'), desc: tr('메인 분전반 → 부스바 → 급전선 → 분전반 2개. 케이블 규격으로 허용전류 · 전압강하 · 차단기 정격을 검토', 'Main panel, busbars and feeders to two panels; ampacity, voltage drop and breaker checks'), build: feederAnalysis },
     { id: 'tsw-light', name: tr('타임 스위치로 전등 자동 점멸 (기본)', 'Lights on a time switch (basic)'), desc: tr('24시간 다이얼 타임 스위치 하나로 전등 2개를 정해진 시각에 켜고 끕니다', 'One 24-hour dial time switch turns two lights on and off'), build: timeSwitchLight },
     { id: 'tsw-panel', name: tr('타임 스위치 + 자동/수동 + 전자접촉기', 'Time switch + auto/manual + contactor'), desc: tr('전등이 많을 때: 타임 스위치는 MC 코일만 움직이고, 셀렉터로 수동 점등', 'Many lights: the time switch drives a contactor coil, selector for manual on'), build: timeSwitchPanel },
     { id: 'stair', name: tr('3로 스위치 계단등', '3-way stair light'), desc: tr('3로 스위치 2개로 두 곳에서 전등 하나를 켜고 끕니다', 'Two 3-way switches control one light'), build: stairLight },

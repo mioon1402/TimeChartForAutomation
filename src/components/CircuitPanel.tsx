@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project } from '../model/types';
-import { emptyCircuit, type Circuit, type LampColor, type OpStep, type Part, type PartType, type Pole, type Wire, type WireColor } from '../circuit/types';
+import { emptyCircuit, type CableMethod, type CableSpec, type Circuit, type LampColor, type OpStep, type Part, type PartType, type Pole, type Wire, type WireColor } from '../circuit/types';
 import { partGuide } from '../circuit/guide';
+import { analyzePower, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, PowerModel, tableIz, tempFactor, type PowerAnalysis, type PowerState } from '../circuit/power';
+import { wireChain } from '../circuit/wires';
 import { DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
@@ -31,7 +33,7 @@ let lastZoom = 1;
 let clip: { parts: Part[]; wires: Wire[] } | null = null;
 let pasteCount = 0;
 
-type Side = 'props' | 'ops' | 'bom' | 'wiring' | 'check';
+type Side = 'props' | 'ops' | 'bom' | 'wiring' | 'power' | 'check';
 
 interface Running {
   sim: CircuitSim;
@@ -378,6 +380,31 @@ export function CircuitPanel() {
 
   const selected = sel.parts.length === 1 && !sel.wires.length ? circuit.parts.find((p) => p.id === sel.parts[0]) ?? null : null;
   const flagged = useMemo(() => new Set(issues.filter((i) => i.level === 'error').flatMap((i) => i.partIds)), [issues]);
+  // 전기 해석: 조작 순서 전체에서 가장 나쁜 값 (허용전류 · 전압강하 · 차단기), 시뮬레이션 중에는 그 순간의 전류
+  const powerModel = useMemo(() => new PowerModel(circuit, model), [circuit, model]);
+  const analysis = useMemo(() => analyzePower(circuit, model), [circuit, model]);
+  const powerErrs = analysis.issues.filter((i) => i.level === 'error').length;
+  const liveRef = useRef<{ pm: PowerModel; sig: string; st: PowerState } | null>(null);
+  let livePower: PowerState | null = null;
+  if (running && runRef.current && powerModel.loads.length) {
+    const sim = runRef.current.sim;
+    const sig = powerModel.signature(sim) + (sim.shorted ? '!' : '');
+    if (!liveRef.current || liveRef.current.pm !== powerModel || liveRef.current.sig !== sig) liveRef.current = { pm: powerModel, sig, st: powerModel.solve(sim) };
+    livePower = liveRef.current.st.shorted ? null : liveRef.current.st;
+  }
+  const liveCurrents = useMemo(() => {
+    if (!livePower) return undefined;
+    const out: { at: [number, number]; text: string; bad?: boolean }[] = [];
+    for (const cb of powerModel.cables) {
+      const ws = circuit.wires.filter((w) => cb.wires.includes(w.id));
+      const i = Math.max(0, ...ws.map((w) => livePower!.wireI.get(w.id) ?? 0));
+      if (i < 0.05 || !ws.length) continue;
+      const long = [...ws].sort((a, b) => Math.abs(b.a[0] - b.b[0]) + Math.abs(b.a[1] - b.b[1]) - (Math.abs(a.a[0] - a.b[0]) + Math.abs(a.a[1] - a.b[1])))[0];
+      const iz = cableIz(cb.spec);
+      out.push({ at: [(long.a[0] + long.b[0]) / 2, (long.a[1] + long.b[1]) / 2], text: `${i.toFixed(1)} A`, bad: iz !== null && i > iz });
+    }
+    return out;
+  }, [livePower, powerModel, circuit.wires]);
   const errCount = issues.filter((i) => i.level === 'error').length;
   const r = runRef.current;
 
@@ -481,6 +508,8 @@ export function CircuitPanel() {
           highlight={side === 'wiring' ? wireHighlight(wiring.find((r) => r.key === wirePick)) : null}
           wireNos={side === 'wiring' ? wireNos : undefined}
           progress={wireProgress}
+          power={livePower}
+          currents={liveCurrents}
         />
         <aside className="cc-side">
           <div className="seg cc-tabs">
@@ -495,6 +524,9 @@ export function CircuitPanel() {
             </button>
             <button type="button" className={side === 'wiring' ? 'on' : ''} onClick={() => setSide('wiring')}>
               {tr('결선표', 'Wiring')}
+            </button>
+            <button type="button" className={side === 'power' ? 'on' : ''} onClick={() => setSide('power')} title={tr('전류 · 허용전류 · 전압강하 · 차단기 검토', 'Currents, ampacity, voltage drop, breakers')}>
+              {tr('해석', 'Analysis')} {analysis.issues.filter((i) => i.level !== 'info').length ? <b className={powerErrs ? 'bad' : ''}>{analysis.issues.filter((i) => i.level !== 'info').length}</b> : null}
             </button>
             <button type="button" className={side === 'check' ? 'on' : ''} onClick={() => setSide('check')}>
               {tr('검사', 'Check')} {issues.length ? <b className={errCount ? 'bad' : ''}>{issues.length}</b> : null}
@@ -514,7 +546,12 @@ export function CircuitPanel() {
                 rotate={rotateSel}
                 setWireColor={(color) => {
                   const ws = new Set(sel.wires);
-                  commitCircuit({ ...circuit, wires: circuit.wires.map((w) => (ws.has(w.id) ? (color ? { ...w, color } : { id: w.id, a: w.a, b: w.b }) : w)) });
+                  commitCircuit({ ...circuit, wires: circuit.wires.map((w) => (ws.has(w.id) ? (color ? { ...w, color } : { id: w.id, a: w.a, b: w.b, ...(w.cable ? { cable: w.cable } : {}) }) : w)) });
+                }}
+                setWireCable={(cable) => {
+                  // 꺾여 이어진 한 가닥 전체에 같은 규격
+                  const ws = new Set(wireChain(circuit, sel.wires));
+                  commitCircuit({ ...circuit, wires: circuit.wires.map((w) => (ws.has(w.id) ? { id: w.id, a: w.a, b: w.b, ...(w.color ? { color: w.color } : {}), ...(cable ? { cable } : {}) } : w)) }, `cable:${sel.wires.join()}`, false);
                 }}
               />
             )}
@@ -534,6 +571,7 @@ export function CircuitPanel() {
                 onDone={(wired) => commitCircuit(wired.length ? { ...circuit, wired } : { ...circuit, wired: undefined }, 'wired', false)}
               />
             )}
+            {side === 'power' && <PowerPane circuit={circuit} a={analysis} onChange={(c) => commitCircuit(c, 'power-sys', false)} onPick={(parts, wires) => setSel({ parts, wires })} title={project.meta.title} />}
             {side === 'check' && <CheckPane issues={issues} onPick={(ids) => (setSel({ parts: ids, wires: [] }), setSide('props'))} />}
           </div>
         </aside>
@@ -681,7 +719,31 @@ function WireColorPicker({ circuit, ids, onPick }: { circuit: Circuit; ids: stri
   );
 }
 
-function PropsPane({ circuit, model, sel, part: p, colors, placing, update, remove, rotate, setWireColor }: { circuit: Circuit; model: CircuitModel; sel: Sel; part: Part | null; colors: CircuitColors; placing: PaletteItem | null; update: (id: string, patch: Partial<Part>) => void; remove: () => void; rotate: () => void; setWireColor: (c: WireColor | undefined) => void }) {
+function PropsPane({
+  circuit,
+  model,
+  sel,
+  part: p,
+  colors,
+  placing,
+  update,
+  remove,
+  rotate,
+  setWireColor,
+  setWireCable,
+}: {
+  circuit: Circuit;
+  model: CircuitModel;
+  sel: Sel;
+  part: Part | null;
+  colors: CircuitColors;
+  placing: PaletteItem | null;
+  update: (id: string, patch: Partial<Part>) => void;
+  remove: () => void;
+  rotate: () => void;
+  setWireColor: (c: WireColor | undefined) => void;
+  setWireCable: (c: CableSpec | undefined) => void;
+}) {
   const bom = useMemo(() => partsList(circuit), [circuit]);
   if (!p) {
     const n = sel.parts.length + sel.wires.length;
@@ -692,6 +754,7 @@ function PropsPane({ circuit, model, sel, part: p, colors, placing, update, remo
             {tr(`부품 ${sel.parts.length}개, 선 ${sel.wires.length}개 선택`, `${sel.parts.length} parts, ${sel.wires.length} wires selected`)}
           </p>
           {sel.wires.length > 0 && <WireColorPicker circuit={circuit} ids={sel.wires} onPick={setWireColor} />}
+          {sel.wires.length > 0 && <CableEditor circuit={circuit} ids={sel.wires} onChange={setWireCable} />}
           <div className="cc-btnrow">
             {sel.parts.length > 0 && (
               <button type="button" className="btn small" onClick={rotate}>
@@ -802,6 +865,7 @@ function PropsPane({ circuit, model, sel, part: p, colors, placing, update, remo
           )}
           {p.type === 'r_relay8' && <p className="small muted">{tr('2-7 코일 · 1-3 a · 1-4 b · 8-6 a · 8-5 b (MK2P · 소켓 PTF08A 꼴)', 'Coil 2-7 · 1-3 NO · 1-4 NC · 8-6 NO · 8-5 NC (MK2P-style, PTF08A socket)')}</p>}
           {p.type === 'r_tsw' && <SchedEditor p={p} set={set} />}
+          <RatingFields p={p} set={set} circuit={circuit} />
           {p.type === 'r_tb' && (
             <Field label={tr('극수', 'Poles')} wide hint={tr('번호마다 위·아래 나사가 이어져 있습니다', 'Top and bottom screws of each number are connected')}>
               <NumberInput value={p.n ?? 6} min={1} max={40} onChange={(v) => set({ n: v ?? 6 })} />
@@ -965,6 +1029,178 @@ function GuideCard({ type }: { type: PartType }) {
         </button>
       )}
     </details>
+  );
+}
+
+const METHOD_LABEL: Record<CableMethod, [string, string]> = {
+  A1: ['A1 단열벽 속 전선관 (절연전선)', 'A1 conduit in insulated wall (wires)'],
+  A2: ['A2 단열벽 속 전선관 (다심 케이블)', 'A2 conduit in insulated wall (cable)'],
+  B1: ['B1 전선관 · 덕트 (절연전선)', 'B1 conduit / trunking (wires)'],
+  B2: ['B2 전선관 · 덕트 (다심 케이블)', 'B2 conduit / trunking (cable)'],
+  C: ['C 벽면 노출 배선', 'C clipped direct'],
+  D1: ['D1 지중 전선관', 'D1 buried duct'],
+  D2: ['D2 지중 직매', 'D2 direct buried'],
+  E: ['E 케이블 트레이 (다심)', 'E tray, multi-core'],
+  F: ['F 케이블 트레이 (단심)', 'F tray, single-core'],
+};
+
+/** 전선 · 케이블 규격: 절연, 굵기, 공사방법, 길이 → 허용전류와 저항. 꺾여 이어진 한 가닥 전체에 적용된다 */
+function CableEditor({ circuit, ids, onChange }: { circuit: Circuit; ids: string[]; onChange: (c: CableSpec | undefined) => void }) {
+  const cur = circuit.wires.find((w) => ids.includes(w.id) && w.cable)?.cable;
+  const three = circuit.parts.some((p) => p.type === 'src3' || ((p.type === 'src' || p.type === 'r_term') && (p.pole === 'L2' || p.pole === 'L3')));
+  const kind = !cur ? 'none' : cur.kind === 'bus' ? 'bus' : 'cable';
+  const base: CableSpec = cur ?? { ins: 'xlpe', mm2: 2.5, method: 'B1', cores: three ? 3 : 2, len: 10 };
+  const set = (patch: Partial<CableSpec>) => {
+    const next: CableSpec = { ...base, ...patch };
+    if (next.kind !== 'bus') {
+      delete next.kind;
+      delete next.iz;
+      if (!cableMethods(next.ins).includes(next.method)) next.method = 'B1';
+      const sizes = cableSizes(next.ins, next.cores, next.method);
+      if (!sizes.includes(next.mm2)) next.mm2 = sizes.find((s) => s >= next.mm2) ?? sizes[sizes.length - 1];
+    }
+    onChange(next);
+  };
+  const iz = cur ? cableIz(cur) : null;
+  const [r, x] = cur ? cableZ(cur) : [0, 0];
+  return (
+    <div className="cc-cable">
+      <Field label={tr('케이블 규격 (해석용)', 'Cable spec (for analysis)')} wide>
+        <Select
+          value={kind}
+          onChange={(v) => (v === 'none' ? onChange(undefined) : v === 'bus' ? onChange({ kind: 'bus', ins: 'xlpe', mm2: cur?.kind === 'bus' ? cur.mm2 : 60, method: 'C', cores: 3, len: cur?.len ?? 1, ...(cur?.iz ? { iz: cur.iz } : {}) }) : set({ kind: undefined }))}
+          options={[
+            { value: 'none', label: tr('정하지 않음 (저항 없는 선)', 'None (ideal wire)') },
+            { value: 'cable', label: tr('전선 · 케이블', 'Wire / cable') },
+            { value: 'bus', label: tr('부스바 (구리)', 'Busbar (copper)') },
+          ]}
+        />
+      </Field>
+      {cur && kind === 'cable' && (
+        <>
+          <div className="grid2">
+            <Field label={tr('절연', 'Insulation')}>
+              <Select value={cur.ins} onChange={(v) => set({ ins: v })} options={[{ value: 'xlpe', label: tr('XLPE · EPR 90℃ (HFIX · CV · FR-8)', 'XLPE / EPR 90°C') }, { value: 'pvc', label: tr('PVC 70℃ (IV · VV)', 'PVC 70°C') }]} />
+            </Field>
+            <Field label={tr('부하 도체 수', 'Loaded conductors')}>
+              <Select value={String(cur.cores) as '2' | '3'} onChange={(v) => set({ cores: v === '2' ? 2 : 3 })} options={[{ value: '3', label: tr('3 (3상)', '3 (3-phase)') }, { value: '2', label: tr('2 (단상 · 직류)', '2 (1-phase / DC)') }]} />
+            </Field>
+          </div>
+          <Field label={tr('공사방법', 'Installation method')} wide>
+            <Select value={cur.method} onChange={(v) => set({ method: v })} options={cableMethods(cur.ins).map((m) => ({ value: m, label: tr(...METHOD_LABEL[m]) }))} />
+          </Field>
+          <div className="grid2">
+            <Field label={tr('굵기 (mm²)', 'Size (mm²)')}>
+              <Select value={String(cur.mm2)} onChange={(v) => set({ mm2: Number(v) })} options={cableSizes(cur.ins, cur.cores, cur.method).map((s) => ({ value: String(s), label: `${s} mm²` }))} />
+            </Field>
+            <Field label={tr('길이 (m)', 'Length (m)')} hint={tr('꺾여 이어진 한 가닥 전체', 'Whole run')}>
+              <NumberInput value={cur.len} min={0} step={1} onChange={(v) => set({ len: Math.max(0, v ?? 0) })} />
+            </Field>
+            <Field label={tr('주위 온도 (℃)', 'Ambient (°C)')}>
+              <NumberInput value={cur.amb ?? (cur.method === 'E' || cur.method === 'F' ? 40 : 30)} min={10} max={65} step={5} onChange={(v) => set({ amb: v ?? undefined })} />
+            </Field>
+            <Field label={tr('함께 지나는 회로 수', 'Grouped circuits')}>
+              <NumberInput value={cur.group ?? 1} min={1} max={20} step={1} onChange={(v) => set({ group: v && v > 1 ? Math.round(v) : undefined })} />
+            </Field>
+          </div>
+          <p className="small">
+            {iz === null ? (
+              <span className="cc-bad">{tr('허용전류 표에 없는 조합입니다', 'Not in the ampacity table')}</span>
+            ) : (
+              <>
+                {tr('허용전류', 'Ampacity')} <b>Iz = {iz} A</b>{' '}
+                <span className="muted">
+                  ({tr('표', 'table')} {tableIz(cur)} A × {tr('온도', 'temp')} {Math.round(tempFactor(cur) * 100) / 100} × {tr('복수회로', 'group')} {groupFactor(cur)})
+                </span>
+              </>
+            )}
+            <br />
+            <span className="muted">
+              {tr('한 가닥', 'Per conductor')} R = {r.toFixed(3)} Ω, X = {x.toFixed(4)} Ω
+            </span>
+          </p>
+        </>
+      )}
+      {cur && kind === 'bus' && (
+        <>
+          <div className="grid2">
+            <Field label={tr('단면적 (mm²)', 'Section (mm²)')} hint={tr('예: 20 × 3 = 60', 'e.g. 20 × 3 = 60')}>
+              <NumberInput value={cur.mm2} min={1} step={1} onChange={(v) => onChange({ ...cur, mm2: Math.max(1, v ?? 60) })} />
+            </Field>
+            <Field label={tr('길이 (m)', 'Length (m)')}>
+              <NumberInput value={cur.len} min={0} step={0.1} onChange={(v) => onChange({ ...cur, len: Math.max(0, v ?? 0) })} />
+            </Field>
+          </div>
+          <Field label={tr('허용전류 (A)', 'Ampacity (A)')} wide hint={tr('부스바는 크기 · 배치에 따라 달라서 제조사 표의 값을 적습니다', 'Enter the value from the manufacturer table')}>
+            <NumberInput value={cur.iz} min={1} step={1} onChange={(v) => onChange({ ...cur, iz: v && v > 0 ? v : undefined })} />
+          </Field>
+        </>
+      )}
+      <p className="small muted">
+        {tr(
+          '규격을 정하면 [해석] 탭에서 이 선의 전류가 허용전류를 넘는지, 부하까지 전압강하가 얼마인지 검토합니다. 3상은 세 가닥을 함께 고르고 (Shift+클릭) 같은 값을 주세요.',
+          'With a spec, the Analysis tab checks this wire against its ampacity and computes the voltage drop. For 3-phase select all three wires (Shift+click).',
+        )}
+      </p>
+    </div>
+  );
+}
+
+/** 해석에 쓰는 정격: 부하 용량 · 역률, 차단기 정격 전류, 분전반 크기 */
+function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>) => void; circuit: Circuit }) {
+  const big = p.type === 'r_load1' || p.type === 'r_load3' || p.type === 'r_motor3' || p.type === 'motor3' || p.type === 'motor';
+  const motor = p.type === 'r_motor3' || p.type === 'motor3' || p.type === 'motor';
+  const three = p.type === 'r_load3' || p.type === 'r_motor3' || p.type === 'motor3';
+  const r = loadRating(p);
+  if (p.type === 'r_panel')
+    return (
+      <div className="grid2">
+        <Field label={tr('가로 (칸)', 'Width (cells)')}>
+          <NumberInput value={p.w ?? 20} min={4} max={400} step={1} onChange={(v) => set({ w: Math.max(4, Math.round(v ?? 20)) })} />
+        </Field>
+        <Field label={tr('세로 (칸)', 'Height (cells)')}>
+          <NumberInput value={p.h ?? 20} min={4} max={400} step={1} onChange={(v) => set({ h: Math.max(4, Math.round(v ?? 20)) })} />
+        </Field>
+      </div>
+    );
+  if (isBreaker(p))
+    return (
+      <Field label={tr('정격 전류 (A)', 'Rated current (A)')} wide hint={tr('[해석] 탭에서 흐르는 전류와 전선 허용전류를 이 값과 비교합니다', 'Compared with the current and the cable ampacity in the Analysis tab')}>
+        <NumberInput value={breakerAmps(p) ?? undefined} min={1} step={1} onChange={(v) => set({ amps: v && v > 0 ? v : undefined })} />
+      </Field>
+    );
+  if (!big && p.type !== 'r_light') return null;
+  const vll = circuit.vll && circuit.vll > 0 ? circuit.vll : 220 * Math.sqrt(3);
+  const volt = p.volt ?? (three ? vll : vll / Math.sqrt(3));
+  const amps = r ? (three ? r.va / (Math.sqrt(3) * volt) : r.va / volt) : 0;
+  return (
+    <>
+      <div className="grid2">
+        {big ? (
+          <Field label={motor ? tr('정격 출력 (kW)', 'Rated output (kW)') : tr('용량 (kW)', 'Power (kW)')}>
+            <NumberInput value={r ? r.out / 1000 : 0} min={0} step={0.1} onChange={(v) => set({ watt: Math.max(0, (v ?? 0) * 1000) })} />
+          </Field>
+        ) : (
+          <Field label={tr('소비 전력 (W)', 'Power (W)')}>
+            <NumberInput value={r?.out ?? 100} min={0} step={10} onChange={(v) => set({ watt: Math.max(0, v ?? 0) })} />
+          </Field>
+        )}
+        {big && (
+          <Field label={tr('역률', 'Power factor')}>
+            <NumberInput value={r?.pf ?? 1} min={0.05} max={1} step={0.01} onChange={(v) => set({ pf: v && v > 0 ? Math.min(1, v) : undefined })} />
+          </Field>
+        )}
+        {motor && (
+          <Field label={tr('효율', 'Efficiency')}>
+            <NumberInput value={p.eff ?? 0.88} min={0.05} max={1} step={0.01} onChange={(v) => set({ eff: v && v > 0 ? Math.min(1, v) : undefined })} />
+          </Field>
+        )}
+      </div>
+      {(p.type === 'r_load1' || p.type === 'r_load3') && <Check checked={!!p.lighting} onChange={(v) => set({ lighting: v || undefined })} label={tr('조명 부하 (전압강하 허용값이 더 작다)', 'Lighting load (stricter voltage drop)')} />}
+      <p className="small muted">
+        {tr('정격 전류', 'Rated current')} <b>{amps.toFixed(1)} A</b> ({three ? tr('3상', '3-ph') : tr('단상', '1-ph')} {Math.round(volt)} V{motor ? tr(', 기동 전류는 계산하지 않습니다', '; starting current is not modelled') : ''})
+      </p>
+    </>
   );
 }
 
@@ -1255,6 +1491,225 @@ function BomPane({ circuit, title }: { circuit: Circuit; title: string }) {
           <Icon name="download" size={13} /> {tr('엑셀 CSV 저장', 'Save Excel CSV')}
         </button>
       )}
+    </div>
+  );
+}
+
+/** 전기 해석: 계통 설정, 문제, 케이블 · 부하 · 차단기 표 (조작 순서 전체에서 가장 나쁜 값) */
+function PowerPane({ circuit, a, onChange, onPick, title }: { circuit: Circuit; a: PowerAnalysis; onChange: (c: Circuit) => void; onPick: (parts: string[], wires: string[]) => void; title: string }) {
+  const f1 = (v: number) => (v >= 100 ? v.toFixed(0) : v.toFixed(1));
+  const pct = (i: number, lim: number | null) => (lim && lim > 0 ? Math.round((i / lim) * 100) : null);
+  const csv = () => {
+    const cell = (v: unknown) => {
+      const s = String(v ?? '');
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const line = (cells: unknown[]) => cells.map(cell).join(',');
+    const out = [line([tr('케이블', 'Cable'), tr('규격', 'Spec'), 'IB (A)', 'Iz (A)', tr('차단기', 'Breaker'), 'In (A)', tr('전압강하 (V)', 'Drop (V)')])];
+    for (const r of a.cables) out.push(line([`${r.from} → ${r.to}`, r.text, r.ib, r.iz ?? '', r.breaker, r.breakerAmps ?? '', r.dv]));
+    out.push('', line([tr('부하', 'Load'), tr('설명', 'Name'), 'kW', tr('역률', 'pf'), tr('전류 (A)', 'I (A)'), tr('전압 (V)', 'V'), tr('전압강하 (%)', 'Drop (%)'), tr('허용 (%)', 'Limit (%)')]));
+    for (const r of a.loads) out.push(line([r.tag, r.name, r.watt / 1000, r.pf, r.i, r.v ?? '', r.dropPct ?? '', r.limit]));
+    out.push('', line([tr('차단기', 'Breaker'), 'In (A)', tr('최대 전류 (A)', 'Max I (A)')]));
+    for (const r of a.breakers) out.push(line([r.tag, r.amps ?? '', r.i]));
+    downloadText(`${safeFileName(title || 'circuit')}_${tr('전기해석', 'analysis')}.csv`, '\uFEFF' + out.join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+  };
+  if (!a.loads.length && !a.cables.length)
+    return (
+      <div className="cc-power">
+        <p className="muted">
+          {tr(
+            '부하 (전동기 · 전등 · 부하 상자) 와 케이블 규격을 넣으면 전선마다 흐르는 전류, 허용전류, 전압강하, 차단기 정격을 검토합니다.',
+            'Add loads and cable specs to check currents, ampacity, voltage drop and breaker ratings.',
+          )}
+        </p>
+        <ol className="small muted">
+          <li>{tr('왼쪽 [분전반 · 부하] 에서 부하를 놓고 용량 (kW) 을 적습니다. 전동기 · 전등도 부하입니다', 'Place loads and enter their kW; motors and lights count too')}</li>
+          <li>{tr('전선을 누르고 [속성] 에서 케이블 규격 (굵기 · 공사방법 · 길이) 을 정합니다', 'Select a wire and set its cable spec')}</li>
+          <li>{tr('차단기를 누르고 정격 전류 (A) 를 적습니다', 'Enter breaker ratings')}</li>
+          <li>{tr('분전반 · 변전함은 테두리 상자로 나누고 그 사이를 급전선으로 잇습니다', 'Use panel boxes and connect them with feeders')}</li>
+        </ol>
+        <button type="button" className="btn small" onClick={() => F.openCircuitExample('feeders')}>
+          <Icon name="circuit" size={13} /> {tr('예제 열기: 분전반 급전 해석', 'Open the feeder analysis example')}
+        </button>
+      </div>
+    );
+  return (
+    <div className="cc-power">
+      <div className="grid2">
+        <Field label={tr('선간 전압 (V)', 'Line voltage (V)')} hint={tr(`상전압 ${Math.round(a.vln)} V`, `phase ${Math.round(a.vln)} V`)}>
+          <NumberInput value={circuit.vll ?? 380} min={1} step={10} onChange={(v) => onChange({ ...circuit, vll: v && v > 0 && v !== 380 ? v : undefined })} />
+        </Field>
+        <Field label={tr('수전 (전압강하 허용값)', 'Supply (drop limits)')}>
+          <Select value={circuit.supply ?? 'lv'} onChange={(v) => onChange({ ...circuit, supply: v === 'hv' ? 'hv' : undefined })} options={[{ value: 'lv', label: tr('저압 수전: 조명 3% · 기타 5%', 'LV supply: 3% / 5%') }, { value: 'hv', label: tr('고압 이상 수전: 조명 6% · 기타 8%', 'HV supply: 6% / 8%') }]} />
+        </Field>
+      </div>
+      <div className="cc-power-sum">
+        <span>
+          {tr('최대 부하', 'Peak load')} <b>{a.peakKw} kW</b>
+        </span>
+        {a.supply
+          .filter((s) => s.i > 0.005)
+          .map((s) => (
+            <span key={s.pole}>
+              {s.pole} <b>{f1(s.i)} A</b>
+            </span>
+          ))}
+      </div>
+      {a.issues.length === 0 ? (
+        <p className="cc-ok">{tr('허용전류 · 전압강하 · 차단기 정격에 문제가 없습니다.', 'No ampacity, voltage drop or breaker problems.')}</p>
+      ) : (
+        <div className="msgs cc-check">
+          {a.issues.map((i, k) => (
+            <button type="button" key={k} className={`msg ${i.level === 'error' ? 'error' : i.level === 'warn' ? 'warning' : 'info'}`} onClick={() => onPick(i.partIds, i.wireIds)} disabled={!i.partIds.length && !i.wireIds.length}>
+              <span>{i.msg}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {a.cables.length > 0 && (
+        <>
+          <h4>{tr('케이블: 전류 IB ≤ 차단기 In ≤ 허용전류 Iz', 'Cables: IB ≤ In ≤ Iz')}</h4>
+          <table className="tbl compact cc-power-tbl">
+            <thead>
+              <tr>
+                <th>{tr('구간', 'Run')}</th>
+                <th>{tr('규격', 'Spec')}</th>
+                <th>IB</th>
+                <th>In</th>
+                <th>Iz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {a.cables.map((r) => {
+                const over = r.iz !== null && r.ib > r.iz;
+                const bad = over || (r.iz !== null && r.breakerAmps !== null && r.breakerAmps > r.iz);
+                return (
+                  <tr key={r.id} className={bad ? 'bad' : ''} onClick={() => onPick([], r.wires)}>
+                    <td className="mono small">
+                      {r.from || '?'}
+                      <br />→ {r.to || '?'}
+                    </td>
+                    <td className="small">
+                      {r.spec.kind === 'bus' ? tr('부스바', 'Busbar') : r.spec.ins === 'pvc' ? 'PVC' : 'XLPE'} {r.spec.mm2}
+                      <br />
+                      <span className="muted">
+                        {r.spec.kind === 'bus' ? '' : `${r.spec.method} · `}
+                        {r.spec.len} m
+                      </span>
+                    </td>
+                    <td className="num">
+                      {f1(r.ib)}
+                      {pct(r.ib, r.iz) !== null && <div className={`small ${over ? 'cc-bad' : 'muted'}`}>{pct(r.ib, r.iz)}%</div>}
+                    </td>
+                    <td className="num">{r.breakerAmps ?? '—'}</td>
+                    <td className="num">{r.iz ?? '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      )}
+      {a.loads.length > 0 && (
+        <>
+          <h4>{tr('부하: 전류와 전압강하', 'Loads: current and voltage drop')}</h4>
+          <table className="tbl compact cc-power-tbl">
+            <thead>
+              <tr>
+                <th>{tr('기호', 'Tag')}</th>
+                <th>kW</th>
+                <th>A</th>
+                <th>V</th>
+                <th>{tr('강하', 'Drop')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {a.loads.map((r) => {
+                const bad = r.dropPct !== null && r.dropPct > r.limit;
+                return (
+                  <tr key={r.partId} className={bad ? 'bad' : ''} onClick={() => onPick([r.partId], [])}>
+                    <td className="mono">
+                      <b>{r.tag}</b>
+                      {r.name && <div className="small muted">{r.name}</div>}
+                    </td>
+                    <td className="num">{Math.round(r.watt / 10) / 100}</td>
+                    <td className="num">{f1(r.i)}</td>
+                    <td className="num">{r.v === null ? '—' : Math.round(r.v)}</td>
+                    <td className="num">
+                      {r.dropPct === null ? '—' : `${r.dropPct}%`}
+                      <div className={`small ${bad ? 'cc-bad' : 'muted'}`}>≤ {Math.round(r.limit * 100) / 100}%</div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      )}
+      {a.breakers.length > 0 && (
+        <>
+          <h4>{tr('차단기', 'Breakers')}</h4>
+          <table className="tbl compact cc-power-tbl">
+            <thead>
+              <tr>
+                <th>{tr('기호', 'Tag')}</th>
+                <th>{tr('정격 In', 'Rating In')}</th>
+                <th>{tr('최대 전류', 'Max current')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {a.breakers.map((r) => {
+                const bad = r.amps !== null && r.i > r.amps;
+                return (
+                  <tr key={r.partId} className={bad ? 'bad' : ''} onClick={() => onPick([r.partId], [])}>
+                    <td className="mono">
+                      <b>{r.tag}</b>
+                    </td>
+                    <td className="num">{r.amps === null ? '—' : `${r.amps} A`}</td>
+                    <td className="num">
+                      {f1(r.i)} A {pct(r.i, r.amps) !== null && <span className={`small ${bad ? 'cc-bad' : 'muted'}`}>({pct(r.i, r.amps)}%)</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      )}
+      {a.panels.length > 0 && (
+        <>
+          <h4>{tr('분전반별 부하', 'Load per panel')}</h4>
+          <table className="tbl compact cc-power-tbl">
+            <tbody>
+              {a.panels.map((r) => (
+                <tr key={r.partId} onClick={() => onPick([r.partId], [])}>
+                  <td>
+                    <b>{r.name}</b>
+                  </td>
+                  <td className="num">
+                    {r.kw} kW <span className="small muted">({tr(`부하 ${r.loads}개`, `${r.loads} loads`)})</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      {!WEB_TRIAL && (
+        <button type="button" className="btn small" onClick={csv}>
+          <Icon name="download" size={13} /> {tr('엑셀 CSV 저장', 'Save Excel CSV')}
+        </button>
+      )}
+      <details className="cc-power-note">
+        <summary>{tr('계산 방법과 가정', 'Method and assumptions')}</summary>
+        <ul className="small muted">
+          <li>{tr('조작 순서대로 돌렸을 때 가장 큰 전류 · 가장 낮은 전압을 봅니다. 조작 순서가 없으면 처음 상태 (차단기 ON) 입니다', 'Worst case over the operation sequence; without one, the initial state')}</li>
+          <li>{tr('허용전류: KS C IEC 60364-5-52 표 B.52.2~B.52.5 (구리, 기중 30℃ · 지중 20℃), 트레이 E · F 는 40℃ 기준 표. 주위온도 · 복수회로 보정계수를 곱합니다', 'Ampacity: KS C IEC 60364-5-52 tables B.52.2–B.52.5 with temperature and grouping factors')}</li>
+          <li>{tr('전압강하: 케이블 한 가닥 R = 0.0225·L/S Ω, X = 0.08 mΩ/m 로 실제 전류를 풀어서 부하 단자 전압을 구합니다 (규격이 없는 선은 저항 0)', 'Voltage drop: R = 0.0225·L/S Ω and X = 0.08 mΩ/m per conductor; wires without a spec are ideal')}</li>
+          <li>{tr('부하는 정격 전압에서 정격 용량을 쓰는 것으로 봅니다. 전동기 기동 전류, 단락 전류, 차단기 트립 시간, 수용률은 계산하지 않습니다', 'Loads are constant impedance at rated voltage. Motor starting current, fault current, trip time and demand factors are not modelled')}</li>
+          <li>{tr('참고용 계산입니다. 실제 시공 전에는 전기 설계 · 감리 기준으로 확인하세요', 'For reference only; confirm against the applicable design rules before installation')}</li>
+        </ul>
+      </details>
     </div>
   );
 }

@@ -1,8 +1,28 @@
-import type { Circuit, LampColor, OpStep, Part, PartType, Pole, Rot, Wire, WireColor } from './types';
+import type { CableMethod, CableSpec, Circuit, LampColor, OpStep, Part, PartType, Pole, Rot, Wire, WireColor } from './types';
 import { PARTS } from './parts';
 import { uid } from '../model/wave';
 
 const POLES: Pole[] = ['+24V', '0V', 'L', 'N', 'L1', 'L2', 'L3', 'PE'];
+const METHODS: CableMethod[] = ['A1', 'A2', 'B1', 'B2', 'C', 'D1', 'D2', 'E', 'F'];
+
+function sanitizeCable(raw: unknown): CableSpec | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const q = raw as Record<string, unknown>;
+  const n = (v: unknown, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
+  const mm2 = n(q.mm2, 0.1, 5000);
+  const len = n(q.len, 0, 1e5);
+  if (mm2 === null || len === null) return null;
+  const c: CableSpec = { ins: q.ins === 'pvc' ? 'pvc' : 'xlpe', mm2, method: METHODS.includes(q.method as CableMethod) ? (q.method as CableMethod) : 'B1', cores: q.cores === 2 ? 2 : 3, len };
+  if (q.kind === 'bus') c.kind = 'bus';
+  const amb = n(q.amb, -20, 90);
+  if (amb !== null && amb !== 30) c.amb = amb;
+  const group = n(q.group, 1, 50);
+  if (group !== null && group > 1) c.group = Math.round(group);
+  const iz = n(q.iz, 0.1, 1e5);
+  if (iz !== null) c.iz = iz;
+  return c;
+}
+
 const WIRE_COLORS: WireColor[] = ['brown', 'black', 'grey', 'blue', 'gy', 'red', 'yellow', 'white', 'orange'];
 const COLORS: LampColor[] = ['red', 'green', 'yellow', 'white', 'blue'];
 
@@ -49,6 +69,14 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (typeof q.speed === 'number' && q.speed > 0) p.speed = Math.min(100, q.speed);
     if (typeof q.n === 'number' && q.n >= 1) p.n = Math.min(40, Math.round(q.n));
     if (q.inst13 === true) p.inst13 = true;
+    if (typeof q.watt === 'number' && q.watt >= 0 && q.watt < 1e8) p.watt = q.watt;
+    if (typeof q.pf === 'number' && q.pf > 0 && q.pf <= 1) p.pf = q.pf;
+    if (typeof q.eff === 'number' && q.eff > 0 && q.eff <= 1) p.eff = q.eff;
+    if (typeof q.volt === 'number' && q.volt > 0 && q.volt < 1e5) p.volt = q.volt;
+    if (q.lighting === true) p.lighting = true;
+    if (typeof q.amps === 'number' && q.amps > 0 && q.amps < 1e5) p.amps = q.amps;
+    if (typeof q.w === 'number' && q.w >= 2) p.w = Math.min(400, Math.round(q.w));
+    if (typeof q.h === 'number' && q.h >= 2) p.h = Math.min(400, Math.round(q.h));
     if (Array.isArray(q.sched)) {
       const day = 86400000;
       const sched = q.sched
@@ -68,6 +96,8 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (!a || !b || (a[0] === b[0] && a[1] === b[1])) continue;
     const w: Wire = { id: str(q.id) || uid('cw'), a, b };
     if (WIRE_COLORS.includes(q.color as WireColor)) w.color = q.color as WireColor;
+    const cable = sanitizeCable(q.cable);
+    if (cable) w.cable = cable;
     wires.push(w);
   }
   const ops: OpStep[] = [];
@@ -84,6 +114,8 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   if (o.autoChart === false) c.autoChart = false;
   if (typeof o.applied === 'string') c.applied = o.applied;
   if (typeof o.clock === 'number' && o.clock > 0 && o.clock < 86400000) c.clock = o.clock;
+  if (o.supply === 'hv') c.supply = 'hv';
+  if (typeof o.vll === 'number' && o.vll > 0 && o.vll < 1e5) c.vll = o.vll;
   if (Array.isArray(o.wired)) {
     const wired = o.wired.filter((x): x is string => typeof x === 'string' && x.length < 200);
     if (wired.length) c.wired = wired;

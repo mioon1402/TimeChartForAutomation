@@ -58,6 +58,9 @@ export type PartType =
   | 'r_light' // 전등 (L · N)
   | 'r_sw' // 벽 스위치 (단로)
   | 'r_sw3' // 3로 스위치 (0 → 1 · 3)
+  | 'r_load1' // 부하 (단상): L · N, 용량 kW · 역률
+  | 'r_load3' // 부하 (3상): L1 · L2 · L3, 용량 kW · 역률
+  | 'r_panel' // 분전반 · 변전함 테두리 (안의 기기를 한 함으로 묶어 보여 준다)
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -111,10 +114,48 @@ export interface Part {
   inst13?: boolean;
   /** 타임 스위치: 켜지는 구간 [켜짐, 꺼짐] (하루 안의 시각, ms). 꺼짐이 더 이르면 자정을 넘긴다 */
   sched?: [number, number][];
+  /** 부하: 용량 (W). 전동기는 정격 출력, 그 밖은 소비 전력 */
+  watt?: number;
+  /** 부하: 역률 (0~1), 전동기: 효율 (0~1) */
+  pf?: number;
+  eff?: number;
+  /** 부하: 정격 전압 (V). 비우면 이어진 전원에서 정한다 */
+  volt?: number;
+  /** 부하: 조명 (전압강하 허용값이 더 작다) */
+  lighting?: boolean;
+  /** 차단기 · 퓨즈: 정격 전류 (A) */
+  amps?: number;
+  /** 분전반 테두리: 크기 (격자 칸) */
+  w?: number;
+  h?: number;
 }
 
 /** 전선 색: 갈색 L1, 검정 L2, 회색 L3, 파랑 N, 녹황 PE, 그 밖 제어선 */
 export type WireColor = 'brown' | 'black' | 'grey' | 'blue' | 'gy' | 'red' | 'yellow' | 'white' | 'orange';
+
+/** 공사방법 (KS C IEC 60364-5-52): A1 · A2 단열벽 속, B1 · B2 전선관 · 덕트, C 노출, D1 · D2 지중, E · F 케이블 트레이 */
+export type CableMethod = 'A1' | 'A2' | 'B1' | 'B2' | 'C' | 'D1' | 'D2' | 'E' | 'F';
+
+/** 전선 · 케이블 규격 (해석용). 꺾여 이어진 한 가닥 전체에 같은 값을 준다 */
+export interface CableSpec {
+  /** 'bus' = 부스바 (허용전류는 직접 적는다) */
+  kind?: 'bus';
+  /** 절연: PVC 70℃ (IV · VV), XLPE · EPR 90℃ (HFIX · CV · FR-8) */
+  ins: 'pvc' | 'xlpe';
+  /** 도체 단면적 (mm²) */
+  mm2: number;
+  method: CableMethod;
+  /** 부하 도체 수: 2 = 단상 · 직류, 3 = 3상 */
+  cores: 2 | 3;
+  /** 길이 (m): 꺾여 이어진 한 가닥 전체 */
+  len: number;
+  /** 주위 온도 (℃, 기본 30) */
+  amb?: number;
+  /** 함께 지나는 회로 수 (복수회로 감소계수, 기본 1) */
+  group?: number;
+  /** 부스바: 허용전류 (A) */
+  iz?: number;
+}
 
 export interface Wire {
   id: string;
@@ -122,6 +163,8 @@ export interface Wire {
   b: [number, number];
   /** 실제 전선 색 (없으면 회로도처럼 검은 선, 시뮬레이션 중 극 색) */
   color?: WireColor;
+  /** 케이블 규격 (없으면 저항이 없는 이상적인 선으로 본다) */
+  cable?: CableSpec;
 }
 
 /** 조작 순서 한 줄: 앞 줄 조작 시각에서 wait 뒤에 이 기기를 조작 */
@@ -150,6 +193,9 @@ export interface Circuit {
   wired?: string[];
   /** 시뮬레이션을 시작하는 시각 (하루 안의 ms, 기본 00:00) - 타임 스위치가 있을 때 */
   clock?: number;
+  /** 전기 해석: 수전 유형 (lv = 저압 수전, hv = 고압 이상 수전), 선간 전압 (기본 380 V, 상전압은 선간 / √3) */
+  supply?: 'lv' | 'hv';
+  vll?: number;
 }
 
 export function emptyCircuit(): Circuit {

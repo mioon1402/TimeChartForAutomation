@@ -95,6 +95,9 @@ export interface CanvasProps {
   highlight?: LayerOptions['highlight'];
   wireNos?: LayerOptions['wireNos'];
   progress?: LayerOptions['progress'];
+  /** 전기 해석 (시뮬레이션 중): 부하 · 차단기의 전류, 전선에 올리면 전류 */
+  power?: LayerOptions['power'];
+  currents?: LayerOptions['currents'];
 }
 
 export function CircuitCanvas(props: CanvasProps) {
@@ -105,6 +108,7 @@ export function CircuitCanvas(props: CanvasProps) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hover, setHover] = useState<Pt | null>(null);
   const [hoverOp, setHoverOp] = useState(false);
+  const [probe, setProbe] = useState<{ wire: string; at: Pt } | null>(null);
   const zoomAnchor = useRef<{ gx: number; gy: number; cx: number; cy: number } | null>(null);
   const spaceDown = useRef(false);
 
@@ -138,10 +142,27 @@ export function CircuitCanvas(props: CanvasProps) {
   const hitPart = (g: Pt): Part | null => {
     for (let i = circuit.parts.length - 1; i >= 0; i--) {
       const p = circuit.parts[i];
+      if (p.type === 'r_panel') continue;
       const [a, b, cc, d] = partBox(p);
       if (g[0] >= a - 0.2 && g[0] <= cc + 0.2 && g[1] >= b - 0.2 && g[1] <= d + 0.2) return p;
     }
+    // 분전반 테두리는 이름표 줄만 잡힌다 (안쪽은 그림을 그리는 자리)
+    for (let i = circuit.parts.length - 1; i >= 0; i--) {
+      const p = circuit.parts[i];
+      if (p.type !== 'r_panel') continue;
+      const [a, b, cc] = partBox(p);
+      if (g[0] >= a - 0.2 && g[0] <= cc + 0.2 && g[1] >= b - 0.3 && g[1] <= b + 1.6) return p;
+    }
     return null;
+  };
+  /** 분전반 안에 있는 부품과 선 (함께 옮긴다) */
+  const panelContents = (p: Part): { parts: string[]; wires: string[] } => {
+    const [a, b, cc, d] = partBox(p);
+    const inside = (x: number, y: number) => x >= a && x <= cc && y >= b && y <= d;
+    return {
+      parts: circuit.parts.filter((q) => q.id !== p.id && q.type !== 'r_panel' && inside(q.x, q.y)).map((q) => q.id),
+      wires: circuit.wires.filter((w) => inside(...w.a) && inside(...w.b)).map((w) => w.id),
+    };
   };
   const hitWire = (g: Pt): Wire | null => {
     let best: Wire | null = null;
@@ -271,7 +292,12 @@ export function CircuitCanvas(props: CanvasProps) {
       let parts = sel.parts;
       if (e.shiftKey) parts = parts.includes(part.id) ? parts.filter((x) => x !== part.id) : [...parts, part.id];
       else if (!parts.includes(part.id)) parts = [part.id];
-      const next = { parts, wires: e.shiftKey || sel.parts.includes(part.id) ? sel.wires : [] };
+      let next = { parts, wires: e.shiftKey || sel.parts.includes(part.id) ? sel.wires : [] };
+      // 분전반 이름표를 잡으면 안의 것도 함께
+      if (part.type === 'r_panel' && !e.shiftKey && parts.length === 1) {
+        const inner = panelContents(part);
+        next = { parts: [part.id, ...inner.parts], wires: inner.wires };
+      }
       setSel(next);
       setD({ kind: 'move', start: snap(g), orig: circuit, parts: new Set(next.parts), wires: new Set(next.wires), dx: 0, dy: 0, key: uid('mv') });
       return;
@@ -302,7 +328,10 @@ export function CircuitCanvas(props: CanvasProps) {
     if (sim && !d) {
       const p = hitPart(g);
       setHoverOp(!!p && operable(p));
-    }
+      // 클램프 미터처럼: 전선 위에 올리면 그 선의 전류
+      const w = props.power && !(p && p.type !== 'r_panel') ? hitWire(g) : null;
+      setProbe(w ? { wire: w.id, at: g } : null);
+    } else if (probe) setProbe(null);
     if (!d) return;
     if (d.kind === 'pan') {
       const el = wrapRef.current!;
@@ -352,6 +381,8 @@ export function CircuitCanvas(props: CanvasProps) {
       const inside = (x: number, y: number) => x >= ax && x <= bx && y >= ay && y <= by;
       const parts = circuit.parts.filter((p) => {
         const [pa, pb, pc, pd] = partBox(p);
+        // 분전반 테두리는 통째로 둘러쌌을 때만
+        if (p.type === 'r_panel') return pa >= ax && pc <= bx && pb >= ay && pd <= by;
         return pa < bx && pc > ax && pb < by && pd > ay;
       });
       const wires = circuit.wires.filter((w) => inside(...w.a) && inside(...w.b));
@@ -418,7 +449,24 @@ export function CircuitCanvas(props: CanvasProps) {
         </defs>
         <rect x={x0 * G} y={y0 * G} width={W} height={H} fill="url(#cc-grid)" />
         <rect x={x0 * G} y={y0 * G} width={W} height={H} fill="url(#cc-grid5)" />
-        <CircuitLayer circuit={circuit} model={model} c={c} o={{ sim, selected, flagged: props.flagged, showPins: !sim, highlight: props.highlight, wireNos: props.wireNos, progress: sim ? null : props.progress }} />
+        <CircuitLayer circuit={circuit} model={model} c={c} o={{ sim, selected, flagged: props.flagged, showPins: !sim, highlight: props.highlight, wireNos: props.wireNos, progress: sim ? null : props.progress, power: sim ? props.power : null, currents: props.currents }} />
+        {sim && probe && props.power && (() => {
+          const w = circuit.wires.find((x) => x.id === probe.wire);
+          if (!w) return null;
+          const i = props.power.wireI.get(w.id) ?? 0;
+          const v = props.power.voltAt(w.a[0], w.a[1]);
+          const text = `${i >= 100 ? i.toFixed(0) : i.toFixed(2)} A${v !== null ? ` · ${v.toFixed(0)} V` : ''}`;
+          const wd = text.length * 7.4 + 34;
+          return (
+            <g pointerEvents="none" transform={`translate(${probe.at[0] * G + 14},${probe.at[1] * G - 16})`}>
+              <rect x={0} y={-15} width={wd} height={24} rx={6} fill="#111827" stroke="#facc15" strokeWidth={1.6} />
+              <path d="M9,-10a6,6 0 1 0 8,0" stroke="#facc15" strokeWidth={2.2} fill="none" />
+              <text x={26} y={2} fontSize={12.5} fontWeight={800} fill="#a7f3d0" fontFamily="ui-monospace, monospace">
+                {text}
+              </text>
+            </g>
+          );
+        })()}
         {preview && <polyline points={preview.map((p) => `${p[0] * G},${p[1] * G}`).join(' ')} fill="none" stroke={c.accent} strokeWidth={2} strokeDasharray="5 4" />}
         {pinHot && hover && <circle cx={hover[0] * G} cy={hover[1] * G} r={6} fill="none" stroke={c.accent} strokeWidth={1.6} />}
         {pinName && hover && (

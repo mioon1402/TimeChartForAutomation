@@ -3,6 +3,7 @@ import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindNam
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
+import { loadRating } from './power';
 import { tr } from '../i18n';
 
 /** 부품 리스트 한 줄 = 기호 하나 (코일과 그 접점들은 한 기기) */
@@ -69,6 +70,9 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_light: 8,
   r_sw: 6,
   r_sw3: 6,
+  r_load1: 9,
+  r_load3: 9,
+  r_panel: -1,
   frl: 10,
   v32: 10,
   v52: 10,
@@ -161,7 +165,7 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'r_mcb1':
     case 'r_mcb2':
     case 'r_mcb3':
-      return { kind: tr('배선용 차단기', 'Circuit breaker'), spec: `${p.type.slice(-1)}P` };
+      return { kind: tr('배선용 차단기', 'Circuit breaker'), spec: `${p.type.slice(-1)}P${p.amps ? ` ${p.amps}A` : ''}` };
     case 'r_thr':
       return { kind: tr('열동형 과부하 계전기', 'Thermal overload relay'), spec: ab };
     case 'r_pb':
@@ -195,6 +199,13 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('스위치 (단로)', 'Switch (1-way)'), spec: '' };
     case 'r_sw3':
       return { kind: tr('3로 스위치', '3-way switch'), spec: '' };
+    case 'r_load1':
+    case 'r_load3': {
+      const r = loadRating(p);
+      return { kind: tr('부하', 'Load'), spec: `${p.type === 'r_load3' ? tr('3상', '3-phase') : tr('단상', '1-phase')} ${r ? Math.round(r.out / 10) / 100 : 0} kW, pf ${r?.pf ?? 1}` };
+    }
+    case 'r_panel':
+      return { kind: tr('분전반 · 변전함', 'Panel / switchboard'), spec: '' };
     case 'fuse3':
     case 'fuse':
       return { kind: tr('퓨즈', 'Fuse'), spec: p.type === 'fuse3' ? '3P' : '1P' };
