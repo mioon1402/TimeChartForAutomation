@@ -346,8 +346,8 @@ describe('feeder analysis example (main panel, busbars, two sub-panels)', () => 
     const { wireChain } = await import('../src/circuit/wires');
     const { circuitExamples } = await import('../src/circuit/examples');
     const c = circuitExamples().find((e) => e.id === 'feeders')!.build();
-    // N 선: (20,0) → (20,48) → (28,48) → (28,50) 세 토막이 한 가닥
-    const first = c.wires.find((w) => w.a[0] === 20 && w.a[1] === 0)!;
+    // N 선: (21,0) → (21,48) → (28,48) → (28,50) 세 토막이 한 가닥
+    const first = c.wires.find((w) => w.a[0] === 21 && w.a[1] === 0)!;
     expect(wireChain(c, [first.id])).toHaveLength(3);
     // 단자에서 끝나는 급전선은 한 토막
     const feeder = c.wires.find((w) => w.a[0] === 4 && w.a[1] === 24)!;

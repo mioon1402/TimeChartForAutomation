@@ -3,7 +3,7 @@ import { useStore } from '../store/store';
 import type { Project } from '../model/types';
 import { emptyCircuit, type CableMethod, type CableSpec, type Circuit, type LampColor, type OpStep, type Part, type PartType, type Pole, type Wire, type WireColor } from '../circuit/types';
 import { partGuide } from '../circuit/guide';
-import { analyzePower, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, PowerModel, tableIz, tempFactor, type PowerAnalysis, type PowerState } from '../circuit/power';
+import { analyzePower, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { wireChain } from '../circuit/wires';
 import { DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
@@ -382,7 +382,9 @@ export function CircuitPanel() {
   const flagged = useMemo(() => new Set(issues.filter((i) => i.level === 'error').flatMap((i) => i.partIds)), [issues]);
   // 전기 해석: 조작 순서 전체에서 가장 나쁜 값 (허용전류 · 전압강하 · 차단기), 시뮬레이션 중에는 그 순간의 전류
   const powerModel = useMemo(() => new PowerModel(circuit, model), [circuit, model]);
-  const analysis = useMemo(() => analyzePower(circuit, model), [circuit, model]);
+  // 케이블 규격이 하나도 없고 [해석] 탭도 닫혀 있으면 계산하지 않는다 (PLC 회로처럼 시뮬레이션이 긴 회로를 끌 때 버벅이지 않게)
+  const needPower = side === 'power' || circuit.wires.some((w) => w.cable);
+  const analysis = useMemo(() => (needPower ? analyzePower(circuit, model) : NO_ANALYSIS), [needPower, circuit, model]);
   const powerErrs = analysis.issues.filter((i) => i.level === 'error').length;
   const liveRef = useRef<{ pm: PowerModel; sig: string; st: PowerState } | null>(null);
   let livePower: PowerState | null = null;
@@ -1032,6 +1034,8 @@ function GuideCard({ type }: { type: PartType }) {
   );
 }
 
+const NO_ANALYSIS: PowerAnalysis = { shorted: false, cables: [], loads: [], breakers: [], issues: [], supply: [], peakKw: 0, panels: [], wireI: new Map(), vll: 220 * Math.sqrt(3), vln: 220 };
+
 const METHOD_LABEL: Record<CableMethod, [string, string]> = {
   A1: ['A1 단열벽 속 전선관 (절연전선)', 'A1 conduit in insulated wall (wires)'],
   A2: ['A2 단열벽 속 전선관 (다심 케이블)', 'A2 conduit in insulated wall (cable)'],
@@ -1198,7 +1202,7 @@ function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>
       </div>
       {(p.type === 'r_load1' || p.type === 'r_load3') && <Check checked={!!p.lighting} onChange={(v) => set({ lighting: v || undefined })} label={tr('조명 부하 (전압강하 허용값이 더 작다)', 'Lighting load (stricter voltage drop)')} />}
       <p className="small muted">
-        {tr('정격 전류', 'Rated current')} <b>{amps.toFixed(1)} A</b> ({three ? tr('3상', '3-ph') : tr('단상', '1-ph')} {Math.round(volt)} V{motor ? tr(', 기동 전류는 계산하지 않습니다', '; starting current is not modelled') : ''})
+        {tr('정격 전류', 'Rated current')} <b>{amps.toFixed(1)} A</b> ({three ? tr('3상', '3-ph') : tr('단상', '1-ph')} {nominalVolt(volt)} V{motor ? tr(', 기동 전류는 계산하지 않습니다', '; starting current is not modelled') : ''})
       </p>
     </>
   );
@@ -1536,7 +1540,7 @@ function PowerPane({ circuit, a, onChange, onPick, title }: { circuit: Circuit; 
   return (
     <div className="cc-power">
       <div className="grid2">
-        <Field label={tr('선간 전압 (V)', 'Line voltage (V)')} hint={tr(`상전압 ${Math.round(a.vln)} V`, `phase ${Math.round(a.vln)} V`)}>
+        <Field label={tr('선간 전압 (V)', 'Line voltage (V)')} hint={tr(`상전압 ${nominalVolt(a.vln)} V`, `phase ${nominalVolt(a.vln)} V`)}>
           <NumberInput value={circuit.vll ?? 380} min={1} step={10} onChange={(v) => onChange({ ...circuit, vll: v && v > 0 && v !== 380 ? v : undefined })} />
         </Field>
         <Field label={tr('수전 (전압강하 허용값)', 'Supply (drop limits)')}>

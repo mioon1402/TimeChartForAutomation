@@ -632,8 +632,19 @@ export function PanelGlyph({ p, c }: { p: Part; c: CircuitColors }) {
       <rect x={0} y={0} width={w * 20} height={h * 20} rx={10} fill={c.ink} fillOpacity={0.035} stroke={c.muted} strokeWidth={2.2} />
       <path d={`M0,30H${w * 20}`} stroke={c.muted} strokeWidth={1.2} />
       <rect x={0} y={0} width={w * 20} height={30} rx={10} fill={c.muted} fillOpacity={0.16} stroke="none" />
-      <text x={12} y={21} fontSize={15} fontWeight={800} fill={c.ink} stroke="none">
-        {[p.tag, p.name].filter(Boolean).join('  ')}
+    </g>
+  );
+}
+
+/** 분전반 이름표: 선 위에 그려서 급전선이 지나가도 읽힌다 */
+export function PanelTitle({ p, c }: { p: Part; c: CircuitColors }) {
+  const text = [p.tag, p.name].filter(Boolean).join('  ');
+  const w = [...text].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 14 : 8.2), 0) + 18;
+  return (
+    <g pointerEvents="none">
+      <rect x={6} y={4} width={w} height={22} rx={5} fill={c.bg} stroke={c.muted} strokeWidth={1.2} />
+      <text x={15} y={20} fontSize={14} fontWeight={800} fill={c.ink} stroke="none">
+        {text}
       </text>
     </g>
   );

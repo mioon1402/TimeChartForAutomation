@@ -3,7 +3,7 @@ import type { Circuit, Part, WireColor } from '../circuit/types';
 import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -697,6 +697,13 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         );
       })}
       <WireEnds circuit={circuit} model={model} sim={sim} c={c} doneEnds={doneEnds} />
+      {circuit.parts
+        .filter((p) => p.type === 'r_panel')
+        .map((p) => (
+          <g key={`t${p.id}`} transform={`translate(${p.x * G},${p.y * G})`}>
+            <PanelTitle p={p} c={c} />
+          </g>
+        ))}
       {o.currents?.map((n, i) => {
         const w = n.text.length * 6.4 + 10;
         return (

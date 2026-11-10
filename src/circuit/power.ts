@@ -198,6 +198,15 @@ export function cableZ(spec: CableSpec): C {
   return [(RHO_CU * len) / Math.max(0.01, spec.mm2), spec.kind === 'bus' ? 0 : X_PER_M * len];
 }
 
+/**
+ * 정격 · 공칭 전압을 적을 때: 220 V 기준 계통의 선간 전압은 381 V 지만 공칭은 380 V 라서,
+ * 흔한 공칭값에 0.5% 안으로 가까우면 그 값으로 적는다 (측정값에는 쓰지 않는다)
+ */
+export function nominalVolt(v: number): number {
+  for (const n of [24, 110, 127, 220, 380, 440, 480]) if (Math.abs(v - n) <= n * 0.005) return n;
+  return Math.round(v);
+}
+
 export function cableText(spec: CableSpec): string {
   if (spec.kind === 'bus') return tr(`부스바 ${spec.mm2} mm² · ${spec.len} m`, `Busbar ${spec.mm2} mm² · ${spec.len} m`);
   const ins = spec.ins === 'pvc' ? 'PVC' : 'XLPE';

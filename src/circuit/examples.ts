@@ -547,7 +547,7 @@ function feederAnalysis(): Circuit {
   b.part('r_term', 4, 0, '', { pole: 'L1' });
   b.part('r_term', 6, 0, '', { pole: 'L2' });
   b.part('r_term', 8, 0, '', { pole: 'L3' });
-  b.part('r_term', 20, 0, '', { pole: 'N' });
+  b.part('r_term', 21, 0, '', { pole: 'N' });
   b.part('r_mcb3', 6, 6, 'MCB0', { name: tr('메인', 'Main'), amps: 100 });
   b.part('r_mcb3', 6, 20, 'MCB1', { name: 'LP-1', amps: 50 });
   b.part('r_mcb3', 16, 20, 'MCB2', { name: 'LP-2', amps: 30 });
@@ -570,7 +570,7 @@ function feederAnalysis(): Circuit {
   // ── LP-2: 급전 2.5 mm² 60 m → 차단기 20 A → 컴프레서 3.7 kW, 조명 2 kW (L3 · N)
   b.part('r_panel', 13, 31, 'LP-2', { name: tr('2라인 분전반', 'Line 2 panel'), w: 19, h: 27 });
   b.part('r_mcb3', 16, 40, 'MCB21', { amps: 20 });
-  b.part('r_motor3', 16, 51, 'M1', { name: tr('컴프레서', 'Compressor'), watt: 3700 });
+  b.part('r_load3', 16, 51, 'M1', { name: tr('공기 압축기', 'Air compressor'), watt: 3700, pf: 0.85 });
   [14, 16, 18].forEach((x, k) => {
     b.run(COL[k], xl(2.5, 60), [x, 24], [x, 36]);
     b.run(COL[k], xl(2.5, 10), [x, 44], [x, 48]);
@@ -580,7 +580,7 @@ function feederAnalysis(): Circuit {
   b.cable('grey', [18, 45], [22, 45], [22, 37], [26, 37], [26, 38]);
   const light: CableSpec = { ins: 'pvc', mm2: 1.5, method: 'B1', cores: 2, len: 80 };
   b.run('grey', light, [26, 46], [26, 50]);
-  b.run('blue', light, [20, 0], [20, 48], [28, 48], [28, 50]);
+  b.run('blue', light, [21, 0], [21, 48], [28, 48], [28, 50]);
   b.part('text', 1, -7, '', { text: tr('분전반 급전 해석: MAIN → LP-1 · LP-2 (일부러 넣은 문제 2개를 [해석] 탭에서 찾아 고쳐 보세요)', 'Feeder analysis: MAIN → LP-1, LP-2 (find and fix the two problems in the Analysis tab)') });
   b.op(3000, 'MCB1', 'off', tr('LP-1 차단', 'LP-1 off'));
   b.op(3000, 'MCB1', 'on', tr('LP-1 투입', 'LP-1 on'));
