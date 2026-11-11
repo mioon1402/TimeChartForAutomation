@@ -396,24 +396,31 @@ export function CircuitPanel() {
   }
   // 전선마다 전류표: 시뮬레이션 중에는 그 순간 값, [해석] 탭을 열어 두면 가장 클 때의 값. 규격이 없는 선에도 붙인다
   const staticI = !running && side === 'power' ? analysis.wireI : null;
+  const [showAmps, setShowAmpsState] = useState(() => storageGet(AMPS_KEY) !== '0');
+  const setShowAmps = (v: boolean) => {
+    setShowAmpsState(v);
+    storageSet(AMPS_KEY, v ? '1' : '0');
+  };
   const liveCurrents = useMemo(() => {
-    const src = livePower?.wireI ?? staticI;
+    const src = (showAmps ? livePower?.wireI : null) ?? staticI;
     if (!src) return undefined;
+    // 시뮬레이션 중에는 0.05 A 이상만 (제어 회로 그림을 가리지 않게), [해석] 탭에서는 mA 단위의 제어 전류까지
+    const min = livePower && showAmps ? 0.05 : 0.002;
     const byId = new Map(circuit.wires.map((w) => [w.id, w]));
     const len = (w: Wire) => Math.abs(w.a[0] - w.b[0]) + Math.abs(w.a[1] - w.b[1]);
-    const out: { a: [number, number]; b: [number, number]; text: string; bad?: boolean }[] = [];
+    const out: { a: [number, number]; b: [number, number]; text: string; bad?: boolean; i: number }[] = [];
     for (const run of powerModel.runs) {
       const ws = run.wires.map((id) => byId.get(id)).filter((w): w is Wire => !!w);
       const i = Math.max(0, ...ws.map((w) => src.get(w.id) ?? 0));
-      if (i < 0.05 || !ws.length) continue;
+      if (i < min || !ws.length) continue;
       const long = [...ws].sort((a, b) => len(b) - len(a))[0];
       // 아주 짧은 점퍼선은 글자표가 그림을 가리므로 건너뛴다 (마우스를 올리면 보인다)
       if (run.cable < 0 && len(long) < 2) continue;
       const iz = run.cable >= 0 ? cableIz(powerModel.cables[run.cable].spec) : null;
-      out.push({ a: long.a, b: long.b, text: `${i >= 10 ? i.toFixed(1) : i.toFixed(2)} A`, bad: iz !== null && i > iz });
+      out.push({ a: long.a, b: long.b, text: i >= 10 ? `${i.toFixed(1)} A` : i >= 1 ? `${i.toFixed(2)} A` : `${Math.round(i * 1000)} mA`, bad: iz !== null && i > iz, i });
     }
     return out;
-  }, [livePower, staticI, powerModel, circuit.wires]);
+  }, [livePower, staticI, showAmps, powerModel, circuit.wires]);
   // [해석] 탭에서 고른 줄: 그림에서 강조하고 화면 밖이면 그쪽으로
   const [powerPick, setPowerPick] = useState<{ parts: string[]; wires: string[] } | null>(null);
   const powerHighlight = useMemo(() => {
@@ -491,6 +498,7 @@ export function CircuitPanel() {
             ) : (
               <span className="cc-clock">t = {formatTime(r?.sim.t ?? 0, 's')}</span>
             )}
+            {powerModel.loads.length > 0 && <Check checked={showAmps} onChange={setShowAmps} label={tr('전류 표시', 'Show currents')} />}
             {r?.sim.shorted && <span className="chip danger">{tr('단락!', 'Short!')}</span>}
           </>
         ) : (
@@ -688,6 +696,7 @@ function MiniGlyph({ item, c, size = 30 }: { item: PaletteItem; c: CircuitColors
 }
 
 const PALETTE_KEY = 'timechart-studio.circuit-palette.v1';
+const AMPS_KEY = 'timechart-studio.circuit-amps.v1';
 
 function Palette({ c, placing, onPick, disabled }: { c: CircuitColors; placing: PaletteItem | null; onPick: (it: PaletteItem) => void; disabled: boolean }) {
   const [mode, setMode] = useState<'real' | 'symbol'>(() => (storageGet(PALETTE_KEY) === 'symbol' ? 'symbol' : 'real'));

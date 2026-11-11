@@ -3,7 +3,7 @@ import type { Circuit, Part, WireColor } from '../circuit/types';
 import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -579,7 +579,7 @@ export interface LayerOptions {
   /** 전기 해석 결과 (시뮬레이션 중): 부하 · 차단기에 전류를 적는다 */
   power?: PowerState | null;
   /** 전선 위에 적는 전류: a → b 는 글자표를 놓을 수 있는 선 (겹치면 선을 따라 자리를 옮긴다) */
-  currents?: { a: [number, number]; b: [number, number]; text: string; bad?: boolean }[];
+  currents?: { a: [number, number]; b: [number, number]; text: string; bad?: boolean; i: number }[];
   /** 화면을 줄여도 읽히도록 글자표 (전류 · 선번호 · 분전반 이름) 를 키우는 배율 */
   labelScale?: number;
   /** 선번호 (전선 가운데에 적는다) */
@@ -703,7 +703,8 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
       {circuit.parts
         .filter((p) => p.type === 'r_panel')
         .map((p) => (
-          <g key={`t${p.id}`} transform={`translate(${p.x * G},${p.y * G}) scale(${Math.min(ls, 1.8)})`}>
+          // 이름표는 화면을 줄이면 키우되, 분전반 폭을 넘어 옆 분전반과 겹치지 않게
+          <g key={`t${p.id}`} transform={`translate(${p.x * G},${p.y * G}) scale(${Math.max(1, Math.min(ls, 1.8, ((partBox(p)[2] - p.x) * G - 12) / panelTitleWidth(p)))})`}>
             <PanelTitle p={p} c={c} />
           </g>
         ))}
@@ -749,8 +750,7 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
  * 허용전류를 넘은 것, 전류가 큰 것부터 자리를 잡고, 놓을 자리가 없으면 뺀다 (마우스를 올리면 보인다).
  */
 function placeLabels(items: NonNullable<LayerOptions['currents']>, ls: number): { at: [number, number]; text: string; bad?: boolean }[] {
-  const amps = (t: string) => parseFloat(t) || 0;
-  const order = [...items].sort((x, y) => Number(!!y.bad) - Number(!!x.bad) || amps(y.text) - amps(x.text));
+  const order = [...items].sort((x, y) => Number(!!y.bad) - Number(!!x.bad) || y.i - x.i);
   const placed: { at: [number, number]; text: string; bad?: boolean; w: number; h: number }[] = [];
   for (const it of order) {
     const w = ((it.text.length * 6.4 + 10) * ls) / G;
