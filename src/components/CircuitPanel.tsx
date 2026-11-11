@@ -3,8 +3,8 @@ import { useStore } from '../store/store';
 import type { Project } from '../model/types';
 import { emptyCircuit, type CableMethod, type CableSpec, type Circuit, type LampColor, type OpStep, type Part, type PartType, type Pole, type Wire, type WireColor } from '../circuit/types';
 import { partGuide } from '../circuit/guide';
-import { analyzePower, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, type PowerAnalysis, type PowerState } from '../circuit/power';
-import { wireChain } from '../circuit/wires';
+import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, type PowerAnalysis, type PowerState } from '../circuit/power';
+import { parallelWires, wireChain } from '../circuit/wires';
 import { DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
@@ -394,19 +394,60 @@ export function CircuitPanel() {
     if (!liveRef.current || liveRef.current.pm !== powerModel || liveRef.current.sig !== sig) liveRef.current = { pm: powerModel, sig, st: powerModel.solve(sim) };
     livePower = liveRef.current.st.shorted ? null : liveRef.current.st;
   }
+  // 전선마다 전류표: 시뮬레이션 중에는 그 순간 값, [해석] 탭을 열어 두면 가장 클 때의 값. 규격이 없는 선에도 붙인다
+  const staticI = !running && side === 'power' ? analysis.wireI : null;
+  const [showAmps, setShowAmpsState] = useState(() => storageGet(AMPS_KEY) !== '0');
+  const setShowAmps = (v: boolean) => {
+    setShowAmpsState(v);
+    storageSet(AMPS_KEY, v ? '1' : '0');
+  };
   const liveCurrents = useMemo(() => {
-    if (!livePower) return undefined;
-    const out: { at: [number, number]; text: string; bad?: boolean }[] = [];
-    for (const cb of powerModel.cables) {
-      const ws = circuit.wires.filter((w) => cb.wires.includes(w.id));
-      const i = Math.max(0, ...ws.map((w) => livePower!.wireI.get(w.id) ?? 0));
-      if (i < 0.05 || !ws.length) continue;
-      const long = [...ws].sort((a, b) => Math.abs(b.a[0] - b.b[0]) + Math.abs(b.a[1] - b.b[1]) - (Math.abs(a.a[0] - a.b[0]) + Math.abs(a.a[1] - a.b[1])))[0];
-      const iz = cableIz(cb.spec);
-      out.push({ at: [(long.a[0] + long.b[0]) / 2, (long.a[1] + long.b[1]) / 2], text: `${i.toFixed(1)} A`, bad: iz !== null && i > iz });
+    const src = (showAmps ? livePower?.wireI : null) ?? staticI;
+    if (!src) return undefined;
+    // 시뮬레이션 중에는 0.05 A 이상만 (제어 회로 그림을 가리지 않게), [해석] 탭에서는 mA 단위의 제어 전류까지
+    const min = livePower && showAmps ? 0.05 : 0.002;
+    const byId = new Map(circuit.wires.map((w) => [w.id, w]));
+    const len = (w: Wire) => Math.abs(w.a[0] - w.b[0]) + Math.abs(w.a[1] - w.b[1]);
+    const out: { a: [number, number]; b: [number, number]; text: string; bad?: boolean; i: number }[] = [];
+    for (const run of powerModel.runs) {
+      const ws = run.wires.map((id) => byId.get(id)).filter((w): w is Wire => !!w);
+      const i = Math.max(0, ...ws.map((w) => src.get(w.id) ?? 0));
+      if (i < min || !ws.length) continue;
+      const long = [...ws].sort((a, b) => len(b) - len(a))[0];
+      // 아주 짧은 점퍼선은 글자표가 그림을 가리므로 건너뛴다 (마우스를 올리면 보인다)
+      if (run.cable < 0 && len(long) < 2) continue;
+      const iz = run.cable >= 0 ? cableIz(powerModel.cables[run.cable].spec) : null;
+      out.push({ a: long.a, b: long.b, text: i >= 10 ? `${i.toFixed(1)} A` : i >= 1 ? `${i.toFixed(2)} A` : `${Math.round(i * 1000)} mA`, bad: iz !== null && i > iz, i });
     }
     return out;
-  }, [livePower, powerModel, circuit.wires]);
+  }, [livePower, staticI, showAmps, powerModel, circuit.wires]);
+  // [해석] 탭에서 고른 줄: 그림에서 강조하고 화면 밖이면 그쪽으로
+  const [powerPick, setPowerPick] = useState<{ parts: string[]; wires: string[] } | null>(null);
+  const powerHighlight = useMemo(() => {
+    if (!powerPick || side !== 'power') return null;
+    const ws = new Set(powerPick.wires);
+    const ps = new Set(powerPick.parts);
+    return { segs: circuit.wires.filter((w) => ws.has(w.id)).map((w) => [w.a, w.b] as [[number, number], [number, number]]), pts: circuit.parts.filter((q) => ps.has(q.id)).map((q) => [q.x, q.y] as [number, number]) };
+  }, [powerPick, side, circuit.wires, circuit.parts]);
+  /** 부품 위에 마우스를 올렸을 때의 정보 */
+  const partInfo = (q: Part): string[] => {
+    const lines = [[q.tag, q.name].filter(Boolean).join('  ') || partKindName(q.type)];
+    const rating = loadRating(q);
+    const amps = breakerAmps(q);
+    lines.push([q.tag || q.name ? partKindName(q.type) : '', amps !== null ? `${amps} A` : '', rating && (rating.out >= 20 || q.watt !== undefined) ? `${Math.round(rating.out / 10) / 100} kW · pf ${rating.pf}` : ''].filter(Boolean).join(' · '));
+    if (livePower) {
+      const ld = livePower.loads.get(q.id);
+      const through = livePower.partI.get(q.id);
+      if (ld) lines.push(tr(`지금 ${ld.i.toFixed(2)} A · ${ld.v.toFixed(0)} V`, `now ${ld.i.toFixed(2)} A · ${ld.v.toFixed(0)} V`));
+      else if (through !== undefined && through > 0.005) lines.push(tr(`지금 ${through.toFixed(2)} A${amps ? ` (정격의 ${Math.round((through / amps) * 100)}%)` : ''}`, `now ${through.toFixed(2)} A${amps ? ` (${Math.round((through / amps) * 100)}% of rating)` : ''}`));
+    } else if (needPower) {
+      const ld = analysis.loads.find((l) => l.partId === q.id);
+      const br = analysis.breakers.find((b) => b.partId === q.id);
+      if (ld) lines.push(ld.on ? tr(`최대 ${ld.i} A${ld.dropPct !== null ? ` · 전압강하 ${ld.dropPct}%` : ''}`, `max ${ld.i} A${ld.dropPct !== null ? ` · drop ${ld.dropPct}%` : ''}`) : tr('조작 순서에서 켜지지 않음', 'never on in the sequence'));
+      else if (br && br.i > 0.005) lines.push(tr(`최대 ${br.i} A${br.amps ? ` / 정격 ${br.amps} A` : ''}`, `max ${br.i} A${br.amps ? ` / rated ${br.amps} A` : ''}`));
+    }
+    return lines;
+  };
   const errCount = issues.filter((i) => i.level === 'error').length;
   const r = runRef.current;
 
@@ -457,6 +498,7 @@ export function CircuitPanel() {
             ) : (
               <span className="cc-clock">t = {formatTime(r?.sim.t ?? 0, 's')}</span>
             )}
+            {powerModel.loads.length > 0 && <Check checked={showAmps} onChange={setShowAmps} label={tr('전류 표시', 'Show currents')} />}
             {r?.sim.shorted && <span className="chip danger">{tr('단락!', 'Short!')}</span>}
           </>
         ) : (
@@ -507,7 +549,8 @@ export function CircuitPanel() {
           flagged={flagged}
           ghostPart={(item, x, y) => makePart(circuit, item, x, y, 'ghost', project.plc?.dialect)}
           fitKey={fitKey}
-          highlight={side === 'wiring' ? wireHighlight(wiring.find((r) => r.key === wirePick)) : null}
+          highlight={side === 'wiring' ? wireHighlight(wiring.find((r) => r.key === wirePick)) : powerHighlight}
+          partInfo={partInfo}
           wireNos={side === 'wiring' ? wireNos : undefined}
           progress={wireProgress}
           power={livePower}
@@ -550,9 +593,9 @@ export function CircuitPanel() {
                   const ws = new Set(sel.wires);
                   commitCircuit({ ...circuit, wires: circuit.wires.map((w) => (ws.has(w.id) ? (color ? { ...w, color } : { id: w.id, a: w.a, b: w.b, ...(w.cable ? { cable: w.cable } : {}) }) : w)) });
                 }}
-                setWireCable={(cable) => {
-                  // 꺾여 이어진 한 가닥 전체에 같은 규격
-                  const ws = new Set(wireChain(circuit, sel.wires));
+                setWireCable={(cable, parallel) => {
+                  // 꺾여 이어진 한 가닥 전체에 같은 규격. 나란한 가닥 (3상의 나머지 두 가닥) 도 함께
+                  const ws = new Set(parallel ? parallelWires(circuit, sel.wires) : wireChain(circuit, sel.wires));
                   commitCircuit({ ...circuit, wires: circuit.wires.map((w) => (ws.has(w.id) ? { id: w.id, a: w.a, b: w.b, ...(w.color ? { color: w.color } : {}), ...(cable ? { cable } : {}) } : w)) }, `cable:${sel.wires.join()}`, false);
                 }}
               />
@@ -573,7 +616,28 @@ export function CircuitPanel() {
                 onDone={(wired) => commitCircuit(wired.length ? { ...circuit, wired } : { ...circuit, wired: undefined }, 'wired', false)}
               />
             )}
-            {side === 'power' && <PowerPane circuit={circuit} a={analysis} onChange={(c) => commitCircuit(c, 'power-sys', false)} onPick={(parts, wires) => setSel({ parts, wires })} title={project.meta.title} />}
+            {side === 'power' && (
+              <PowerPane
+                circuit={circuit}
+                a={analysis}
+                onChange={(c) => commitCircuit(c, 'power-sys', false)}
+                onPick={(parts, wires) => {
+                  setSel({ parts, wires });
+                  setPowerPick({ parts, wires });
+                }}
+                onAuto={(assign) => {
+                  const res = autoSize(circuit, (c) => new CircuitModel(c, project.plc), { assign });
+                  if (res.circuit === circuit) {
+                    toast(tr('바꿀 것이 없습니다', 'Nothing to change'), 'ok');
+                    return;
+                  }
+                  commitCircuit(res.circuit, undefined, false);
+                  const what = [res.assigned ? tr(`${res.assigned}구간에 규격 지정`, `${res.assigned} runs given a spec`) : '', res.resized ? tr(`${res.resized}구간 굵기 키움`, `${res.resized} runs enlarged`) : ''].filter(Boolean).join(', ');
+                  toast(res.left ? tr(`${what || '굵기 선정'}: 문제 ${res.left}개가 남았습니다 (차단기 정격 · 부하를 확인하세요). Ctrl+Z 로 되돌리기`, `${what}: ${res.left} problems left. Ctrl+Z to undo`) : tr(`${what}: 문제가 없습니다. Ctrl+Z 로 되돌리기`, `${what}: no problems left. Ctrl+Z to undo`), res.left ? 'warn' : 'ok');
+                }}
+                title={project.meta.title}
+              />
+            )}
             {side === 'check' && <CheckPane issues={issues} onPick={(ids) => (setSel({ parts: ids, wires: [] }), setSide('props'))} />}
           </div>
         </aside>
@@ -632,6 +696,7 @@ function MiniGlyph({ item, c, size = 30 }: { item: PaletteItem; c: CircuitColors
 }
 
 const PALETTE_KEY = 'timechart-studio.circuit-palette.v1';
+const AMPS_KEY = 'timechart-studio.circuit-amps.v1';
 
 function Palette({ c, placing, onPick, disabled }: { c: CircuitColors; placing: PaletteItem | null; onPick: (it: PaletteItem) => void; disabled: boolean }) {
   const [mode, setMode] = useState<'real' | 'symbol'>(() => (storageGet(PALETTE_KEY) === 'symbol' ? 'symbol' : 'real'));
@@ -744,7 +809,7 @@ function PropsPane({
   remove: () => void;
   rotate: () => void;
   setWireColor: (c: WireColor | undefined) => void;
-  setWireCable: (c: CableSpec | undefined) => void;
+  setWireCable: (c: CableSpec | undefined, parallel: boolean) => void;
 }) {
   const bom = useMemo(() => partsList(circuit), [circuit]);
   if (!p) {
@@ -1034,7 +1099,7 @@ function GuideCard({ type }: { type: PartType }) {
   );
 }
 
-const NO_ANALYSIS: PowerAnalysis = { shorted: false, cables: [], loads: [], breakers: [], issues: [], supply: [], peakKw: 0, panels: [], wireI: new Map(), vll: 220 * Math.sqrt(3), vln: 220 };
+const NO_ANALYSIS: PowerAnalysis = { shorted: false, cables: [], bare: [], loads: [], breakers: [], issues: [], supply: [], peakKw: 0, panels: [], wireI: new Map(), vll: 220 * Math.sqrt(3), vln: 220 };
 
 const METHOD_LABEL: Record<CableMethod, [string, string]> = {
   A1: ['A1 단열벽 속 전선관 (절연전선)', 'A1 conduit in insulated wall (wires)'],
@@ -1049,7 +1114,11 @@ const METHOD_LABEL: Record<CableMethod, [string, string]> = {
 };
 
 /** 전선 · 케이블 규격: 절연, 굵기, 공사방법, 길이 → 허용전류와 저항. 꺾여 이어진 한 가닥 전체에 적용된다 */
-function CableEditor({ circuit, ids, onChange }: { circuit: Circuit; ids: string[]; onChange: (c: CableSpec | undefined) => void }) {
+function CableEditor({ circuit, ids, onChange: apply }: { circuit: Circuit; ids: string[]; onChange: (c: CableSpec | undefined, parallel: boolean) => void }) {
+  // 같은 두 기기를 잇는 나란한 가닥 (3상의 나머지 두 가닥) 에도 함께 적용
+  const [parallel, setParallel] = useState(true);
+  const others = useMemo(() => parallelWires(circuit, ids).length - wireChain(circuit, ids).length, [circuit, ids]);
+  const onChange = (c: CableSpec | undefined) => apply(c, parallel);
   const cur = circuit.wires.find((w) => ids.includes(w.id) && w.cable)?.cable;
   const three = circuit.parts.some((p) => p.type === 'src3' || ((p.type === 'src' || p.type === 'r_term') && (p.pole === 'L2' || p.pole === 'L3')));
   const kind = !cur ? 'none' : cur.kind === 'bus' ? 'bus' : 'cable';
@@ -1140,10 +1209,11 @@ function CableEditor({ circuit, ids, onChange }: { circuit: Circuit; ids: string
           </Field>
         </>
       )}
+      {others > 0 && <Check checked={parallel} onChange={setParallel} label={tr(`같은 두 기기를 잇는 나란한 가닥 ${others}토막에도 함께 적용 (3상)`, `Also apply to the ${others} parallel wire(s) between the same devices (3-phase)`)} />}
       <p className="small muted">
         {tr(
-          '규격을 정하면 [해석] 탭에서 이 선의 전류가 허용전류를 넘는지, 부하까지 전압강하가 얼마인지 검토합니다. 3상은 세 가닥을 함께 고르고 (Shift+클릭) 같은 값을 주세요.',
-          'With a spec, the Analysis tab checks this wire against its ampacity and computes the voltage drop. For 3-phase select all three wires (Shift+click).',
+          '규격을 정하면 [해석] 탭에서 이 선의 전류가 허용전류를 넘는지, 부하까지 전압강하가 얼마인지 검토합니다. 꺾여 이어진 한 가닥 전체에 적용됩니다.',
+          'With a spec, the Analysis tab checks this wire against its ampacity and computes the voltage drop. The spec applies to the whole run.',
         )}
       </p>
     </div>
@@ -1500,7 +1570,41 @@ function BomPane({ circuit, title }: { circuit: Circuit; title: string }) {
 }
 
 /** 전기 해석: 계통 설정, 문제, 케이블 · 부하 · 차단기 표 (조작 순서 전체에서 가장 나쁜 값) */
-function PowerPane({ circuit, a, onChange, onPick, title }: { circuit: Circuit; a: PowerAnalysis; onChange: (c: Circuit) => void; onPick: (parts: string[], wires: string[]) => void; title: string }) {
+function PowerPane({ circuit, a, onChange, onPick, onAuto, title }: { circuit: Circuit; a: PowerAnalysis; onChange: (c: Circuit) => void; onPick: (parts: string[], wires: string[]) => void; onAuto: (assign: boolean) => void; title: string }) {
+  const major = a.loads.filter((l) => !l.minor);
+  const minor = a.loads.filter((l) => l.minor);
+  const errors = a.issues.filter((i) => i.level === 'error').length;
+  const fmtI = (v: number) => (v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(3));
+  const loadRows = (rows: PowerAnalysis['loads']) =>
+    rows.map((r) => {
+      const bad = r.dropPct !== null && r.dropPct > r.limit;
+      return (
+        <tr key={r.partId} className={bad ? 'bad' : ''} onClick={() => onPick([r.partId], [])}>
+          <td className="mono">
+            <b>{r.tag}</b>
+            {r.name && <div className="small muted">{r.name}</div>}
+          </td>
+          <td className="num">{r.watt >= 1000 ? `${Math.round(r.watt / 10) / 100} kW` : `${Math.round(r.watt * 10) / 10} W`}</td>
+          <td className="num">{r.on ? fmtI(r.i) : <span className="muted small">{tr('꺼짐', 'off')}</span>}</td>
+          <td className="num">{r.v === null ? '—' : Math.round(r.v)}</td>
+          <td className="num">
+            {r.dropPct === null ? '—' : `${r.dropPct}%`}
+            {r.dropPct !== null && <div className={`small ${bad ? 'cc-bad' : 'muted'}`}>≤ {Math.round(r.limit * 100) / 100}%</div>}
+          </td>
+        </tr>
+      );
+    });
+  const loadHead = (
+    <thead>
+      <tr>
+        <th>{tr('기호', 'Tag')}</th>
+        <th>{tr('용량', 'Power')}</th>
+        <th>A</th>
+        <th>V</th>
+        <th>{tr('강하', 'Drop')}</th>
+      </tr>
+    </thead>
+  );
   const f1 = (v: number) => (v >= 100 ? v.toFixed(0) : v.toFixed(1));
   const pct = (i: number, lim: number | null) => (lim && lim > 0 ? Math.round((i / lim) * 100) : null);
   const csv = () => {
@@ -1517,7 +1621,7 @@ function PowerPane({ circuit, a, onChange, onPick, title }: { circuit: Circuit; 
     for (const r of a.breakers) out.push(line([r.tag, r.amps ?? '', r.i]));
     downloadText(`${safeFileName(title || 'circuit')}_${tr('전기해석', 'analysis')}.csv`, '\uFEFF' + out.join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
   };
-  if (!a.loads.length && !a.cables.length)
+  if (!a.loads.length && !a.cables.length && !a.bare.length)
     return (
       <div className="cc-power">
         <p className="muted">
@@ -1559,6 +1663,20 @@ function PowerPane({ circuit, a, onChange, onPick, title }: { circuit: Circuit; 
             </span>
           ))}
       </div>
+      {(errors > 0 || a.bare.length > 0) && (
+        <div className="cc-power-auto">
+          {errors > 0 && a.cables.length > 0 && (
+            <button type="button" className="btn small primary" onClick={() => onAuto(false)} title={tr('허용전류가 모자라거나 전압강하가 큰 케이블을 필요한 만큼 굵게 바꿉니다 (차단기 · 부하는 그대로)', 'Enlarges cables that fail ampacity or voltage drop; breakers and loads stay')}>
+              <Icon name="wand" size={13} /> {tr('굵기 자동 선정', 'Auto-size cables')}
+            </button>
+          )}
+          {a.bare.length > 0 && (
+            <button type="button" className={`btn small ${a.cables.length ? '' : 'primary'}`} onClick={() => onAuto(true)} title={tr('규격 없는 전선에 전류 · 차단기 정격에 맞는 굵기를 줍니다 (XLPE · B1, 길이는 그림에서 어림: 1칸 = 1 cm)', 'Gives bare wires a size that suits their current and breaker (XLPE, B1; length estimated from the drawing)')}>
+              <Icon name="wand" size={13} /> {tr(`규격 자동 지정 (${a.bare.length}구간)`, `Assign specs (${a.bare.length} runs)`)}
+            </button>
+          )}
+        </div>
+      )}
       {a.issues.length === 0 ? (
         <p className="cc-ok">{tr('허용전류 · 전압강하 · 차단기 정격에 문제가 없습니다.', 'No ampacity, voltage drop or breaker problems.')}</p>
       ) : (
@@ -1614,42 +1732,54 @@ function PowerPane({ circuit, a, onChange, onPick, title }: { circuit: Circuit; 
           </table>
         </>
       )}
-      {a.loads.length > 0 && (
-        <>
-          <h4>{tr('부하: 전류와 전압강하', 'Loads: current and voltage drop')}</h4>
+      {a.bare.length > 0 && (
+        <details className="cc-power-more" open={!a.cables.length}>
+          <summary>{tr(`규격을 정하지 않은 전선 ${a.bare.length}구간 (전류만 계산)`, `${a.bare.length} wire runs without a spec (currents only)`)}</summary>
           <table className="tbl compact cc-power-tbl">
             <thead>
               <tr>
-                <th>{tr('기호', 'Tag')}</th>
-                <th>kW</th>
-                <th>A</th>
-                <th>V</th>
-                <th>{tr('강하', 'Drop')}</th>
+                <th>{tr('구간', 'Run')}</th>
+                <th>IB</th>
+                <th>In</th>
+                <th>{tr('권장', 'Suggest')}</th>
               </tr>
             </thead>
             <tbody>
-              {a.loads.map((r) => {
-                const bad = r.dropPct !== null && r.dropPct > r.limit;
-                return (
-                  <tr key={r.partId} className={bad ? 'bad' : ''} onClick={() => onPick([r.partId], [])}>
-                    <td className="mono">
-                      <b>{r.tag}</b>
-                      {r.name && <div className="small muted">{r.name}</div>}
-                    </td>
-                    <td className="num">{Math.round(r.watt / 10) / 100}</td>
-                    <td className="num">{f1(r.i)}</td>
-                    <td className="num">{r.v === null ? '—' : Math.round(r.v)}</td>
-                    <td className="num">
-                      {r.dropPct === null ? '—' : `${r.dropPct}%`}
-                      <div className={`small ${bad ? 'cc-bad' : 'muted'}`}>≤ {Math.round(r.limit * 100) / 100}%</div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {a.bare.map((r, i) => (
+                <tr key={i} onClick={() => onPick([], r.wires)}>
+                  <td className="mono small">
+                    {r.from} → {r.to}
+                    {r.count > 1 ? ` (${tr(`${r.count}가닥`, `×${r.count}`)})` : ''}
+                  </td>
+                  <td className="num">{fmtI(r.ib)}</td>
+                  <td className="num">{r.breakerAmps ?? '—'}</td>
+                  <td className="num">{r.suggest === null ? '—' : `${r.suggest} mm²`}</td>
+                </tr>
+              ))}
             </tbody>
+          </table>
+          <p className="small muted">{tr('권장 굵기는 XLPE · B1 (전선관) 기준으로, 흐르는 전류와 위쪽 차단기 정격을 모두 감당하는 가장 가는 것입니다.', 'Suggested for XLPE in conduit (B1): the smallest size that carries both the current and the breaker rating above.')}</p>
+        </details>
+      )}
+      {major.length > 0 && (
+        <>
+          <h4>{tr('부하: 전류와 전압강하', 'Loads: current and voltage drop')}</h4>
+          <table className="tbl compact cc-power-tbl">
+            {loadHead}
+            <tbody>{loadRows(major)}</tbody>
           </table>
         </>
       )}
+      {minor.length > 0 && (
+        <details className="cc-power-more" open={!major.length}>
+          <summary>{tr(`작은 제어 부하 ${minor.length}개 (릴레이 코일 · 표시등: 용량은 가정값)`, `${minor.length} small control loads (coils, lamps; assumed ratings)`)}</summary>
+          <table className="tbl compact cc-power-tbl">
+            {loadHead}
+            <tbody>{loadRows(minor)}</tbody>
+          </table>
+        </details>
+      )}
+      {a.loads.some((l) => !l.on) && <p className="small muted">{tr('"꺼짐" 은 조작 순서대로 돌렸을 때 한 번도 켜지지 않은 부하입니다. [조작 순서] 에 기동 조작을 넣으면 그때의 전류로 검토합니다.', '"off" loads were never energised in the operation sequence; add the operations that start them.')}</p>}
       {a.breakers.length > 0 && (
         <>
           <h4>{tr('차단기', 'Breakers')}</h4>

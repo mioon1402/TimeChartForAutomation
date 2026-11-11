@@ -636,10 +636,16 @@ export function PanelGlyph({ p, c }: { p: Part; c: CircuitColors }) {
   );
 }
 
+/** 분전반 이름표의 폭 (px, 배율 1 일 때) */
+export function panelTitleWidth(p: Part): number {
+  const text = [p.tag, p.name].filter(Boolean).join('  ');
+  return [...text].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 14 : 8.2), 0) + 18;
+}
+
 /** 분전반 이름표: 선 위에 그려서 급전선이 지나가도 읽힌다 */
 export function PanelTitle({ p, c }: { p: Part; c: CircuitColors }) {
   const text = [p.tag, p.name].filter(Boolean).join('  ');
-  const w = [...text].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 14 : 8.2), 0) + 18;
+  const w = panelTitleWidth(p);
   return (
     <g pointerEvents="none">
       <rect x={6} y={4} width={w} height={22} rx={5} fill={c.bg} stroke={c.muted} strokeWidth={1.2} />

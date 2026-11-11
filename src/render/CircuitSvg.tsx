@@ -3,7 +3,7 @@ import type { Circuit, Part, WireColor } from '../circuit/types';
 import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -578,8 +578,10 @@ export interface LayerOptions {
   highlight?: { segs: [[number, number], [number, number]][]; pts: [number, number][] } | null;
   /** 전기 해석 결과 (시뮬레이션 중): 부하 · 차단기에 전류를 적는다 */
   power?: PowerState | null;
-  /** 전선 위에 적는 전류 */
-  currents?: { at: [number, number]; text: string; bad?: boolean }[];
+  /** 전선 위에 적는 전류: a → b 는 글자표를 놓을 수 있는 선 (겹치면 선을 따라 자리를 옮긴다) */
+  currents?: { a: [number, number]; b: [number, number]; text: string; bad?: boolean; i: number }[];
+  /** 화면을 줄여도 읽히도록 글자표 (전류 · 선번호 · 분전반 이름) 를 키우는 배율 */
+  labelScale?: number;
   /** 선번호 (전선 가운데에 적는다) */
   wireNos?: { at: [number, number]; no: number }[];
   /** 따라 배선하기: 배선을 마친 전선만 진하게, 나머지는 흐리게 */
@@ -603,6 +605,7 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
     if (n !== undefined && model.airNets.has(n)) return sim?.airState[n] === 'P' ? 3.4 : 2.2;
     return 2.6;
   };
+  const ls = Math.max(1, o.labelScale ?? 1);
   // 따라 배선하기: 마친 전선 끝 (단자 좌표 + 나가는 방향)
   const doneEnds = o.progress ? new Set<string>() : null;
   if (o.progress && doneEnds) {
@@ -700,16 +703,17 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
       {circuit.parts
         .filter((p) => p.type === 'r_panel')
         .map((p) => (
-          <g key={`t${p.id}`} transform={`translate(${p.x * G},${p.y * G})`}>
+          // 이름표는 화면을 줄이면 키우되, 분전반 폭을 넘어 옆 분전반과 겹치지 않게
+          <g key={`t${p.id}`} transform={`translate(${p.x * G},${p.y * G}) scale(${Math.max(1, Math.min(ls, 1.8, ((partBox(p)[2] - p.x) * G - 12) / panelTitleWidth(p)))})`}>
             <PanelTitle p={p} c={c} />
           </g>
         ))}
-      {o.currents?.map((n, i) => {
+      {placeLabels(o.currents ?? [], ls).map((n, i) => {
         const w = n.text.length * 6.4 + 10;
         return (
-          <g key={`c${i}`} pointerEvents="none">
-            <rect x={n.at[0] * G - w / 2} y={n.at[1] * G - 8} width={w} height={16} rx={8} fill={n.bad ? '#dc2626' : '#0f172a'} opacity={0.92} />
-            <text x={n.at[0] * G} y={n.at[1] * G + 4} textAnchor="middle" fontSize={10.5} fontWeight={800} fill={n.bad ? '#ffffff' : '#a7f3d0'} stroke="none">
+          <g key={`c${i}`} pointerEvents="none" transform={`translate(${n.at[0] * G},${n.at[1] * G}) scale(${ls})`}>
+            <rect x={-w / 2} y={-8} width={w} height={16} rx={8} fill={n.bad ? '#dc2626' : '#0f172a'} opacity={0.92} />
+            <text x={0} y={4} textAnchor="middle" fontSize={10.5} fontWeight={800} fill={n.bad ? '#ffffff' : '#a7f3d0'} stroke="none">
               {n.text}
             </text>
           </g>
@@ -719,9 +723,9 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         const t = String(n.no);
         const w = t.length * 6.2 + 8;
         return (
-          <g key={`n${i}`} pointerEvents="none">
-            <rect x={n.at[0] * G - w / 2} y={n.at[1] * G - 7.5} width={w} height={15} rx={3.5} fill="#ffffff" stroke="#111827" strokeWidth={1} />
-            <text x={n.at[0] * G} y={n.at[1] * G + 3.8} textAnchor="middle" fontSize={10.5} fontWeight={800} fill="#111827" stroke="none">
+          <g key={`n${i}`} pointerEvents="none" transform={`translate(${n.at[0] * G},${n.at[1] * G}) scale(${ls})`}>
+            <rect x={-w / 2} y={-7.5} width={w} height={15} rx={3.5} fill="#ffffff" stroke="#111827" strokeWidth={1} />
+            <text x={0} y={3.8} textAnchor="middle" fontSize={10.5} fontWeight={800} fill="#111827" stroke="none">
               {t}
             </text>
           </g>
@@ -739,6 +743,26 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
       )}
     </g>
   );
+}
+
+/**
+ * 전류 글자표 자리 잡기: 나란한 선 (3상 세 가닥) 의 글자표가 겹치지 않게 선을 따라 어긋나게 놓는다.
+ * 허용전류를 넘은 것, 전류가 큰 것부터 자리를 잡고, 놓을 자리가 없으면 뺀다 (마우스를 올리면 보인다).
+ */
+function placeLabels(items: NonNullable<LayerOptions['currents']>, ls: number): { at: [number, number]; text: string; bad?: boolean }[] {
+  const order = [...items].sort((x, y) => Number(!!y.bad) - Number(!!x.bad) || y.i - x.i);
+  const placed: { at: [number, number]; text: string; bad?: boolean; w: number; h: number }[] = [];
+  for (const it of order) {
+    const w = ((it.text.length * 6.4 + 10) * ls) / G;
+    const h = (16 * ls) / G;
+    for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+      const at: [number, number] = [it.a[0] + (it.b[0] - it.a[0]) * f, it.a[1] + (it.b[1] - it.a[1]) * f];
+      if (placed.some((q) => Math.abs(q.at[0] - at[0]) < (q.w + w) / 2 + 0.1 && Math.abs(q.at[1] - at[1]) < (q.h + h) / 2 + 0.1)) continue;
+      placed.push({ at, text: it.text, bad: it.bad, w, h });
+      break;
+    }
+  }
+  return placed;
 }
 
 /** 실제 전선 한 토막: 색 + 얇은 테두리, 녹황은 줄무늬, 전압이 닿으면 흰 점선이 흐른다 */

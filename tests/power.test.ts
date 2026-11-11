@@ -196,7 +196,7 @@ describe('design checks', () => {
   it('passes a correctly sized feeder', () => {
     // 7.5 kW → 11.4 A, 차단기 20 A, XLPE 4 mm² B1 3상 (37 A), 30 m
     const a = analyzePower(feeder(20, spec({ mm2: 4, cores: 3, len: 30 }), 7500));
-    expect(a.issues).toEqual([]);
+    expect(a.issues.filter((i) => i.level !== 'info')).toEqual([]);
     // 3상 세 가닥은 한 줄로
     expect(a.cables).toHaveLength(1);
     expect(a.cables[0]).toMatchObject({ iz: 37, breaker: 'MCB1', breakerAmps: 20, from: 'MCB1', to: 'LD1 (3가닥)', count: 3 });
@@ -231,7 +231,7 @@ describe('design checks', () => {
     expect(other.loads[0].limit).toBeCloseTo(5.1, 6);
     expect(other.issues.some((i) => i.msg.includes('전압강하'))).toBe(true);
     const thick = analyzePower(feeder(16, spec({ mm2: 4, cores: 3, len: 120 }), 6000));
-    expect(thick.issues).toEqual([]);
+    expect(thick.issues.filter((i) => i.level !== 'info')).toEqual([]);
     // 같은 굵기라도 조명이면 3% (+ 100 m 초과분) 를 넘는다
     const light = analyzePower(feeder(16, spec({ mm2: 2.5, cores: 3, len: 120 }), 6000, true));
     expect(light.loads[0].dropPct).toBeGreaterThan(3.1);
@@ -334,7 +334,7 @@ describe('feeder analysis example (main panel, busbars, two sub-panels)', () => 
       if (w.cable?.len === 80) w.cable = { ...w.cable, ins: 'xlpe', mm2: 10 };
     }
     const fixed = analyzePower(c);
-    expect(fixed.issues).toEqual([]);
+    expect(fixed.issues.filter((i) => i.level !== 'info')).toEqual([]);
     expect(fixed.loads.find((l) => l.tag === 'LD2')!.dropPct).toBeLessThan(3.2);
     const rows = partsList(c);
     expect(rows.find((r) => r.tag === 'LD1')).toMatchObject({ kind: '부하', spec: '3상 15 kW, pf 0.9' });
@@ -352,5 +352,127 @@ describe('feeder analysis example (main panel, busbars, two sub-panels)', () => 
     // 단자에서 끝나는 급전선은 한 토막
     const feeder = c.wires.find((w) => w.a[0] === 4 && w.a[1] === 24)!;
     expect(wireChain(c, [feeder.id])).toEqual([feeder.id]);
+  });
+});
+
+describe('analysis on any circuit, automatic sizing', () => {
+  it('reports every load and the wires without a spec, also for circuits that have no cable specs', async () => {
+    const { circuitExamples } = await import('../src/circuit/examples');
+    for (const id of ['real', 'panel', 'self-hold', 'tsw-light', 'timer']) {
+      const ex = circuitExamples().find((e) => e.id === id)!;
+      const c = ex.build();
+      const a = analyzePower(c, new CircuitModel(c, ex.plc?.()));
+      expect(a.loads.length, id).toBeGreaterThan(0);
+      // 조작 순서에서 켜진 부하가 하나는 있고, 그 전류가 흐르는 규격 없는 전선이 표에 나온다
+      expect(a.loads.some((l) => l.on), id).toBe(true);
+      expect(a.issues.some((i) => i.level === 'info' && i.msg.includes('케이블 규격이 하나도 없어서')), id).toBe(id !== 'panel');
+    }
+    // 제어반 예제: 릴레이 · 타이머 · 램프 같은 작은 부하도 빠지지 않는다 (작은 부하로 표시)
+    const panel = circuitExamples().find((e) => e.id === 'panel')!.build();
+    const pa = analyzePower(panel);
+    expect(pa.loads.map((l) => l.tag).sort()).toEqual(['GL', 'RL', 'T1', 'X1', 'YL']);
+    expect(pa.loads.every((l) => l.minor)).toBe(true);
+    // 전동기 예제: 전동기까지 가는 세 가닥이 한 줄로, 권장 굵기와 함께
+    const real = circuitExamples().find((e) => e.id === 'real')!.build();
+    const ra = analyzePower(real);
+    const motor = ra.loads.find((l) => l.tag === 'M1')!;
+    expect(motor.minor).toBe(false);
+    expect(motor.i).toBeGreaterThan(7);
+    const lead = ra.bare.find((r) => r.to === 'M1')!;
+    expect(lead).toMatchObject({ from: 'MC1', count: 3, cores: 3, breaker: 'MCB1', breakerAmps: 25 });
+    // 차단기 25 A 를 감당하는 XLPE B1 3상: 2.5 mm² (28 A)
+    expect(lead.suggest).toBe(2.5);
+    expect(ra.bare[0].ib).toBeGreaterThanOrEqual(ra.bare[ra.bare.length - 1].ib);
+  });
+
+  it('suggests the smallest size that carries the current', async () => {
+    const { suggestSize } = await import('../src/circuit/power');
+    expect(suggestSize({ ins: 'xlpe', method: 'B1', cores: 3 }, 30)).toBe(4);
+    expect(suggestSize({ ins: 'xlpe', method: 'B1', cores: 3 }, 28)).toBe(2.5);
+    expect(suggestSize({ ins: 'pvc', method: 'B1', cores: 2 }, 20)).toBe(2.5);
+    // 보정계수가 있으면 더 굵게: 4 mm² 는 37 × 0.91 × 0.7 = 23.6 A, 6 mm² 는 48 × 0.637 = 30.6 A
+    expect(suggestSize({ ins: 'xlpe', method: 'B1', cores: 3, amb: 40, group: 3 }, 30)).toBe(6);
+    expect(suggestSize({ ins: 'pvc', method: 'B1', cores: 3 }, 1000)).toBeNull();
+  });
+
+  it('auto-sizing fixes the feeder example without touching breakers or loads', async () => {
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const { autoSize } = await import('../src/circuit/power');
+    const c = circuitExamples().find((e) => e.id === 'feeders')!.build();
+    const before = analyzePower(c);
+    expect(before.issues.filter((i) => i.level === 'error')).toHaveLength(2);
+    // 굵기 권장이 문제 문구에 들어 있다: 30 A 차단기 → 4 mm² (37 A)
+    expect(before.issues[0].msg).toContain('→ 4 mm² 이상');
+    const res = autoSize(c);
+    expect(res.left).toBe(0);
+    expect(res.assigned).toBe(0);
+    expect(res.resized).toBeGreaterThanOrEqual(2);
+    const after = analyzePower(res.circuit);
+    expect(after.issues.filter((i) => i.level === 'error')).toEqual([]);
+    for (const l of after.loads) if (l.dropPct !== null) expect(l.dropPct, l.tag).toBeLessThanOrEqual(l.limit);
+    for (const r of after.cables) if (r.iz !== null) expect(Math.max(r.ib, r.breakerAmps ?? 0), r.from).toBeLessThanOrEqual(r.iz);
+    // 원래 회로와 차단기 · 부하는 그대로
+    expect(c.wires.find((w) => w.cable?.len === 60)!.cable!.mm2).toBe(2.5);
+    expect(res.circuit.parts).toEqual(c.parts);
+    expect(res.circuit.wires.find((w) => w.cable?.len === 60)!.cable!.mm2).toBeGreaterThanOrEqual(4);
+    // 문제 없던 LP-1 쪽은 그대로
+    expect(res.circuit.wires.find((w) => w.cable?.len === 40)!.cable!.mm2).toBe(10);
+  });
+
+  it('assigns specs to bare wires from the current and the breaker above, with lengths estimated from the drawing', async () => {
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const { autoSize, drawnLength } = await import('../src/circuit/power');
+    expect(drawnLength(12)).toBe(0.12);
+    expect(drawnLength(3)).toBe(0.1);
+    const c = circuitExamples().find((e) => e.id === 'real')!.build();
+    expect(c.wires.some((w) => w.cable)).toBe(false);
+    const res = autoSize(c, undefined, { assign: true });
+    expect(res.assigned).toBeGreaterThanOrEqual(3);
+    expect(res.left).toBe(0);
+    const a = analyzePower(res.circuit);
+    expect(a.bare).toEqual([]);
+    expect(a.issues).toEqual([]);
+    const lead = a.cables.find((r) => r.to.startsWith('M1'))!;
+    expect(lead).toMatchObject({ from: 'MC1', count: 3, breakerAmps: 25, iz: 28 });
+    expect(lead.spec).toMatchObject({ ins: 'xlpe', mm2: 2.5, method: 'B1', cores: 3 });
+    // 판넬 안 선은 그림 길이로 어림해서 짧다 (전압강하에 거의 영향 없음)
+    expect(lead.spec.len).toBeLessThan(1);
+    expect(a.loads.find((l) => l.tag === 'M1')!.dropPct).toBeLessThan(0.1);
+  });
+});
+
+describe('ease of use helpers', () => {
+  it('selects the parallel conductors between the same two devices', async () => {
+    const { parallelWires, wireChain } = await import('../src/circuit/wires');
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const c = circuitExamples().find((e) => e.id === 'feeders')!.build();
+    // LP-1 급전선의 L1 한 가닥 → L2 · L3 까지 세 가닥
+    const l1 = c.wires.find((w) => w.a[0] === 4 && w.a[1] === 24)!;
+    const all = parallelWires(c, [l1.id]);
+    expect(wireChain(c, [l1.id])).toHaveLength(1);
+    expect(all).toHaveLength(3);
+    expect(all.map((id) => c.wires.find((w) => w.id === id)!.a[0]).sort((a, b) => a - b)).toEqual([4, 6, 8]);
+    // 분기점에서 끝나는 가닥 (부스바) 은 혼자
+    const bus = c.wires.find((w) => w.cable?.kind === 'bus')!;
+    expect(parallelWires(c, [bus.id])).toEqual([bus.id]);
+  });
+
+  it('sizes the line in front of the main breaker for that breaker', async () => {
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const real = circuitExamples().find((e) => e.id === 'real')!.build();
+    const incoming = analyzePower(real).bare.find((r) => r.from === '전원')!;
+    // 위쪽에 차단기는 없지만 끝에 물린 MCB1 (25 A) 이 전류를 제한한다 → 2.5 mm² (28 A)
+    expect(incoming).toMatchObject({ to: 'MCB1', count: 3, breaker: 'MCB1', breakerAmps: 25, suggest: 2.5 });
+  });
+
+  it('auto-sizing keeps the L and N of one load the same size', async () => {
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const { autoSize } = await import('../src/circuit/power');
+    const res = autoSize(circuitExamples().find((e) => e.id === 'feeders')!.build());
+    const a = analyzePower(res.circuit);
+    const legs = a.cables.filter((r) => r.to.startsWith('LD2 '));
+    expect(legs).toHaveLength(2);
+    expect(legs[0].spec.mm2).toBe(legs[1].spec.mm2);
+    expect(a.issues.filter((i) => i.level === 'error')).toEqual([]);
   });
 });

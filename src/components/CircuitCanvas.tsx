@@ -98,6 +98,8 @@ export interface CanvasProps {
   /** 전기 해석 (시뮬레이션 중): 부하 · 차단기의 전류, 전선에 올리면 전류 */
   power?: LayerOptions['power'];
   currents?: LayerOptions['currents'];
+  /** 부품 위에 마우스를 잠깐 올리면 보여 줄 정보 (이름 · 종류 · 정격 · 전류) */
+  partInfo?: (p: Part) => string[];
 }
 
 export function CircuitCanvas(props: CanvasProps) {
@@ -109,6 +111,26 @@ export function CircuitCanvas(props: CanvasProps) {
   const [hover, setHover] = useState<Pt | null>(null);
   const [hoverOp, setHoverOp] = useState(false);
   const [probe, setProbe] = useState<{ wire: string; at: Pt } | null>(null);
+  // 부품 정보 카드: 같은 부품 위에 잠깐 머물면 뜬다 (화면을 줄여서 글자가 작을 때도 읽게)
+  const [card, setCard] = useState<{ id: string; at: Pt } | null>(null);
+  const cardTimer = useRef<{ id: string; timer: number } | null>(null);
+  const hoverCard = (p: Part | null, at: Pt) => {
+    if (cardTimer.current && cardTimer.current.id !== p?.id) {
+      window.clearTimeout(cardTimer.current.timer);
+      cardTimer.current = null;
+    }
+    if (!p) {
+      if (card) setCard(null);
+      return;
+    }
+    if (card?.id === p.id || cardTimer.current) return;
+    if (card) setCard(null);
+    const id = p.id;
+    cardTimer.current = { id, timer: window.setTimeout(() => (setCard({ id, at }), (cardTimer.current = null)), 450) };
+  };
+  useEffect(() => () => void (cardTimer.current && window.clearTimeout(cardTimer.current.timer)), []);
+  // 화면을 줄여도 글자표가 읽히게 (화면에서 0.85 배 아래로는 작아지지 않는다)
+  const labelScale = Math.max(1, 0.85 / zoom);
   const zoomAnchor = useRef<{ gx: number; gy: number; cx: number; cy: number } | null>(null);
   const spaceDown = useRef(false);
 
@@ -257,6 +279,7 @@ export function CircuitCanvas(props: CanvasProps) {
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button === 2) return;
     const g = toGrid(e);
+    hoverCard(null, g);
     (e.target as Element).setPointerCapture?.(e.pointerId);
     if (e.button === 1 || spaceDown.current) {
       const el = wrapRef.current!;
@@ -325,6 +348,7 @@ export function CircuitCanvas(props: CanvasProps) {
     const g = toGrid(e);
     const d = dragRef.current;
     setHover(snap(g));
+    if (props.partInfo) hoverCard(d || placing || tool === 'wire' || hitPin(g) ? null : hitPart(g), g);
     if (sim && !d) {
       const p = hitPart(g);
       setHoverOp(!!p && operable(p));
@@ -433,7 +457,7 @@ export function CircuitCanvas(props: CanvasProps) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => setHover(null)}
+        onPointerLeave={(e) => (setHover(null), hoverCard(null, toGrid(e)))}
         onDoubleClick={onDoubleClick}
         onContextMenu={(e) => e.preventDefault()}
         role="application"
@@ -449,7 +473,7 @@ export function CircuitCanvas(props: CanvasProps) {
         </defs>
         <rect x={x0 * G} y={y0 * G} width={W} height={H} fill="url(#cc-grid)" />
         <rect x={x0 * G} y={y0 * G} width={W} height={H} fill="url(#cc-grid5)" />
-        <CircuitLayer circuit={circuit} model={model} c={c} o={{ sim, selected, flagged: props.flagged, showPins: !sim, highlight: props.highlight, wireNos: props.wireNos, progress: sim ? null : props.progress, power: sim ? props.power : null, currents: props.currents }} />
+        <CircuitLayer circuit={circuit} model={model} c={c} o={{ sim, selected, flagged: props.flagged, showPins: !sim, highlight: props.highlight, wireNos: props.wireNos, progress: sim ? null : props.progress, power: sim ? props.power : null, currents: props.currents, labelScale }} />
         {sim && probe && props.power && (() => {
           const w = circuit.wires.find((x) => x.id === probe.wire);
           if (!w) return null;
@@ -458,7 +482,7 @@ export function CircuitCanvas(props: CanvasProps) {
           const text = `${i >= 100 ? i.toFixed(0) : i.toFixed(2)} A${v !== null ? ` · ${v.toFixed(0)} V` : ''}`;
           const wd = text.length * 7.4 + 34;
           return (
-            <g pointerEvents="none" transform={`translate(${probe.at[0] * G + 14},${probe.at[1] * G - 16})`}>
+            <g pointerEvents="none" transform={`translate(${probe.at[0] * G + 14 * labelScale},${probe.at[1] * G - 16 * labelScale}) scale(${labelScale})`}>
               <rect x={0} y={-15} width={wd} height={24} rx={6} fill="#111827" stroke="#facc15" strokeWidth={1.6} />
               <path d="M9,-10a6,6 0 1 0 8,0" stroke="#facc15" strokeWidth={2.2} fill="none" />
               <text x={26} y={2} fontSize={12.5} fontWeight={800} fill="#a7f3d0" fontFamily="ui-monospace, monospace">
@@ -470,13 +494,29 @@ export function CircuitCanvas(props: CanvasProps) {
         {preview && <polyline points={preview.map((p) => `${p[0] * G},${p[1] * G}`).join(' ')} fill="none" stroke={c.accent} strokeWidth={2} strokeDasharray="5 4" />}
         {pinHot && hover && <circle cx={hover[0] * G} cy={hover[1] * G} r={6} fill="none" stroke={c.accent} strokeWidth={1.6} />}
         {pinName && hover && (
-          <g pointerEvents="none" transform={`translate(${hover[0] * G + 10},${hover[1] * G - 12})`}>
+          <g pointerEvents="none" transform={`translate(${hover[0] * G + 10 * labelScale},${hover[1] * G - 12 * labelScale}) scale(${labelScale})`}>
             <rect x={0} y={-12} width={pinName.length * 7.2 + 12} height={17} rx={4} fill="#111827" opacity={0.92} />
             <text x={6} y={1} fontSize={11} fontWeight={700} fill="#f9fafb" fontFamily="ui-monospace, monospace">
               {pinName}
             </text>
           </g>
         )}
+        {card && !probe && props.partInfo && (() => {
+          const part = circuit.parts.find((x) => x.id === card.id);
+          const lines = part ? props.partInfo(part).filter(Boolean) : [];
+          if (!lines.length) return null;
+          const width = Math.max(...lines.map((l) => [...l].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 12 : 6.6), 0))) + 20;
+          return (
+            <g pointerEvents="none" transform={`translate(${card.at[0] * G + 16 * labelScale},${card.at[1] * G + 18 * labelScale}) scale(${labelScale})`}>
+              <rect x={0} y={0} width={width} height={lines.length * 17 + 10} rx={6} fill="#111827" opacity={0.95} stroke="#475569" />
+              {lines.map((l, i) => (
+                <text key={i} x={10} y={19 + i * 17} fontSize={i === 0 ? 12.5 : 11.5} fontWeight={i === 0 ? 800 : 500} fill={i === 0 ? '#f9fafb' : '#cbd5e1'}>
+                  {l}
+                </text>
+              ))}
+            </g>
+          );
+        })()}
         {ghost && (
           <g transform={`translate(${ghost.x * G},${ghost.y * G})${ghost.rot ? ` rotate(${ghost.rot})` : ''}`} opacity={0.55} fill="none" strokeWidth={1.6} pointerEvents="none">
             <PartGlyph part={ghost} st={partState(ghost, model, null)} c={c} />
