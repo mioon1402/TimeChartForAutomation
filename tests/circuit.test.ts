@@ -794,3 +794,33 @@ describe('panelboard example (busbar, branch breakers)', () => {
     ]);
   });
 });
+
+describe('substation example (utility, VCB, transformer)', () => {
+  it('opening the VCB cuts the transformer and every load below it, closing restores them', () => {
+    const c = circuitExamples().find((e) => e.id === 'substation')!.build();
+    const r = runScenario(c);
+    expect(r.warnings).toEqual([]);
+    expect(checkCircuit(c)).toEqual([]);
+    const pts = (key: string) => r.tracks.find((t) => t.key === key)!.points.map((p) => [p.t, p.v]);
+    for (const tag of ['AHU1', 'CH1', 'CV1', 'EL1'])
+      expect(pts(`load:${tag}`)).toEqual([
+        [0, 1],
+        [2000, 0],
+        [4000, 1],
+      ]);
+  });
+
+  it('a transformer is live only when all three HV phases reach its primary', () => {
+    const c = circuitExamples().find((e) => e.id === 'substation')!.build();
+    // B 상 한 가닥을 빼면 (결상) 2차가 살지 않는다
+    const cut = { ...c, wires: c.wires.filter((w) => !(w.a[0] === 20 && w.a[1] === -5)) };
+    const tr = c.parts.find((p) => p.type === 'r_tr3')!;
+    const live = (x: Circuit) => {
+      const sim = new CircuitSim(new CircuitModel(x));
+      sim.settle();
+      return !!sim.powered.get(tr.id);
+    };
+    expect(live(c)).toBe(true);
+    expect(live(cut)).toBe(false);
+  });
+});

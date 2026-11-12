@@ -683,3 +683,93 @@ describe('supply systems (3-phase 4/3-wire, single-phase 3/2-wire)', () => {
     expect(circuitSig({ ...base, system: '3p3w' })).not.toBe(circuitSig(base));
   });
 });
+
+describe('utility supply, transformer, fault current', () => {
+  const sub = async () => (await import('../src/circuit/examples')).circuitExamples().find((e) => e.id === 'substation')!.build();
+
+  it('transformer and utility impedance by the %Z method (hand calculation)', async () => {
+    const { trImpedance } = await import('../src/circuit/power');
+    const t = { id: 't', type: 'r_tr3', x: 0, y: 0, rot: 0, tag: 'TR1', kva: 500, z: 5, xr: 5 } as Part;
+    const u = { id: 'u', type: 'r_kepco', x: 0, y: 0, rot: 0, tag: 'K', kv: 22.9, ka: 12.5 } as Part;
+    const z = trImpedance(t, 380, u);
+    // Zb = 380² / 500 kVA = 0.2888 Ω, Z = 5% → 0.01444 Ω, X/R = 5
+    expect(Math.hypot(...z.tr)).toBeCloseTo(0.01444, 5);
+    expect(z.tr[1] / z.tr[0]).toBeCloseTo(5, 6);
+    // 한전: Ssc = √3 × 22.9 kV × 12.5 kA = 495.8 MVA → 380² / Ssc = 0.000291 Ω
+    expect(Math.hypot(...z.utility)).toBeCloseTo(0.000291, 6);
+  });
+
+  it('reports transformer loading, currents on both sides and the fault level', async () => {
+    const a = analyzePower(await sub());
+    const t = a.transformers[0];
+    expect(t).toMatchObject({ tag: 'TR1', kva: 500, kv1: 22.9, v2: 380 });
+    // 부하 110 + 75 + 55 kW (역률 0.85) + 조명 5 kW ≈ 284 kVA → 57%
+    expect(t.load).toBeGreaterThan(275);
+    expect(t.load).toBeLessThan(292);
+    expect(t.pct).toBeCloseTo((t.load / 500) * 100, 0);
+    expect(t.i2n).toBeCloseTo(757.6, 0);
+    // 1차 전류 = 2차 × 381 / 22 900
+    expect(t.i1).toBeCloseTo((t.i2 * 381.05) / 22900, 1);
+    // 2차 단락: In × 100 / %Z = 15.15 kA 에서 한전 임피던스만큼 작다
+    expect(t.isc).toBeGreaterThan(14.6);
+    expect(t.isc).toBeLessThan(15.15);
+    expect(t.reg).toBeGreaterThan(1);
+    expect(t.reg).toBeLessThan(3);
+    // 특고압 전선의 전류는 그림에 나오지만 저압 굵기 표에는 없다
+    const vcb = a.breakers.find((b) => b.tag === 'VCB')!;
+    expect(vcb.i).toBeCloseTo(t.i1, 1);
+    expect(vcb.isc).toBe(12.5);
+    expect(a.bare).toEqual([]);
+    expect(a.supply.find((s) => s.pole === 'H1')!.i).toBeCloseTo(t.i1, 1);
+  });
+
+  it('checks each breaker against the fault current where it sits', async () => {
+    const a = analyzePower(await sub());
+    const isc = (tag: string) => a.breakers.find((b) => b.tag === tag)!.isc!;
+    // 메인은 변압기 단자와 거의 같고, 케이블을 지날수록 작아진다
+    expect(isc('ACB')).toBeCloseTo(a.transformers[0].isc, 1);
+    expect(isc('MCB1')).toBeLessThan(isc('ACB'));
+    // 일부러 넣은 문제: 조명 ELB 5 kA < 설치점 단락 전류
+    const errors = a.issues.filter((i) => i.level === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].msg).toContain('ELB4');
+    expect(errors[0].msg).toContain('18 kA');
+    // 차단 용량을 키우면 문제가 없다
+    const c = await sub();
+    const fixed = { ...c, parts: c.parts.map((p) => (p.tag === 'ELB4' ? { ...p, ka: 18 } : p)) };
+    expect(analyzePower(fixed).issues.filter((i) => i.level === 'error')).toEqual([]);
+  });
+
+  it('flags an overloaded transformer, and has no fault current without a transformer', async () => {
+    const c = await sub();
+    const small = { ...c, parts: c.parts.map((p) => (p.type === 'r_tr3' ? { ...p, kva: 200 } : p)) };
+    const a = analyzePower(small);
+    expect(a.transformers[0].pct).toBeGreaterThan(100);
+    expect(a.issues.some((i) => i.level === 'error' && i.msg.includes('과부하'))).toBe(true);
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const plain = analyzePower(circuitExamples().find((e) => e.id === 'busbar')!.build());
+    expect(plain.breakers.every((b) => b.isc === null)).toBe(true);
+    expect(plain.transformers).toEqual([]);
+  });
+
+  it('a 3-phase transformer needs a 3-phase supply system', async () => {
+    const { checkCircuit } = await import('../src/circuit/bom');
+    const c = { ...(await sub()), system: '1p3w' as const };
+    expect(checkCircuit(c).some((i) => i.level === 'error' && i.msg.includes('3상 변압기'))).toBe(true);
+  });
+
+  it('keeps transformer and breaker settings when a file is loaded', () => {
+    const c = sanitizeCircuit({
+      parts: [
+        { id: 'a', type: 'r_tr3', x: 0, y: 0, rot: 0, tag: 'TR1', kva: 750, kv: 22.9, z: 6, xr: 7 },
+        { id: 'b', type: 'r_kepco', x: 0, y: -10, rot: 0, tag: 'K', kv: 22.9, ka: 12.5 },
+        { id: 'c', type: 'r_mcb3', x: 10, y: 0, rot: 0, tag: 'MCB1', amps: 100, ka: 35 },
+      ],
+      wires: [],
+      ops: [],
+    })!;
+    expect(c.parts[0]).toMatchObject({ kva: 750, kv: 22.9, z: 6, xr: 7 });
+    expect(c.parts[1]).toMatchObject({ kv: 22.9, ka: 12.5 });
+    expect(c.parts[2]).toMatchObject({ amps: 100, ka: 35 });
+  });
+});

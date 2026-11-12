@@ -321,6 +321,23 @@ export const PARTS: Record<PartType, PartDef> = {
   // 부하 (용량으로 전류를 계산): 단상 L · N, 3상 L1 · L2 · L3
   r_load1: { type: 'r_load1', cat: 'output', pins: [pin(-1, -3, 'L'), pin(1, -3, 'N')], load: true, box: [-3.2, -3.8, 3.2, 3], prefix: 'LD' },
   r_load3: { type: 'r_load3', cat: 'output', pins: [pin(-2, -3, 'L1'), pin(0, -3, 'L2'), pin(2, -3, 'L3')], load: true, box: [-3.6, -3.8, 3.6, 3], prefix: 'LD' },
+  // 수전 · 변압기 (계통 해석): 한전 수전점 (특고압 A B C), 진공차단기, 3상 변압기 (Δ-Y, 2차 X0 = N)
+  r_kepco: { type: 'r_kepco', cat: 'power', pins: [pin(-2, 3, 'A'), pin(0, 3, 'B'), pin(2, 3, 'C')], box: [-3.6, -4.2, 3.6, 3], prefix: 'UT' },
+  r_vcb: {
+    type: 'r_vcb',
+    cat: 'protect',
+    pins: [pin(-2, -4, '1'), pin(0, -4, '3'), pin(2, -4, '5'), pin(-2, 4, '2'), pin(0, 4, '4'), pin(2, 4, '6')],
+    poles: [
+      [0, 3],
+      [1, 4],
+      [2, 5],
+    ],
+    operate: 'toggle',
+    defaultOn: true,
+    box: [-3.6, -5, 3.6, 5],
+    prefix: 'VCB',
+  },
+  r_tr3: { type: 'r_tr3', cat: 'power', pins: [pin(-2, -5, 'H1'), pin(0, -5, 'H2'), pin(2, -5, 'H3'), pin(-3, 5, 'X1'), pin(-1, 5, 'X2'), pin(1, 5, 'X3'), pin(3, 5, 'X0')], box: [-4.6, -6, 4.6, 6], prefix: 'TR' },
   // 차단기 4P: 1 3 5 N → 2 4 6 N
   r_mcb4: {
     type: 'r_mcb4',
@@ -358,7 +375,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -615,6 +632,12 @@ export function partKindName(type: PartType): string {
       return tr('배선용 차단기 4P', 'Circuit breaker 4P');
     case 'r_bus':
       return tr('부스바', 'Busbar');
+    case 'r_kepco':
+      return tr('한전 수전점', 'Utility supply');
+    case 'r_vcb':
+      return tr('진공차단기 (VCB)', 'Vacuum circuit breaker (VCB)');
+    case 'r_tr3':
+      return tr('변압기 (3상)', 'Transformer (3-phase)');
     case 'text':
       return tr('글자', 'Text');
   }
@@ -689,6 +712,15 @@ export function palette(): PaletteGroup[] {
       ],
     },
     { title: tr('전동기', 'Motors'), mode: 'real', items: [it('r_motor3', tr('3상 전동기', '3-ph motor'))] },
+    {
+      title: tr('수전 · 변압기 (계통 해석)', 'Utility & transformer (system analysis)'),
+      mode: 'real',
+      items: [
+        it('r_kepco', tr('한전 수전 22.9 kV', 'Utility 22.9 kV'), { kv: 22.9, ka: 12.5 }),
+        it('r_vcb', tr('진공차단기 VCB', 'VCB'), { amps: 630, ka: 25 }),
+        it('r_tr3', tr('변압기 3상 (Δ-Y)', 'Transformer 3-phase'), { kva: 500, kv: 22.9, z: 5 }),
+      ],
+    },
     {
       title: tr('분전반 · 부하 (해석)', 'Panels & loads (analysis)'),
       mode: 'real',
@@ -833,11 +865,11 @@ export function partBox(p: Part): [number, number, number, number] {
 
 export const POLE_IDENTITY: Record<Pole, string> = { '+24V': '+24V', '0V': '0V', L: 'L1', N: 'N', L1: 'L1', L2: 'L2', L3: 'L3', PE: 'PE' };
 /** PE(보호 접지)는 혼자인 계통이라 부하를 움직이지 않고, L 과 닿으면 단락(지락)으로 잡힌다 */
-export const POLE_SYSTEM: Record<string, 'dc' | 'ac' | 'pe'> = { '+24V': 'dc', '0V': 'dc', L1: 'ac', L2: 'ac', L3: 'ac', N: 'ac', PE: 'pe' };
+export const POLE_SYSTEM: Record<string, 'dc' | 'ac' | 'pe' | 'hv'> = { '+24V': 'dc', '0V': 'dc', L1: 'ac', L2: 'ac', L3: 'ac', N: 'ac', PE: 'pe', H1: 'hv', H2: 'hv', H3: 'hv' };
 
 /** 기호를 따라 움직이는 접점 (코일·타이머·THR·스위치) */
 export const FOLLOWER: ReadonlySet<PartType> = new Set(['no', 'nc', 'km3']);
-export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3']);
+export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3']);
 export const VALVES: ReadonlySet<PartType> = new Set(['v32', 'v52', 'v52d', 'v53']);
 export const CONTACT_A: ReadonlySet<PartType> = new Set(['no', 'pb_no', 'sw_no', 'ls_no']);
 export const CONTACT_B: ReadonlySet<PartType> = new Set(['nc', 'pb_nc', 'sw_nc', 'ls_nc', 'estop']);

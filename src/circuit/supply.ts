@@ -140,6 +140,8 @@ export function supplyProblems(c: Circuit): SupplyProblem[] {
   if (sys === '1p3w' || sys === '1p2w') {
     const ids = c.parts.filter((p) => THREE_PHASE.has(p.type)).map((p) => p.id);
     if (ids.length) out.push({ level: 'warn', msg: tr(`단상 계통 (${label}) 에서는 3상 전동기 · 부하가 돌지 않습니다`, `3-phase motors and loads do not run on ${label}`), partIds: ids });
+    const trs = c.parts.filter((p) => p.type === 'r_tr3').map((p) => p.id);
+    if (trs.length) out.push({ level: 'error', msg: tr(`3상 변압기의 2차는 3상인데 전원 계통이 ${label} 입니다. 전원 계통을 3상 4선식으로 바꾸세요`, `A 3-phase transformer needs a 3-phase supply system (now ${label})`), partIds: trs });
   }
   return out;
 }

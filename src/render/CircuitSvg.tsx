@@ -3,7 +3,7 @@ import type { Circuit, Part, WireColor } from '../circuit/types';
 import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { BusGlyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { BusGlyph, KepcoGlyph, VcbGlyph, TrGlyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -449,6 +449,12 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <McbGlyph p={p} st={st} />;
     case 'r_bus':
       return <BusGlyph p={p} live={[]} c={c} />;
+    case 'r_kepco':
+      return <KepcoGlyph p={p} c={c} />;
+    case 'r_vcb':
+      return <VcbGlyph p={p} st={st} />;
+    case 'r_tr3':
+      return <TrGlyph p={p} st={st} c={c} />;
     case 'r_mc':
       return <McGlyph p={p} st={st} />;
     case 'r_thr':

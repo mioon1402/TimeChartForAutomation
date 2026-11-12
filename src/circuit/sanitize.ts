@@ -78,6 +78,11 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (q.elb === true) p.elb = true;
     if (q.bars === 3 || q.bars === 4) p.bars = q.bars;
     if (typeof q.mm2 === 'number' && q.mm2 > 0 && q.mm2 < 1e5) p.mm2 = q.mm2;
+    if (typeof q.kva === 'number' && q.kva > 0 && q.kva < 1e6) p.kva = q.kva;
+    if (typeof q.z === 'number' && q.z > 0 && q.z < 100) p.z = q.z;
+    if (typeof q.xr === 'number' && q.xr > 0 && q.xr < 1000) p.xr = q.xr;
+    if (typeof q.kv === 'number' && q.kv > 0 && q.kv < 1000) p.kv = q.kv;
+    if (typeof q.ka === 'number' && q.ka > 0 && q.ka < 1000) p.ka = q.ka;
     if (typeof q.w === 'number' && q.w >= 2) p.w = Math.min(400, Math.round(q.w));
     if (typeof q.h === 'number' && q.h >= 2) p.h = Math.min(400, Math.round(q.h));
     if (Array.isArray(q.sched)) {

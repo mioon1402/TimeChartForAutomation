@@ -1557,6 +1557,70 @@ function circuitBlocks(project: Project, o: ReportOpts): Block[] {
           )),
         });
     }
+    if (a.transformers.length)
+      blocks.push({
+        id: 'power-tr',
+        title: tr('전기 해석: 변압기 (부하율 · 전압 변동 · 단락 전류)', 'Electrical analysis: transformers'),
+        head: (
+          <tr>
+            <th>{tr('기호', 'Tag')}</th>
+            <th>{tr('정격', 'Rating')}</th>
+            <th>{tr('최대 부하 (kVA)', 'Peak (kVA)')}</th>
+            <th>{tr('부하율', 'Load')}</th>
+            <th>{tr('2차 전류 (A)', 'LV I (A)')}</th>
+            <th>{tr('1차 전류 (A)', 'HV I (A)')}</th>
+            <th>{tr('전압 변동', 'Reg.')}</th>
+            <th>{tr('2차 단락 (kA)', 'Isc (kA)')}</th>
+          </tr>
+        ),
+        rows: a.transformers.map((r) => (
+          <tr key={r.partId}>
+            <td className="mono">
+              <b>{r.tag}</b>
+            </td>
+            <td>
+              {r.kva} kVA {r.kv1}kV/{r.v2}V
+            </td>
+            <td>{r.load}</td>
+            <td>{r.pct}%</td>
+            <td>
+              {f1(r.i2)} / {r.i2n}
+            </td>
+            <td>{r.i1}</td>
+            <td>{r.reg}%</td>
+            <td>{r.isc}</td>
+          </tr>
+        )),
+      });
+    if (a.breakers.some((b) => b.isc !== null))
+      blocks.push({
+        id: 'power-isc',
+        title: tr('전기 해석: 차단기 단락 전류와 차단 용량', 'Electrical analysis: breaker fault currents'),
+        head: (
+          <tr>
+            <th>{tr('기호', 'Tag')}</th>
+            <th>{tr('정격 (A)', 'In (A)')}</th>
+            <th>{tr('최대 전류 (A)', 'Max I (A)')}</th>
+            <th>{tr('설치점 단락 (kA)', 'Isc (kA)')}</th>
+            <th>{tr('차단 용량 (kA)', 'Icu (kA)')}</th>
+            <th>{tr('판정', 'Result')}</th>
+          </tr>
+        ),
+        rows: a.breakers
+          .filter((b) => b.isc !== null)
+          .map((r) => (
+            <tr key={r.partId}>
+              <td className="mono">
+                <b>{r.tag}</b>
+              </td>
+              <td>{r.amps ?? '—'}</td>
+              <td>{f1(r.i)}</td>
+              <td>{r.isc}</td>
+              <td>{r.ka ?? '—'}</td>
+              <td>{r.ka === null ? '—' : r.isc! > r.ka ? tr('부적합', 'NG') : tr('적합', 'OK')}</td>
+            </tr>
+          )),
+      });
   }
   return blocks;
 }
