@@ -231,7 +231,26 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
 
 const THREE: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'r_load3']);
 const MOTOR: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'motor']);
-const BREAKER: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'mcb', 'mcb3', 'fuse', 'fuse3']);
+const BREAKER: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'mcb', 'mcb3', 'fuse', 'fuse3']);
+
+/** 한전 쪽 (계통) 임피던스의 X/R */
+const UTILITY_XR = 10;
+
+/**
+ * 변압기 2차에서 본 한 상의 전원 임피던스 (Ω, 2차 환산): 한전 계통 + 변압기 (%임피던스법)
+ *  - 변압기: Z = %Z/100 × V2² / S, R · X 는 X/R 로 나눈다
+ *  - 한전 계통: 단락 용량 Ssc = √3 × kV × kA, Z = V2² / Ssc (X/R = 10)
+ */
+export function trImpedance(t: Part, v2ll: number, utility: Part | null): { tr: [number, number]; utility: [number, number] } {
+  const s = Math.max(1, t.kva ?? 500) * 1000;
+  const zt = ((t.z ?? 5) / 100) * ((v2ll * v2ll) / s);
+  const xr = t.xr ?? 5;
+  const rt = zt / Math.sqrt(1 + xr * xr);
+  const ssc = Math.sqrt(3) * (utility?.kv ?? 22.9) * 1000 * (utility?.ka ?? 12.5) * 1000;
+  const zu = (v2ll * v2ll) / ssc;
+  const ru = zu / Math.sqrt(1 + UTILITY_XR * UTILITY_XR);
+  return { tr: [rt, rt * xr], utility: [ru, ru * UTILITY_XR] };
+}
 
 /** 해석에서 부하로 보는 부품의 용량: 유효 전력 (W), 역률, 피상 전력 (VA) */
 export function loadRating(p: Part): { w: number; pf: number; va: number; out: number } | null {
@@ -323,9 +342,16 @@ export interface PowerState {
   supply: Map<string, number>;
   /** 점의 전압 (기준 0 V 에 대한 크기) */
   voltAt: (x: number, y: number) => number | null;
+  /** 변압기마다 2차 (X1 X2 X3) 로 나가는 전류 (복소수) */
+  trI: Map<string, [number, number][]>;
 }
 
 const key = (p: Pt) => `${p[0]},${p[1]}`;
+
+interface Src {
+  node: number;
+  pole: string;
+}
 
 export class PowerModel {
   readonly vln: number;
@@ -338,8 +364,16 @@ export class PowerModel {
   readonly runs: Run[] = [];
   readonly poles: { c: Conductor; a: number; b: number }[] = [];
   readonly loads: LoadDef[] = [];
-  private readonly srcs: { node: number; pole: string }[] = [];
+  private readonly srcs: Src[] = [];
   private readonly smps: { part: Part; p: number; m: number }[] = [];
+  /** 3상 변압기: 1차 · 2차 단자 점 */
+  readonly trs: { part: Part; h: number[]; x: number[]; x0: number }[] = [];
+  /** 한전 수전점 (처음 것) */
+  readonly utility: Part | null;
+  /** 특고압 쪽 전선 (저압 허용전류 표로 검토하지 않는다) */
+  readonly hvWires = new Set<string>();
+  /** 부품마다 단자 점 */
+  readonly partNodes = new Map<string, number[]>();
   /** 점마다: 전원에서 오는 길의 마지막 차단기, 케이블 길이 합 (m), 전원에서의 거리 (칸 수) */
   readonly prot: (Part | null)[] = [];
   readonly pathLen: number[] = [];
@@ -363,7 +397,11 @@ export class PowerModel {
     this.sys = systemVolts(circuit);
     this.vln = this.sys.vln;
     this.vll = this.sys.vll;
-    this.phasor = this.sys.phasor;
+    this.utility = circuit.parts.find((p) => p.type === 'r_kepco') ?? null;
+    // 특고압 (한전 수전점 쪽) 세 상: 저압과 섞이면 단락
+    const hv = ((this.utility?.kv ?? 22.9) * 1000) / Math.sqrt(3);
+    const s3 = Math.sqrt(3) / 2;
+    this.phasor = { ...this.sys.phasor, H1: [hv, 0], H2: [-hv / 2, -hv * s3], H3: [-hv / 2, hv * s3] };
 
     const node = (p: Pt): number => {
       const k = key(p);
@@ -384,6 +422,7 @@ export class PowerModel {
         if (defs[i]?.air) return;
         const n = node(pt);
         pinNode.set(`${p.id}:${i}`, n);
+        this.partNodes.set(p.id, [...(this.partNodes.get(p.id) ?? []), n]);
         pinsAt.add(n);
         if (BREAKER.has(p.type) && !this.breakerAt.has(n)) this.breakerAt.set(n, p);
         const dev = p.tag.trim() || (p.type === 'src' || p.type === 'r_term' ? p.pole ?? 'L' : partKindName(p.type));
@@ -399,6 +438,12 @@ export class PowerModel {
       const n = model.net.wireNet.get(w.id);
       return n === undefined || !model.airNets.has(n);
     });
+    // 특고압 쪽 전선: 케이블 규격이 있어도 저압 표로 보지 않고 전류만 (임피던스 0)
+    const reach0 = this.staticPoles();
+    for (const w of wires) {
+      const n = model.net.wireNet.get(w.id);
+      if (n !== undefined && reach0(n).some((x) => x === 'H1' || x === 'H2' || x === 'H3')) this.hvWires.add(w.id);
+    }
     const ends = new Map<number, Wire[]>();
     for (const w of wires) for (const e of [w.a, w.b]) ends.set(node(e), [...(ends.get(node(e)) ?? []), w]);
     const all = this.pts.map((p, i) => ({ p, i }));
@@ -442,7 +487,7 @@ export class PowerModel {
       group.set(id, r);
       return r;
     };
-    const live = (w: Wire) => !!w.cable && w.cable.len > 0 && w.cable.mm2 > 0;
+    const live = (w: Wire) => !!w.cable && w.cable.len > 0 && w.cable.mm2 > 0 && !this.hvWires.has(w.id);
     for (const [n, ws] of ends) {
       if (ws.length !== 2 || pinsAt.has(n) || onInterior.has(n)) continue;
       const [a, b] = ws;
@@ -506,9 +551,11 @@ export class PowerModel {
         const pole = POLE_IDENTITY[p.pole ?? 'L'];
         if (this.phasor[pole]) this.srcs.push({ node: pin(0), pole });
       } else if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => this.phasor[id] && this.srcs.push({ node: pin(i), pole: id }));
+      else if (p.type === 'r_kepco') ['H1', 'H2', 'H3'].forEach((id, i) => this.srcs.push({ node: pin(i), pole: id }));
       else if (p.type === 'smps') this.smps.push({ part: p, p: pin(2), m: pin(3) });
+      else if (p.type === 'r_tr3') this.trs.push({ part: p, h: [pin(0), pin(1), pin(2)], x: [pin(3), pin(4), pin(5)], x0: pin(6) });
     }
-    const hasAc = this.srcs.some((s) => s.pole !== '+24V' && s.pole !== '0V');
+    const hasAc = this.srcs.some((s) => s.pole !== '+24V' && s.pole !== '0V' && s.pole[0] !== 'H') || this.trs.length > 0;
     const reach = this.staticPoles();
     for (const p of circuit.parts) {
       const def = PARTS[p.type];
@@ -571,7 +618,21 @@ export class PowerModel {
         poles.set(find(s.outM), (poles.get(find(s.outM)) ?? new Set()).add('0V'));
       }
     }
+    // 변압기 2차는 저압 전원 (L1 L2 L3, X0 = N)
+    for (const t of this.model.trList)
+      [...t.x, t.x0].forEach((net, k) => {
+        const id = ['L1', 'L2', 'L3', 'N'][k];
+        if (this.sys.phasor[id]) poles.set(find(net), (poles.get(find(net)) ?? new Set()).add(id));
+      });
     return (net) => [...(poles.get(find(net)) ?? [])];
+  }
+
+  /** 변압기 2차 단자를 전원으로: X1 X2 X3 = L1 L2 L3, X0 = N (계통에 있는 극만) */
+  private trSources(t: { x: number[]; x0: number }): Src[] {
+    const out: Src[] = [];
+    t.x.forEach((node, k) => this.phasor[`L${k + 1}`] && out.push({ node, pole: `L${k + 1}` }));
+    if (this.phasor.N) out.push({ node: t.x0, pole: 'N' });
+    return out;
   }
 
   /** 전원에서 퍼져 나가며: 지나온 마지막 차단기, 케이블 길이 */
@@ -595,7 +656,7 @@ export class PowerModel {
       this.viaCable.push(-1);
     }
     // N · PE · 0V 쪽에서 거슬러 오는 길은 차단기 판정에 쓰지 않도록 상 (L · +24V) 에서 먼저 퍼진다
-    const order = [...this.srcs].sort((a, b) => Number(a.pole === 'N' || a.pole === 'PE' || a.pole === '0V') - Number(b.pole === 'N' || b.pole === 'PE' || b.pole === '0V'));
+    const order = [...this.srcs, ...this.trs.flatMap((t) => this.trSources(t))].sort((a, b) => Number(a.pole === 'N' || a.pole === 'PE' || a.pole === '0V') - Number(b.pole === 'N' || b.pole === 'PE' || b.pole === '0V'));
     const queue: number[] = [];
     for (const s of order) {
       if (this.depth[s.node] !== Infinity) continue;
@@ -614,6 +675,14 @@ export class PowerModel {
         queue.push(e.to);
       }
     }
+  }
+
+  /** 그 점에 전기를 대는 전원 단자의 점 (전원에서 닿지 않으면 -1) */
+  rootOf(nd: number): number {
+    if (this.depth[nd] === Infinity) return -1;
+    let u = nd;
+    for (let guard = 0; this.via[u] >= 0 && guard < 100000; guard++) u = this.via[u];
+    return u;
   }
 
   /** 그 점에서 전원까지 거슬러 가며 지나는 케이블 */
@@ -696,7 +765,7 @@ export class PowerModel {
   /** 그 순간의 상태에서 전류 · 전압을 푼다 */
   solve(sim: CircuitSim): PowerState {
     const n = this.pts.length;
-    const out: PowerState = { shorted: false, wireI: new Map(), partI: new Map(), loads: new Map(), supply: new Map(), voltAt: () => null };
+    const out: PowerState = { shorted: false, wireI: new Map(), partI: new Map(), loads: new Map(), supply: new Map(), voltAt: () => null, trI: new Map() };
     // 1) 임피던스 0 으로 이어진 점 묶기
     const parent = new Int32Array(n);
     for (let i = 0; i < n; i++) parent[i] = i;
@@ -723,6 +792,9 @@ export class PowerModel {
     // 2) 전압이 정해진 묶음 (전원). 한 묶음에 서로 다른 전압이 닿으면 단락
     const srcs = [...this.srcs];
     for (const s of this.smps) if (sim.powered.get(s.part.id)) srcs.push({ node: s.p, pole: '+24V' }, { node: s.m, pole: '0V' });
+    // 1차에 특고압이 들어온 변압기의 2차는 저압 전원 (전압강하는 변압기 2차 단자부터 본다)
+    const trOn = this.trs.filter((t) => sim.powered.get(t.part.id));
+    for (const t of trOn) srcs.push(...this.trSources(t));
     const fixed = new Map<number, C>();
     for (const s of srcs) {
       const r = find(s.node);
@@ -867,15 +939,31 @@ export class PowerModel {
       bfs(s.node);
     }
     for (let i = 0; i < n; i++) if (!seen[i] && adj[i].length) bfs(i);
-    const sub: C[] = demand.map((d) => [d[0], d[1]] as C);
-    const flow = new Float64Array(ideal.length);
-    for (let q = order.length - 1; q >= 0; q--) {
-      const u = order[q];
-      if (up[u] >= 0) {
-        flow[upEdge[u]] = cabs(sub[u]);
-        sub[up[u]] = cadd(sub[up[u]], sub[u]);
-      } else if (rootPole.has(u)) out.supply.set(rootPole.get(u)!, (out.supply.get(rootPole.get(u)!) ?? 0) + cabs(sub[u]));
+    const accumulate = (dem: C[]) => {
+      const sub: C[] = dem.map((d) => [d[0], d[1]] as C);
+      const flow = new Float64Array(ideal.length);
+      for (let q = order.length - 1; q >= 0; q--) {
+        const u = order[q];
+        if (up[u] >= 0) {
+          flow[upEdge[u]] = cabs(sub[u]);
+          sub[up[u]] = cadd(sub[up[u]], sub[u]);
+        }
+      }
+      return { sub, flow };
+    };
+    let { sub, flow } = accumulate(demand);
+    // 변압기: 2차로 나가는 전류 (상마다 복소수) → 1차 (특고압) 로 들어가는 전류 = 2차 × 전압비 (Δ-Y 의 30° 는 무시)
+    if (trOn.length) {
+      const dem2 = demand.map((d) => [d[0], d[1]] as C);
+      for (const t of trOn) {
+        const i2 = t.x.map((nd) => (rootPole.has(nd) ? sub[nd] : ([0, 0] as C)));
+        out.trI.set(t.part.id, i2);
+        const ratio = this.vll / (1000 * (t.part.kv ?? this.utility?.kv ?? 22.9));
+        t.h.forEach((nd, k) => (dem2[nd] = cadd(dem2[nd], [i2[k][0] * ratio, i2[k][1] * ratio])));
+      }
+      ({ sub, flow } = accumulate(dem2));
     }
+    for (const [u, pole] of rootPole) out.supply.set(pole, (out.supply.get(pole) ?? 0) + cabs(sub[u]));
     ideal.forEach((e, i) => {
       if (e.seg >= 0) segI[e.seg] = flow[i];
       else {
@@ -896,6 +984,7 @@ export class PowerModel {
     let s = '';
     for (const p of this.poles) s += sim.conductorClosed(p.c) ? '1' : '0';
     for (const p of this.smps) s += sim.powered.get(p.part.id) ? 'P' : 'p';
+    for (const t of this.trs) s += sim.powered.get(t.part.id) ? 'T' : 't';
     return s;
   }
 }
@@ -1006,6 +1095,29 @@ export interface BreakerRow {
   tag: string;
   amps: number | null;
   i: number;
+  /** 설치점 (전원 쪽 단자) 의 3상 단락 전류 (kA, 변압기 · 한전 수전점에서 이어질 때만), 차단 용량 (kA) */
+  isc: number | null;
+  ka: number | null;
+}
+
+export interface TransformerRow {
+  partId: string;
+  tag: string;
+  kva: number;
+  /** 1차 (kV) · 2차 (V) 정격 전압 */
+  kv1: number;
+  v2: number;
+  /** 가장 클 때의 부하 (kVA) 와 부하율 (%) */
+  load: number;
+  pct: number;
+  /** 2차 정격 전류 · 가장 큰 상 전류, 1차 전류 (A) */
+  i2n: number;
+  i2: number;
+  i1: number;
+  /** 전압 변동률 (%, 한전 계통 + 변압기 임피던스에서 떨어지는 전압) */
+  reg: number;
+  /** 2차 단자의 3상 단락 전류 (kA) */
+  isc: number;
 }
 
 export interface PowerIssue {
@@ -1034,7 +1146,11 @@ export interface PowerAnalysis {
   /** 전원 계통과 그 이름 ('3상 4선식 380/220 V') */
   system: SystemVolts['system'];
   systemText: string;
+  transformers: TransformerRow[];
 }
+
+/** 차단기 차단 용량의 표준값 (kA) */
+const KA_STEPS = [1.5, 2.5, 5, 10, 14, 18, 25, 35, 42, 50, 65, 85, 100, 125, 150];
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -1065,6 +1181,13 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
   let last: string | null = null;
   const up = (m: Map<string, number>, k: string, v: number) => v > (m.get(k) ?? 0) && m.set(k, v);
   const useful = pm.loads.length > 0;
+  // 변압기: 2차에서 본 전원 임피던스 (한전 계통 + 변압기), 가장 클 때의 부하 · 전류 · 전압 변동
+  const trZ = new Map<string, C>();
+  for (const t of pm.trs) {
+    const z = trImpedance(t.part, pm.vll, pm.utility);
+    trZ.set(t.part.id, cadd(z.tr, z.utility));
+  }
+  const trMax = new Map<string, { s: number; i: number; reg: number }>();
   if (useful) {
     runScenario(c, model, (sim) => {
       const sig = pm.signature(sim);
@@ -1094,6 +1217,23 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
         loadMax.set(l.part.id, cur);
       }
       peak = Math.max(peak, p);
+      for (const t of pm.trs) {
+        const i2 = st.trI.get(t.part.id);
+        if (!i2) continue;
+        const z = trZ.get(t.part.id)!;
+        const cur = trMax.get(t.part.id) ?? { s: 0, i: 0, reg: 0 };
+        let s: C = [0, 0];
+        i2.forEach((ik, k) => {
+          const e = pm.sys.phasor[`L${k + 1}`];
+          if (!e) return;
+          s = cadd(s, cmul(e, [ik[0], -ik[1]]));
+          cur.i = Math.max(cur.i, cabs(ik));
+          // 2차 단자 전압 = 기전력 - 전원 임피던스 × 전류
+          cur.reg = Math.max(cur.reg, ((cabs(e) - cabs(csub(e, cmul(z, ik)))) / cabs(e)) * 100);
+        });
+        cur.s = Math.max(cur.s, cabs(s));
+        trMax.set(t.part.id, cur);
+      }
     });
   }
   const issues: PowerIssue[] = [];
@@ -1123,8 +1263,12 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
     const many = row.count > 1;
     // 부스바는 양 끝이 분기점이라 이름 대신 '부스바 (위쪽 차단기)' 로
     if (row.spec.kind === 'bus') {
-      const owner = c.parts.find((p) => p.id === row.wires[0].slice(0, row.wires[0].indexOf('~bar')));
-      return { ...row, from: owner?.tag.trim() || tr('부스바', 'Busbar'), to: tr(`부스바 ${row.count}가닥`, `busbar ×${row.count}`), ib: r2(row.ib), dv: r2(row.ib * Math.hypot(z[0], z[1])) };
+      // 부스바 부품의 막대는 그 부스바 이름으로, 선으로 그린 부스바는 양 끝 기기로
+      const k = row.wires[0].indexOf('~bar');
+      const owner = k < 0 ? null : c.parts.find((p) => p.id === row.wires[0].slice(0, k));
+      const junction = tr('분기점', 'junction');
+      if (owner) return { ...row, from: owner.tag.trim() || tr('부스바', 'Busbar'), to: tr(`부스바 ${row.count}가닥`, `busbar ×${row.count}`), ib: r2(row.ib), dv: r2(row.ib * Math.hypot(z[0], z[1])) };
+      return { ...row, from: ends[0].dev && ends[0].dev !== junction ? ends[0].dev : tr('부스바', 'Busbar'), to: `${ends[1].dev && ends[1].dev !== junction ? ends[1].dev : tr('부스바', 'busbar')}${many ? ` (${tr(`${row.count}가닥`, `×${row.count}`)})` : ''}`, ib: r2(row.ib), dv: r2(row.ib * Math.hypot(z[0], z[1])) };
     }
     return { ...row, from: many ? ends[0].dev : ends[0].name, to: many ? `${ends[1].dev} (${tr(`${row.count}가닥`, `×${row.count}`)})` : ends[1].name, ib: r2(row.ib), dv: r2(row.ib * Math.hypot(z[0], z[1])) };
   });
@@ -1158,19 +1302,70 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
         wireIds: cb.wires,
       });
   }
+  // 3상 단락 전류 (%임피던스법, 전압 계수 1): 전원 임피던스 + 그 점까지 지나온 케이블 한 가닥
+  const srcZ = new Map<number, C | 'hv'>();
+  for (const t of pm.trs) for (const nd of t.x) srcZ.set(nd, trZ.get(t.part.id)!);
+  if (pm.utility) for (const nd of pm.partNodes.get(pm.utility.id) ?? []) srcZ.set(nd, 'hv');
+  const faultAt = (nd: number): number | null => {
+    const z0 = srcZ.get(pm.rootOf(nd));
+    if (z0 === undefined) return null;
+    if (z0 === 'hv') return pm.utility?.ka ?? 12.5;
+    let z = z0;
+    for (const ci of pm.pathCables(nd)) z = cadd(z, cableZ(pm.cables[ci].spec));
+    return pm.vll / Math.sqrt(3) / cabs(z) / 1000;
+  };
   const breakers: BreakerRow[] = c.parts
     .filter(isBreaker)
-    .map((p) => ({ partId: p.id, tag: p.tag, amps: breakerAmps(p), i: r2(partI.get(p.id) ?? 0) }))
-    .filter((b) => b.i > 0.005 || b.amps !== null);
+    .map((p) => {
+      // 상 (L1 L2 L3 · 특고압) 에서 오는 단자 중 가장 큰 값 = 전원 쪽 단자에서 본 단락 전류 (N 쪽 단자는 빠진다)
+      const all = (pm.partNodes.get(p.id) ?? []).map(faultAt).filter((v): v is number => v !== null);
+      const isc = all.length ? Math.max(...all) : null;
+      return { partId: p.id, tag: p.tag, amps: breakerAmps(p), i: r2(partI.get(p.id) ?? 0), isc: isc === null ? null : r2(isc), ka: p.ka ?? null };
+    })
+    .filter((b) => b.i > 0.005 || b.amps !== null || b.isc !== null);
   for (const b of breakers) {
     if (b.amps !== null && b.i > b.amps + 1e-6) issues.push({ level: 'error', msg: tr(`${b.tag}: 흐르는 전류 ${r1(b.i)} A 가 차단기 정격 ${b.amps} A 를 넘습니다 (과부하로 트립)`, `${b.tag}: ${r1(b.i)} A exceeds the breaker rating ${b.amps} A`), partIds: [b.partId], wireIds: [] });
+    if (b.ka !== null && b.isc !== null && b.isc > b.ka + 1e-9) {
+      const need = KA_STEPS.find((k) => k >= b.isc!) ?? Math.ceil(b.isc);
+      issues.push({
+        level: 'error',
+        msg: tr(`${b.tag}: 설치점 단락 전류 ${r1(b.isc)} kA 가 차단 용량 ${b.ka} kA 보다 큽니다. 사고 때 끊지 못하고 터질 수 있습니다 → 차단 용량 ${need} kA 이상`, `${b.tag}: fault current ${r1(b.isc)} kA exceeds the breaking capacity ${b.ka} kA → ${need} kA or more`),
+        partIds: [b.partId],
+        wireIds: [],
+      });
+    }
+  }
+  const transformers: TransformerRow[] = pm.trs.map((t) => {
+    const kva = t.part.kva ?? 500;
+    const kv1 = t.part.kv ?? pm.utility?.kv ?? 22.9;
+    const mx = trMax.get(t.part.id) ?? { s: 0, i: 0, reg: 0 };
+    const z = trZ.get(t.part.id)!;
+    return {
+      partId: t.part.id,
+      tag: t.part.tag,
+      kva,
+      kv1,
+      v2: nominalVolt(pm.vll),
+      load: r1(mx.s / 1000),
+      pct: r1((mx.s / 1000 / kva) * 100),
+      i2n: r1((kva * 1000) / (Math.sqrt(3) * pm.vll)),
+      i2: r1(mx.i),
+      i1: r2((mx.i * pm.vll) / (kv1 * 1000)),
+      reg: r2(mx.reg),
+      isc: r2(pm.vll / Math.sqrt(3) / cabs(z) / 1000),
+    };
+  });
+  for (const t of transformers) {
+    if (t.pct > 100 + 1e-6) issues.push({ level: 'error', msg: tr(`변압기 ${t.tag}: 최대 부하 ${t.load} kVA 가 정격 ${t.kva} kVA 의 ${t.pct}% 입니다 (과부하). 용량을 키우거나 부하를 나누세요`, `Transformer ${t.tag}: peak ${t.load} kVA is ${t.pct}% of ${t.kva} kVA (overload)`), partIds: [t.partId], wireIds: [] });
+    if (pm.utility && Math.abs(t.kv1 - (pm.utility.kv ?? 22.9)) > 0.05 * t.kv1) issues.push({ level: 'error', msg: tr(`변압기 ${t.tag}: 1차 전압 ${t.kv1} kV 가 수전 전압 ${pm.utility.kv ?? 22.9} kV 와 다릅니다`, `Transformer ${t.tag}: primary ${t.kv1} kV differs from the supply ${pm.utility.kv ?? 22.9} kV`), partIds: [t.partId], wireIds: [] });
   }
   // 3상 계통이고 3상 기기나 L2 · L3 단자가 있으면 3상 (단상 3선식의 L2 는 단상)
   const three = pm.sys.three && (pm.loads.some((l) => l.three) || c.parts.some((p) => p.type === 'src3' || ((p.type === 'src' || p.type === 'r_term') && (p.pole === 'L2' || p.pole === 'L3'))));
   // 규격 없는 전선: 같은 두 기기를 잇는 가닥끼리 묶어서, 전류가 큰 순서로
   const bareGroups = new Map<string, BareRow>();
   for (const r of pm.runs) {
-    if (r.cable >= 0) continue;
+    // 특고압 쪽 전선은 저압 굵기 권장에서 뺀다 (전류는 그림에 적힌다)
+    if (r.cable >= 0 || r.wires.some((w) => pm.hvWires.has(w))) continue;
     const ib = Math.max(0, ...r.wires.map((w) => wireI.get(w) ?? 0));
     if (ib < 0.05) continue;
     const ends = pm.runEnds(r);
@@ -1258,7 +1453,7 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
       const inside = pm.loads.filter((l) => l.part.x >= p.x && l.part.x <= p.x + w && l.part.y >= p.y && l.part.y <= p.y + h);
       return { partId: p.id, name: [p.tag, p.name].filter(Boolean).join(' '), kw: r2(inside.reduce((s, l) => s + l.rating.out, 0) / 1000), loads: inside.length };
     });
-  const order = ['L1', 'L2', 'L3', 'N', 'PE', '+24V', '0V'];
+  const order = ['H1', 'H2', 'H3', 'L1', 'L2', 'L3', 'N', 'PE', '+24V', '0V'];
   return {
     shorted,
     cables,
@@ -1274,6 +1469,7 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
     vln: pm.vln,
     system: pm.sys.system,
     systemText: systemLabel(pm.sys),
+    transformers,
   };
 }
 

@@ -63,6 +63,9 @@ export type PartType =
   | 'r_panel' // 분전반 · 변전함 테두리 (안의 기기를 한 함으로 묶어 보여 준다)
   | 'r_mcb4' // 차단기 4P (3상 + N)
   | 'r_bus' // 부스바: 세로 막대 3 · 4 개 (L1 L2 L3 N), 막대 어디에 선 끝을 대도 이어진다
+  | 'r_kepco' // 한전 수전점: 특고압 3상 (22.9 kV) 전원, 단락 전류 (kA)
+  | 'r_vcb' // 진공차단기 VCB 3P (특고압)
+  | 'r_tr3' // 3상 변압기 (Δ-Y): 1차 H1 H2 H3, 2차 X1 X2 X3 X0
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -135,6 +138,13 @@ export interface Part {
   /** 부스바: 막대 수 (3 = L1 L2 L3, 4 = + N), 단면적 (mm²) */
   bars?: number;
   mm2?: number;
+  /** 변압기: 용량 (kVA), %임피던스, X/R. 한전 수전점 · 변압기 1차: 전압 (kV) */
+  kva?: number;
+  z?: number;
+  xr?: number;
+  kv?: number;
+  /** 차단기: 차단 용량 (kA). 한전 수전점: 수전점 단락 전류 (kA) */
+  ka?: number;
 }
 
 /** 전선 색: 갈색 L1, 검정 L2, 회색 L3, 파랑 N, 녹황 PE, 그 밖 제어선 */

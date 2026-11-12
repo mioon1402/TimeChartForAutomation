@@ -135,6 +135,107 @@ export function BusGlyph({ p, live, c }: { p: Part; live: boolean[]; c: CircuitC
   );
 }
 
+/** 한전 수전점: 특고압 인입 (전주 · 인입선), 아래 단자 A B C */
+export function KepcoGlyph({ p, c }: { p: Part; c: CircuitColors }) {
+  return (
+    <g>
+      <rect x={-70} y={-82} width={140} height={86} rx={6} fill="#fef3c7" stroke="#b45309" strokeWidth={1.4} />
+      {/* 전주와 완금, 애자 */}
+      <path d="M-50,-70V-14M-62,-60H-38" stroke="#57534e" strokeWidth={3} />
+      {[-60, -50, -40].map((x) => (
+        <circle key={x} cx={x} cy={-64} r={2.4} fill="#e7e5e4" stroke="#57534e" />
+      ))}
+      <path d="M-24,-60l-8,16h8l-6,14" fill="none" stroke="#dc2626" strokeWidth={2.2} strokeLinejoin="round" />
+      <Label x={20} y={-52} text={p.name?.trim() || tr('한전 수전', 'Utility')} size={10} weight={800} fill="#78350f" />
+      <Label x={20} y={-36} text={`${p.kv ?? 22.9} kV · 3φ`} size={9} weight={700} fill="#92400e" />
+      <Label x={20} y={-21} text={`Isc ${p.ka ?? 12.5} kA`} size={8.5} weight={600} fill="#92400e" />
+      <Label x={-66} y={-88} text={p.tag} anchor="start" size={9.5} weight={800} fill={c.ink} />
+      {[-40, 0, 40].map((x, i) => (
+        <g key={x}>
+          <path d={`M${x},4V56`} stroke="#57534e" strokeWidth={2.4} />
+          <rect x={x - 5} y={12} width={10} height={16} rx={2} fill="#d6d3d1" stroke="#78716c" />
+          <Label x={x + 10} y={44} text={'ABC'[i]} anchor="start" size={8} weight={800} fill="#78350f" />
+        </g>
+      ))}
+    </g>
+  );
+}
+
+/** 진공차단기 VCB: 위 1 3 5 (전원), 아래 2 4 6. 투입 = 빨간 표시, 개방 = 초록 표시 (수배전반 관례) */
+export function VcbGlyph({ p, st }: { p: Part; st: PartState }) {
+  const on = st.act;
+  return (
+    <g>
+      <rect x={-64} y={-100} width={128} height={200} rx={5} fill="#cbd5e1" stroke="#64748b" />
+      <rect x={-56} y={-56} width={112} height={112} rx={4} fill="#1e293b" />
+      {[-40, 0, 40].map((x) => (
+        <rect key={x} x={x - 9} y={-46} width={18} height={60} rx={3} fill="#475569" stroke="#94a3b8" />
+      ))}
+      <rect x={-34} y={22} width={68} height={22} rx={3} fill={on ? '#dc2626' : '#16a34a'} />
+      <Label x={0} y={37} text={on ? tr('투입 ON', 'CLOSED') : tr('개방 OFF', 'OPEN')} size={9} weight={800} fill="#ffffff" />
+      <Label x={0} y={-66} text={`VCB ${p.amps ? `${p.amps}A` : ''}${p.ka ? ` ${p.ka}kA` : ''}`} size={8.5} weight={800} fill="#1e293b" />
+      <Label x={0} y={72} text={p.tag} size={10} weight={800} fill="#1e293b" />
+      {st.amp !== undefined && st.amp > 0.005 && <Label x={70} y={4} text={`${st.amp.toFixed(2)} A`} anchor="start" size={10.5} weight={800} fill={p.amps && st.amp > p.amps ? '#dc2626' : '#2563eb'} />}
+      {[-40, 0, 40].map((x, i) => (
+        <g key={`t${x}`}>
+          <Screw x={x} y={-80} />
+          <Screw x={x} y={80} />
+          <Label x={x + 12} y={-86} text={String(2 * i + 1)} anchor="start" size={7.5} weight={800} fill="#475569" />
+          <Label x={x + 12} y={92} text={String(2 * i + 2)} anchor="start" size={7.5} weight={800} fill="#475569" />
+        </g>
+      ))}
+    </g>
+  );
+}
+
+/** 3상 변압기 (Δ-Y): 위 특고압 부싱 H1 H2 H3, 아래 저압 부싱 X1 X2 X3 X0 (중성점) */
+export function TrGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const live = !!st.powered;
+  return (
+    <g>
+      {/* 방열판 */}
+      {[-92, 80].map((x) => (
+        <g key={x}>
+          {[0, 1, 2].map((k) => (
+            <rect key={k} x={x + k * 4} y={-56} width={2.5} height={112} fill="#94a3b8" />
+          ))}
+        </g>
+      ))}
+      <rect x={-78} y={-76} width={156} height={152} rx={8} fill="#e2e8f0" stroke="#64748b" strokeWidth={1.4} />
+      {/* 특고압 부싱 (길다) · 저압 부싱 */}
+      {[-40, 0, 40].map((x) => (
+        <g key={`h${x}`}>
+          <path d={`M${x},-76V-100`} stroke="#57534e" strokeWidth={2.4} />
+          {[-82, -88, -94].map((y) => (
+            <ellipse key={y} cx={x} cy={y} rx={6} ry={2.4} fill="#a8a29e" stroke="#57534e" strokeWidth={0.8} />
+          ))}
+        </g>
+      ))}
+      {[-60, -20, 20, 60].map((x, i) => (
+        <g key={`x${x}`}>
+          <path d={`M${x},76V100`} stroke="#57534e" strokeWidth={2.4} />
+          <ellipse cx={x} cy={84} rx={5} ry={2.2} fill={i === 3 ? '#93c5fd' : '#a8a29e'} stroke="#57534e" strokeWidth={0.8} />
+        </g>
+      ))}
+      {/* 기호: 원 두 개 (Δ / Y) */}
+      <circle cx={0} cy={-22} r={20} fill="none" stroke={live ? '#2563eb' : '#334155'} strokeWidth={2} />
+      <circle cx={0} cy={6} r={20} fill="none" stroke={live ? '#2563eb' : '#334155'} strokeWidth={2} />
+      <path d="M-8,-18l8,-12l8,12z" fill="none" stroke="#334155" strokeWidth={1.4} />
+      <path d="M0,6v8M0,6l-7,-5M0,6l7,-5" fill="none" stroke="#334155" strokeWidth={1.4} />
+      <Label x={0} y={44} text={`${p.tag}  ${p.kva ?? 500} kVA`} size={10} weight={800} fill="#0f172a" />
+      <Label x={0} y={58} text={`${p.kv ?? 22.9}kV / LV · %Z ${p.z ?? 5}`} size={8} weight={600} fill="#334155" />
+      {['H1', 'H2', 'H3'].map((t, i) => (
+        <Label key={t} x={-40 + 40 * i + 10} y={-104} text={t} anchor="start" size={7.5} weight={800} fill="#78350f" />
+      ))}
+      {['X1', 'X2', 'X3', 'X0'].map((t, i) => (
+        <Label key={t} x={-60 + 40 * i + 7} y={98} text={t} anchor="start" size={7.5} weight={800} fill={i === 3 ? '#1d4ed8' : '#475569'} />
+      ))}
+      {live && <circle cx={64} cy={-64} r={5} fill="#22c55e" stroke="#15803d" />}
+      {p.name && <Label x={-78} y={-82} text={p.name} anchor="start" size={8.5} weight={600} fill={c.muted} />}
+    </g>
+  );
+}
+
 /** 전자접촉기: A1(위)·A2(아래) 코일, 주접점 1/L1 3/L2 5/L3 → 2/T1 4/T2 6/T3, 보조 13-14 NO · 21-22 NC */
 export function McGlyph({ p, st }: { p: Part; st: PartState }) {
   const on = st.on;

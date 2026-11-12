@@ -120,6 +120,8 @@ export class CircuitModel {
   readonly proxs: { part: Part; bn: number; bu: number }[] = [];
   /** SMPS: 입력 L·N, 출력 +V·-V 넷 */
   readonly smpsList: { part: Part; inL: number; inN: number; outP: number; outM: number }[] = [];
+  /** 3상 변압기: 1차 (H1 H2 H3) 에 특고압 세 상이 다 닿으면 2차 (X1 X2 X3 = L1 L2 L3, X0 = N) 가 전원이 된다 */
+  readonly trList: { part: Part; h: number[]; x: number[]; x0: number }[] = [];
   /** 공압: 공압원 넷, 늘 통하는 쌍(FRL·속도 제어), 속도 제어, 밸브, 실린더 포트 */
   readonly airNets = new Set<number>();
   readonly airSrc: number[] = [];
@@ -184,6 +186,12 @@ export class CircuitModel {
       // 전원 계통에 없는 극 (3상 3선식의 N, 단상의 L3 …) 은 전압이 없다
       if ((p.type === 'src' || p.type === 'r_term') && poleLive(circuit, POLE_IDENTITY[p.pole ?? 'L'])) this.sources.push({ net: this.net.pinNet.get(`${p.id}:0`)!, id: POLE_IDENTITY[p.pole ?? 'L'] });
       if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => poleLive(circuit, id) && this.sources.push({ net: this.net.pinNet.get(`${p.id}:${i}`)!, id }));
+      // 한전 수전점: 특고압 세 상 (H1 H2 H3, 저압과는 다른 계통)
+      if (p.type === 'r_kepco') ['H1', 'H2', 'H3'].forEach((id, i) => this.sources.push({ net: this.net.pinNet.get(`${p.id}:${i}`)!, id }));
+      if (p.type === 'r_tr3') {
+        const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
+        this.trList.push({ part: p, h: [pn(0), pn(1), pn(2)], x: [pn(3), pn(4), pn(5)], x0: pn(6) });
+      }
       const pin = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
       partPins(p).forEach((pd, i) => pd.air && this.airNets.add(pin(i)));
       const tubed = (n: number) => this.net.pinCount[n] > 1 || this.net.hasWire[n];
@@ -477,6 +485,11 @@ export class CircuitSim {
       if (!this.powered.get(s.part.id)) continue;
       sources.push({ net: s.outP, id: '+24V' }, { net: s.outM, id: '0V' });
     }
+    for (const t of this.m.trList) {
+      if (!this.powered.get(t.part.id)) continue;
+      ['L1', 'L2', 'L3'].forEach((id, k) => poleLive(this.m.circuit, id) && sources.push({ net: t.x[k], id }));
+      if (poleLive(this.m.circuit, 'N')) sources.push({ net: t.x0, id: 'N' });
+    }
     for (const s of sources) {
       const r = find(s.net);
       const set = poles.get(r) ?? new Set<string>();
@@ -579,6 +592,15 @@ export class CircuitSim {
       const want = powerBetween(this.netPole[s.inL], this.netPole[s.inN]);
       if (want !== (this.powered.get(s.part.id) ?? false)) {
         this.powered.set(s.part.id, want);
+        return true;
+      }
+    }
+    // 변압기: 1차에 특고압 세 상이 서로 다르게 닿아야 2차에 전압이 나온다
+    for (const t of this.m.trList) {
+      const ph = t.h.map((n) => this.netPole[n]);
+      const want = ph.every((x) => x === 'H1' || x === 'H2' || x === 'H3') && new Set(ph).size === 3;
+      if (want !== (this.powered.get(t.part.id) ?? false)) {
+        this.powered.set(t.part.id, want);
         return true;
       }
     }

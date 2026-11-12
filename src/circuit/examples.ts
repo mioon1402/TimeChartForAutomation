@@ -26,8 +26,8 @@ class Builder {
   }
 
   /** 케이블 규격이 있는 전선 (꺾인 한 가닥 전체가 그 규격 · 길이) */
-  run(color: WireColor, spec: CableSpec, ...pts: [number, number][]): void {
-    for (let i = 1; i < pts.length; i++) this.wires.push({ id: uid('cw'), a: pts[i - 1], b: pts[i], color, cable: { ...spec } });
+  run(color: WireColor, spec: CableSpec | undefined, ...pts: [number, number][]): void {
+    for (let i = 1; i < pts.length; i++) this.wires.push({ id: uid('cw'), a: pts[i - 1], b: pts[i], color, ...(spec ? { cable: { ...spec } } : {}) });
   }
 
   op(wait: number, tag: string, action: OpStep['action'] = 'press', note = '', hold = 300): void {
@@ -648,6 +648,67 @@ function busPanel(): Circuit {
   return b.done();
 }
 
+/**
+ * 수전 설비 (계통 해석): 한전 22.9 kV 수전 → VCB → 변압기 500 kVA (Δ-Y, %Z 5) → 저압 메인 4P 800 A →
+ * 부스바 → 분기 차단기 4개 → 부하. 변압기 부하율 · 전압 변동, 차단기마다 설치점 단락 전류와 차단 용량을 검토한다.
+ * 일부러 넣은 문제 1개: 조명 누전차단기의 차단 용량 (5 kA) 이 설치점 단락 전류보다 작다.
+ * 직접 만든 예이며 이름은 일반 이름만 쓴다.
+ */
+function substation(): Circuit {
+  const b = new Builder();
+  const COL: WireColor[] = ['brown', 'black', 'grey', 'blue'];
+  const xl = (mm2: number, len: number, cores: 2 | 3 = 3, method: CableSpec['method'] = 'B1'): CableSpec => ({ ins: 'xlpe', mm2, method, cores, len });
+  const bus = (len: number): CableSpec => ({ kind: 'bus', ins: 'xlpe', mm2: 500, method: 'C', cores: 3, len, iz: 1000 });
+  b.part('r_panel', 13, 4, 'HV-1', { name: tr('수전반 (특고압)', 'HV receiving panel'), w: 14, h: 24 });
+  b.part('r_panel', 3, 29, 'LV-1', { name: tr('저압 배전반', 'LV switchboard'), w: 34, h: 36 });
+  // 특고압: 한전 → VCB → 변압기 1차
+  b.part('r_kepco', 20, -8, 'KEPCO', { name: tr('한전 22.9 kV', 'Utility 22.9 kV'), kv: 22.9, ka: 12.5 });
+  [18, 20, 22].forEach((x) => {
+    b.run('black', undefined, [x, -5], [x, 6]);
+    b.run('black', undefined, [x, 14], [x, 16]);
+  });
+  b.part('r_vcb', 20, 10, 'VCB', { name: tr('수전 차단기', 'Incoming VCB'), amps: 630, ka: 25 });
+  b.part('r_tr3', 20, 21, 'TR1', { name: tr('주 변압기', 'Main transformer'), kva: 500, kv: 22.9, z: 5, xr: 5 });
+  // 저압: 변압기 2차 → 메인 → 부스바 (막대 x = 17 · 19 · 21 · 23)
+  [17, 19, 21, 23].forEach((x, k) => {
+    b.run(COL[k], bus(2), [x, 26], [x, 28]);
+    b.run(COL[k], bus(0.5), [x, 36], [x, 38]);
+  });
+  b.part('r_mcb4', 20, 32, 'ACB', { name: tr('저압 메인', 'LV main'), amps: 800, ka: 50 });
+  b.part('r_bus', 17, 38, 'BUS1', { bars: 4, h: 24, mm2: 500, amps: 1000 });
+  // 분기 (옆으로): 왼쪽 90°, 오른쪽 270°
+  b.part('r_mcb3', 9, 42, 'MCB1', { name: tr('공조 설비', 'HVAC'), amps: 250, ka: 35, rot: 90 });
+  b.part('r_mcb3', 9, 52, 'MCB2', { name: tr('냉동기', 'Chiller'), amps: 150, ka: 35, rot: 90 });
+  b.part('r_mcb3', 31, 43, 'MCB3', { name: tr('컨베이어 라인', 'Conveyor line'), amps: 125, ka: 35, rot: 270 });
+  b.part('r_mcb2', 31, 55, 'ELB4', { name: tr('조명', 'Lighting'), amps: 30, ka: 5, rot: 270, elb: true });
+  const tap = (color: WireColor, mm2: number, from: [number, number], barX: number, cores: 2 | 3 = 3) => b.run(color, xl(mm2, 0.3, cores, 'C'), from, [barX, from[1]]);
+  [0, 1, 2].forEach((k) => {
+    tap(COL[k], 95, [13, 40 + 2 * k], 17 + 2 * k);
+    tap(COL[k], 50, [13, 50 + 2 * k], 17 + 2 * k);
+    tap(COL[k], 35, [27, 45 - 2 * k], 17 + 2 * k);
+  });
+  tap('brown', 6, [27, 56], 17, 2);
+  tap('blue', 6, [27, 54], 23, 2);
+  // 부하 (판넬 밖 아래 줄)
+  b.part('r_load3', -10, 70, 'AHU1', { name: tr('공조기', 'Air handler'), watt: 110000, pf: 0.85 });
+  b.part('r_load3', -1, 70, 'CH1', { name: tr('냉동기', 'Chiller'), watt: 75000, pf: 0.85 });
+  b.part('r_load3', 58, 70, 'CV1', { name: tr('컨베이어', 'Conveyor'), watt: 55000, pf: 0.85 });
+  b.part('r_load1', 49, 70, 'EL1', { name: tr('조명', 'Lighting'), watt: 5000, pf: 1, lighting: true });
+  [0, 1, 2].forEach((k) => {
+    b.run(COL[k], xl(95, 40), [5, 40 + 2 * k], [-12 + 2 * k, 40 + 2 * k], [-12 + 2 * k, 67]);
+    b.run(COL[k], xl(50, 30), [5, 50 + 2 * k], [-3 + 2 * k, 50 + 2 * k], [-3 + 2 * k, 67]);
+    b.run(COL[k], xl(35, 60), [35, 45 - 2 * k], [56 + 2 * k, 45 - 2 * k], [56 + 2 * k, 67]);
+  });
+  b.run('brown', xl(6, 50, 2), [35, 56], [48, 56], [48, 67]);
+  b.run('blue', xl(6, 50, 2), [35, 54], [50, 54], [50, 67]);
+  b.part('text', 3, -15, '', { text: tr('수전 설비: 한전 22.9 kV → VCB → 변압기 500 kVA → 저압 메인 → 부스바 → 분기 (해석 탭: 변압기 부하율 · 단락 전류)', 'Substation: utility 22.9 kV → VCB → 500 kVA transformer → LV main → busbar → branches') });
+  b.op(2000, 'VCB', 'off', tr('수전 차단', 'Incoming off'));
+  b.op(2000, 'VCB', 'on', tr('수전 투입', 'Incoming on'));
+  const c = b.done();
+  // 고압 수전: 전압강하 허용값 조명 6% · 기타 8%
+  return { ...c, supply: 'hv' };
+}
+
 /** PLC 자기유지: 기동 PB → X0, 정지 PB → X1, Y0 운전 램프, T0(3초) 뒤 Y1 램프 */
 function plcSelfHold(): Circuit {
   const b = new Builder();
@@ -701,6 +762,7 @@ export interface CircuitExample {
 
 export function circuitExamples(): CircuitExample[] {
   return [
+    { id: 'substation', name: tr('수전 설비: 한전 → 변압기 → 분전반 (계통 해석)', 'Substation: utility → transformer → LV panel'), desc: tr('한전 22.9 kV → VCB → 변압기 500 kVA → 저압 메인 → 부스바 → 분기 4개. 변압기 부하율 · 전압 변동 · 단락 전류 검토. 일부러 넣은 문제 1개 (차단 용량)', 'Utility, VCB, transformer, LV main, busbar and branches; transformer loading and fault currents. One deliberate problem'), build: substation },
     { id: 'busbar', name: tr('분전반: 부스바 · 누전차단기 분기', 'Panelboard: busbar and ELB branches'), desc: tr('메인 4P → 세로 부스바 L1 L2 L3 N → 옆으로 놓은 분기 차단기 (3상 · 단상) → 부하. 탭이 자기 상 막대에만 물리는 것을 확인', 'Main 4P breaker, vertical busbar, sideways branch breakers tapped onto their bars'), build: busPanel },
     { id: 'feeders', name: tr('분전반 급전 해석 (케이블 · 전압강하)', 'Feeder analysis (cables, voltage drop)'), desc: tr('메인 분전반 → 부스바 → 급전선 → 분전반 2개. 케이블 규격으로 허용전류 · 전압강하 · 차단기 정격을 검토', 'Main panel, busbars and feeders to two panels; ampacity, voltage drop and breaker checks'), build: feederAnalysis },
     { id: 'tsw-light', name: tr('타임 스위치로 전등 자동 점멸 (기본)', 'Lights on a time switch (basic)'), desc: tr('24시간 다이얼 타임 스위치 하나로 전등 2개를 정해진 시각에 켜고 끕니다', 'One 24-hour dial time switch turns two lights on and off'), build: timeSwitchLight },

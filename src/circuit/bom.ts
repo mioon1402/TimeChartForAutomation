@@ -76,6 +76,9 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_panel: -1,
   r_mcb4: 0,
   r_bus: 0,
+  r_kepco: -1,
+  r_vcb: -1,
+  r_tr3: -1,
   frl: 10,
   v32: 10,
   v52: 10,
@@ -96,7 +99,7 @@ function mainOf(parts: Part[]): Part {
   const rank = (p: Part) =>
     p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_tsw'
       ? 0
-      : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4'
+      : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'r_vcb'
         ? 1
         : OPERATOR.has(p.type) || PARTS[p.type].load
           ? 2
@@ -169,7 +172,13 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'r_mcb2':
     case 'r_mcb3':
     case 'r_mcb4':
-      return { kind: p.elb ? tr('누전차단기 (ELB)', 'Earth leakage breaker (ELB)') : tr('배선용 차단기', 'Circuit breaker'), spec: `${p.type.slice(-1)}P${p.amps ? ` ${p.amps}A` : ''}` };
+      return { kind: p.elb ? tr('누전차단기 (ELB)', 'Earth leakage breaker (ELB)') : tr('배선용 차단기', 'Circuit breaker'), spec: `${p.type.slice(-1)}P${p.amps ? ` ${p.amps}A` : ''}${p.ka ? ` ${p.ka}kA` : ''}` };
+    case 'r_vcb':
+      return { kind: tr('진공차단기 (VCB)', 'Vacuum circuit breaker (VCB)'), spec: `3P${p.amps ? ` ${p.amps}A` : ''}${p.ka ? ` ${p.ka}kA` : ''}` };
+    case 'r_tr3':
+      return { kind: tr('변압기 (3상, Δ-Y)', 'Transformer (3-phase, D-Y)'), spec: `${p.kva ?? 500} kVA ${p.kv ?? 22.9} kV, %Z ${p.z ?? 5}` };
+    case 'r_kepco':
+      return { kind: tr('한전 수전점', 'Utility supply point'), spec: tr(`${p.kv ?? 22.9} kV, 단락 ${p.ka ?? 12.5} kA`, `${p.kv ?? 22.9} kV, fault ${p.ka ?? 12.5} kA`) };
     case 'r_bus': {
       const { bars, len } = busSize(p);
       return { kind: tr('부스바 (구리)', 'Busbar (copper)'), spec: tr(`${bars}극 ${p.mm2 ?? 100} mm²${p.amps ? `, ${p.amps}A` : ''}, 길이 약 ${Math.round(len * BUS_CELL_M * 100) / 100} m`, `${bars}-pole ${p.mm2 ?? 100} mm²${p.amps ? `, ${p.amps}A` : ''}, about ${Math.round(len * BUS_CELL_M * 100) / 100} m`) };
@@ -394,7 +403,7 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   }
   const plcParts = c.parts.filter((p) => p.type === 'plc').map((p) => p.id);
   for (const msg of model.plcIssues) out.push({ level: model.prog ? 'error' : 'warn', msg, partIds: plcParts });
-  if (c.parts.some((p) => partPins(p).length) && !c.parts.some((p) => p.type === 'src' || p.type === 'src3' || p.type === 'r_term')) {
+  if (c.parts.some((p) => partPins(p).length) && !c.parts.some((p) => p.type === 'src' || p.type === 'src3' || p.type === 'r_term' || p.type === 'r_kepco')) {
     out.push({ level: 'error', msg: tr('전원(L·N, +24V·0V, 3상)이 없습니다', 'No supply (L/N, +24V/0V or 3-phase)'), partIds: [] });
   }
   // 전원 계통에 없는 극 (3상 3선식의 N 등) 은 전압이 없다

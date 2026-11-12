@@ -35,6 +35,37 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('늘 전압이 나옵니다.', 'Always live.'),
         'real',
       );
+    case 'r_kepco':
+      return g(
+        tr('한전에서 특고압 (22.9 kV) 3상을 받는 수전점입니다. 계통 해석의 맨 위에 놓습니다. 수전 전압과 수전점 단락 전류 (한전 협의값, 모르면 12.5 kA) 를 속성에 적습니다.', 'The utility supply point (22.9 kV, 3-phase). Put it at the top; enter the voltage and the fault current at the supply.'),
+        [['A · B · C', tr('특고압 세 상. 아래로 VCB → 변압기 1차 (H1 H2 H3)', 'the three HV phases, down to the VCB and transformer primary')]],
+        [tr('A B C 에서 진공차단기 VCB 위 단자 (1 3 5) 로 선을 내립니다', 'Run A B C down to the VCB top terminals'), tr('VCB 아래 단자 (2 4 6) 에서 변압기 1차 H1 H2 H3 로 잇습니다', 'From the VCB bottom to the transformer primary'), tr('특고압 선은 저압과 섞이면 단락으로 잡힙니다', 'HV touching LV is a short')],
+        tr('늘 전압이 나옵니다. 전류는 변압기가 2차에서 쓰는 만큼 (전압비로 줄여서) 흐릅니다.', 'Always live; carries the transformer load current scaled by the voltage ratio.'),
+        'substation',
+      );
+    case 'r_vcb':
+      return g(
+        tr('특고압 진공차단기 (VCB) 입니다. 누를 때마다 투입 (빨강) · 개방 (초록) 이 바뀝니다. 정격 전류와 차단 용량 (kA) 을 적으면 수전점 단락 전류와 비교합니다.', 'HV vacuum circuit breaker. Click to close (red) or open (green). Enter its rating and breaking capacity.'),
+        [
+          [tr('위 1 · 3 · 5', 'top 1, 3, 5'), tr('한전 수전점 쪽 (A B C)', 'utility side')],
+          [tr('아래 2 · 4 · 6', 'bottom 2, 4, 6'), tr('변압기 1차 (H1 H2 H3) 쪽', 'transformer side')],
+        ],
+        [tr('한전 수전점과 변압기 사이에 넣습니다', 'Between the utility supply and the transformer'), tr('개방하면 변압기 2차 아래 전체가 꺼집니다 (정전 시험)', 'Opening it de-energises everything below the transformer')],
+        tr('[조작 순서] 에 개방 · 투입을 넣으면 정전 · 복전이 타임차트에 나옵니다.', 'Put open/close steps in the sequence to see an outage in the timechart.'),
+        'substation',
+      );
+    case 'r_tr3':
+      return g(
+        tr('3상 변압기 (Δ-Y) 입니다. 1차에 특고압 세 상이 다 들어오면 2차에 저압이 나옵니다. 2차 전압은 전원 계통 설정 (기본 380/220 V) 을 따르고, 용량 (kVA) · %임피던스 · X/R 로 부하율 · 전압 변동 · 단락 전류를 계산합니다.', 'A 3-phase transformer (D-Y). When all three HV phases reach the primary, the secondary is live. Rating, %Z and X/R give loading, regulation and fault current.'),
+        [
+          ['H1 · H2 · H3', tr('1차 (특고압): VCB 아래 단자에서', 'primary (HV), from the VCB')],
+          ['X1 · X2 · X3', tr('2차 L1 · L2 · L3: 저압 메인 차단기로', 'secondary L1 L2 L3 to the LV main breaker')],
+          ['X0', tr('2차 중성점 (N): 메인 차단기 N 극 · 부스바 N 으로', 'secondary neutral (N)')],
+        ],
+        [tr('1차는 VCB 아래에서, 2차는 X1 X2 X3 X0 을 저압 메인 4P 차단기 위 단자로 곧게 내립니다 (2칸 간격이 같습니다)', 'Run X1 X2 X3 X0 straight down to a 4P main breaker (same 2-cell spacing)'), tr('메인 아래에 부스바를 두고 분기 차단기를 답니다', 'Put a busbar below and the branch breakers on it')],
+        tr('1차가 끊기면 2차도 꺼집니다. [해석] 탭에 부하율 · 2차 · 1차 전류 · 전압 변동 · 2차 단락 전류가 나오고, 차단기마다 설치점 단락 전류를 차단 용량과 비교합니다.', 'Losing the primary turns the secondary off. The Analysis tab shows loading, currents, regulation and fault currents, and checks each breaker against its breaking capacity.'),
+        'substation',
+      );
     case 'r_mcb1':
     case 'r_mcb2':
     case 'r_mcb3':

@@ -36,6 +36,8 @@ function defaultName(p: Part): string {
     case 'r_mcb3':
     case 'r_mcb4':
       return p.elb ? t_('누전차단기', 'ELB') : t_('차단기', 'Breaker');
+    case 'r_vcb':
+      return t_('VCB 진공차단기', 'VCB');
     case 'r_mc':
       return t_('전자접촉기', 'Contactor');
     case 'r_thr':

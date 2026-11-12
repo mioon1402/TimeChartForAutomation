@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project } from '../model/types';
 import { emptyCircuit, type CableMethod, type CableSpec, type Circuit, type LampColor, type OpStep, type Part, type PartType, type Pole, type PowerSystem, type Wire, type WireColor } from '../circuit/types';
-import { defaultVolt, poleLive, POWER_SYSTEMS, systemName, systemOf, systemVolts, systemVoltText, voltFieldLabel } from '../circuit/supply';
+import { defaultVolt, poleLive, POWER_SYSTEMS, systemLabel, systemName, systemOf, systemVolts, systemVoltText, voltFieldLabel } from '../circuit/supply';
 import { partGuide } from '../circuit/guide';
-import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, type PowerAnalysis, type PowerState } from '../circuit/power';
+import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, trImpedance, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
 import { busSize, circuitWires, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
@@ -1115,7 +1115,7 @@ function GuideCard({ type }: { type: PartType }) {
   );
 }
 
-const NO_ANALYSIS: PowerAnalysis = { shorted: false, cables: [], bare: [], loads: [], breakers: [], issues: [], supply: [], peakKw: 0, panels: [], wireI: new Map(), vll: 220 * Math.sqrt(3), vln: 220, system: '3p4w', systemText: '' };
+const NO_ANALYSIS: PowerAnalysis = { shorted: false, cables: [], bare: [], loads: [], breakers: [], issues: [], supply: [], peakKw: 0, panels: [], wireI: new Map(), vll: 220 * Math.sqrt(3), vln: 220, system: '3p4w', systemText: '', transformers: [] };
 
 const METHOD_LABEL: Record<CableMethod, [string, string]> = {
   A1: ['A1 단열벽 속 전선관 (절연전선)', 'A1 conduit in insulated wall (wires)'],
@@ -1302,12 +1302,69 @@ function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>
       </>
     );
   }
+  if (p.type === 'r_kepco') {
+    const kv = p.kv ?? 22.9;
+    const ka = p.ka ?? 12.5;
+    return (
+      <>
+        <div className="grid2">
+          <Field label={tr('수전 전압 (kV)', 'Supply voltage (kV)')}>
+            <NumberInput value={kv} min={0.1} step={0.1} onChange={(v) => set({ kv: v && v > 0 ? v : undefined })} />
+          </Field>
+          <Field label={tr('수전점 단락 전류 (kA)', 'Fault current at supply (kA)')} hint={tr('한전과 협의한 값. 모르면 12.5 kA', 'from the utility; 12.5 kA if unknown')}>
+            <NumberInput value={ka} min={0.1} step={0.5} onChange={(v) => set({ ka: v && v > 0 ? v : undefined })} />
+          </Field>
+        </div>
+        <p className="small muted">
+          {tr(`단락 용량 ${Math.round(Math.sqrt(3) * kv * ka)} MVA. 특고압 세 상 (A B C) 이 VCB 를 거쳐 변압기 1차 (H1 H2 H3) 에 닿으면 변압기 2차에 저압이 나옵니다.`, `Fault level ${Math.round(Math.sqrt(3) * kv * ka)} MVA. When A B C reach the transformer primary through the VCB, the secondary is live.`)}
+        </p>
+      </>
+    );
+  }
+  if (p.type === 'r_tr3') {
+    const sv = systemVolts(circuit);
+    const utility = circuit.parts.find((q) => q.type === 'r_kepco') ?? null;
+    const kva = p.kva ?? 500;
+    const kv1 = p.kv ?? utility?.kv ?? 22.9;
+    const z = trImpedance(p, sv.vll, utility);
+    const zt = Math.hypot(z.tr[0] + z.utility[0], z.tr[1] + z.utility[1]);
+    const i2n = (kva * 1000) / (Math.sqrt(3) * sv.vll);
+    return (
+      <>
+        <div className="grid2">
+          <Field label={tr('용량 (kVA)', 'Rating (kVA)')}>
+            <NumberInput value={kva} min={1} step={50} onChange={(v) => set({ kva: v && v > 0 ? v : undefined })} />
+          </Field>
+          <Field label={tr('1차 전압 (kV)', 'Primary (kV)')}>
+            <NumberInput value={kv1} min={0.1} step={0.1} onChange={(v) => set({ kv: v && v > 0 ? v : undefined })} />
+          </Field>
+          <Field label={tr('%임피던스 (%Z)', 'Impedance (%Z)')} hint={tr('명판 값. 유입 500 kVA 쯤 5 %, 몰드 6 %', 'from the nameplate')}>
+            <NumberInput value={p.z ?? 5} min={0.5} max={30} step={0.5} onChange={(v) => set({ z: v && v > 0 ? v : undefined })} />
+          </Field>
+          <Field label="X/R" hint={tr('모르면 5', '5 if unknown')}>
+            <NumberInput value={p.xr ?? 5} min={0.1} step={0.5} onChange={(v) => set({ xr: v && v > 0 ? v : undefined })} />
+          </Field>
+        </div>
+        <p className="small muted">
+          {tr(
+            `2차: ${systemLabel(sv)} (전원 계통 설정을 따름, X0 = 중성점). 정격 전류 1차 ${((kva * 1000) / (Math.sqrt(3) * kv1 * 1000)).toFixed(1)} A · 2차 ${i2n.toFixed(0)} A. 2차 단자 단락 전류 약 ${(sv.vll / Math.sqrt(3) / zt / 1000).toFixed(1)} kA (한전 계통 + 변압기).`,
+            `Secondary: ${systemLabel(sv)} (follows the supply system; X0 = neutral). Rated current ${((kva * 1000) / (Math.sqrt(3) * kv1 * 1000)).toFixed(1)} A / ${i2n.toFixed(0)} A. Fault current at the secondary about ${(sv.vll / Math.sqrt(3) / zt / 1000).toFixed(1)} kA.`,
+          )}
+        </p>
+      </>
+    );
+  }
   if (isBreaker(p))
     return (
       <>
-        <Field label={tr('정격 전류 (A)', 'Rated current (A)')} wide hint={tr('[해석] 탭에서 흐르는 전류와 전선 허용전류를 이 값과 비교합니다', 'Compared with the current and the cable ampacity in the Analysis tab')}>
-          <NumberInput value={breakerAmps(p) ?? undefined} min={1} step={1} onChange={(v) => set({ amps: v && v > 0 ? v : undefined })} />
-        </Field>
+        <div className="grid2">
+          <Field label={tr('정격 전류 (A)', 'Rated current (A)')} hint={tr('흐르는 전류 · 전선 허용전류와 비교', 'vs current and cable ampacity')}>
+            <NumberInput value={breakerAmps(p) ?? undefined} min={1} step={1} onChange={(v) => set({ amps: v && v > 0 ? v : undefined })} />
+          </Field>
+          <Field label={tr('차단 용량 (kA)', 'Breaking capacity (kA)')} hint={tr('설치점 단락 전류와 비교 (변압기가 있을 때)', 'vs the fault current (with a transformer)')}>
+            <NumberInput value={p.ka} allowEmpty min={0.5} step={5} placeholder="—" onChange={(v) => set({ ka: v && v > 0 ? v : undefined })} />
+          </Field>
+        </div>
         {p.type.startsWith('r_mcb') && p.type !== 'r_mcb1' && <Check checked={!!p.elb} onChange={(v) => set({ elb: v || undefined })} label={tr('누전차단기 (ELB)', 'Earth leakage breaker (ELB)')} />}
       </>
     );
@@ -1691,8 +1748,12 @@ function PowerPane({ circuit, a, onChange, onPick, onAuto, title }: { circuit: C
     for (const r of a.cables) out.push(line([`${r.from} → ${r.to}`, r.text, r.ib, r.iz ?? '', r.breaker, r.breakerAmps ?? '', r.dv]));
     out.push('', line([tr('부하', 'Load'), tr('설명', 'Name'), 'kW', tr('역률', 'pf'), tr('전류 (A)', 'I (A)'), tr('전압 (V)', 'V'), tr('전압강하 (%)', 'Drop (%)'), tr('허용 (%)', 'Limit (%)')]));
     for (const r of a.loads) out.push(line([r.tag, r.name, r.watt / 1000, r.pf, r.i, r.v ?? '', r.dropPct ?? '', r.limit]));
-    out.push('', line([tr('차단기', 'Breaker'), 'In (A)', tr('최대 전류 (A)', 'Max I (A)')]));
-    for (const r of a.breakers) out.push(line([r.tag, r.amps ?? '', r.i]));
+    out.push('', line([tr('차단기', 'Breaker'), 'In (A)', tr('최대 전류 (A)', 'Max I (A)'), tr('단락 전류 (kA)', 'Isc (kA)'), tr('차단 용량 (kA)', 'Icu (kA)')]));
+    for (const r of a.breakers) out.push(line([r.tag, r.amps ?? '', r.i, r.isc ?? '', r.ka ?? '']));
+    if (a.transformers.length) {
+      out.push('', line([tr('변압기', 'Transformer'), 'kVA', tr('1차 (kV)', 'HV (kV)'), tr('2차 (V)', 'LV (V)'), tr('최대 부하 (kVA)', 'Peak (kVA)'), tr('부하율 (%)', 'Load (%)'), tr('2차 전류 (A)', 'LV I (A)'), tr('1차 전류 (A)', 'HV I (A)'), tr('전압 변동 (%)', 'Reg. (%)'), tr('2차 단락 (kA)', 'Isc (kA)')]));
+      for (const r of a.transformers) out.push(line([r.tag, r.kva, r.kv1, r.v2, r.load, r.pct, r.i2, r.i1, r.reg, r.isc]));
+    }
     downloadText(`${safeFileName(title || 'circuit')}_${tr('전기해석', 'analysis')}.csv`, '\uFEFF' + out.join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
   };
   if (!a.loads.length && !a.cables.length && !a.bare.length)
@@ -1858,6 +1919,59 @@ function PowerPane({ circuit, a, onChange, onPick, onAuto, title }: { circuit: C
         </details>
       )}
       {a.loads.some((l) => !l.on) && <p className="small muted">{tr('"꺼짐" 은 조작 순서대로 돌렸을 때 한 번도 켜지지 않은 부하입니다. [조작 순서] 에 기동 조작을 넣으면 그때의 전류로 검토합니다.', '"off" loads were never energised in the operation sequence; add the operations that start them.')}</p>}
+      {a.transformers.length > 0 && (
+        <>
+          <h4>{tr('변압기: 부하율 · 전압 변동 · 단락 전류', 'Transformers: loading, regulation, fault current')}</h4>
+          <table className="tbl compact cc-power-tbl">
+            <thead>
+              <tr>
+                <th>{tr('기호', 'Tag')}</th>
+                <th>{tr('부하', 'Load')}</th>
+                <th>{tr('전류', 'Current')}</th>
+                <th title={tr('전압 변동 / 2차 단락 전류', 'Regulation / secondary fault current')}>{tr('변동 · 단락', 'Reg. · Isc')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {a.transformers.map((r) => {
+                const bad = r.pct > 100;
+                return (
+                  <tr key={r.partId} className={bad ? 'bad' : ''} onClick={() => onPick([r.partId], [])}>
+                    <td className="mono small">
+                      <b>{r.tag}</b>
+                      <br />
+                      <span className="muted">
+                        {r.kva} kVA · {r.kv1}kV/{r.v2}V
+                      </span>
+                    </td>
+                    <td className="num">
+                      {r.load} kVA
+                      <div className={`small ${bad ? 'cc-bad' : 'muted'}`}>{r.pct}%</div>
+                    </td>
+                    <td className="num small">
+                      {tr('2차', 'LV')} {f1(r.i2)} / {r.i2n} A
+                      <br />
+                      <span className="muted">
+                        {tr('1차', 'HV')} {r.i1} A
+                      </span>
+                    </td>
+                    <td className="num small">
+                      {r.reg}%
+                      <br />
+                      <span className="muted">{r.isc} kA</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="small muted">
+            {tr(
+              '전압 변동은 한전 계통 + 변압기 임피던스에서 떨어지는 전압 (가장 클 때). 부하의 전압강하는 변압기 2차 단자부터 잽니다. 단락 전류는 %임피던스법 (3상, 전압 계수 1).',
+              'Regulation: drop across the utility and transformer impedance at peak. Load voltage drop is measured from the transformer secondary. Fault current by the %Z method (3-phase).',
+            )}
+          </p>
+        </>
+      )}
       {a.breakers.length > 0 && (
         <>
           <h4>{tr('차단기', 'Breakers')}</h4>
@@ -1867,25 +1981,35 @@ function PowerPane({ circuit, a, onChange, onPick, onAuto, title }: { circuit: C
                 <th>{tr('기호', 'Tag')}</th>
                 <th>{tr('정격 In', 'Rating In')}</th>
                 <th>{tr('최대 전류', 'Max current')}</th>
+                {a.breakers.some((r) => r.isc !== null) && <th title={tr('설치점 단락 전류 / 차단 용량', 'Fault current / breaking capacity')}>{tr('단락 / 차단', 'Isc / Icu')}</th>}
               </tr>
             </thead>
             <tbody>
               {a.breakers.map((r) => {
-                const bad = r.amps !== null && r.i > r.amps;
+                const over = r.amps !== null && r.i > r.amps;
+                const weak = r.isc !== null && r.ka !== null && r.isc > r.ka;
                 return (
-                  <tr key={r.partId} className={bad ? 'bad' : ''} onClick={() => onPick([r.partId], [])}>
+                  <tr key={r.partId} className={over || weak ? 'bad' : ''} onClick={() => onPick([r.partId], [])}>
                     <td className="mono">
                       <b>{r.tag}</b>
                     </td>
                     <td className="num">{r.amps === null ? '—' : `${r.amps} A`}</td>
                     <td className="num">
-                      {f1(r.i)} A {pct(r.i, r.amps) !== null && <span className={`small ${bad ? 'cc-bad' : 'muted'}`}>({pct(r.i, r.amps)}%)</span>}
+                      {f1(r.i)} A {pct(r.i, r.amps) !== null && <span className={`small ${over ? 'cc-bad' : 'muted'}`}>({pct(r.i, r.amps)}%)</span>}
                     </td>
+                    {a.breakers.some((b) => b.isc !== null) && (
+                      <td className={`num small ${weak ? 'cc-bad' : ''}`}>
+                        {r.isc === null ? '—' : `${r.isc} kA`}
+                        <br />
+                        <span className={weak ? 'cc-bad' : 'muted'}>{r.ka === null ? tr('차단 ?', 'Icu ?') : `${r.ka} kA`}</span>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          {a.breakers.some((r) => r.isc !== null && r.ka === null) && <p className="small muted">{tr('차단기를 누르고 차단 용량 (kA) 을 적으면 설치점 단락 전류와 비교합니다.', 'Enter breaking capacities (kA) to compare with the fault currents.')}</p>}
         </>
       )}
       {a.panels.length > 0 && (
