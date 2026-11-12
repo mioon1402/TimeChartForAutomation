@@ -777,3 +777,20 @@ describe('device guide and wire numbers', () => {
     expect(rows[0].from.dev).toBe('L');
   });
 });
+
+describe('panelboard example (busbar, branch breakers)', () => {
+  it('runs every load, and one branch breaker switches only its feeder', () => {
+    const c = circuitExamples().find((e) => e.id === 'busbar')!.build();
+    const r = runScenario(c);
+    expect(r.warnings).toEqual([]);
+    expect(checkCircuit(c)).toEqual([]);
+    const pts = (key: string) => r.tracks.find((t) => t.key === key)!.points.map((p) => [p.t, p.v]);
+    for (const tag of ['AHU1', 'CV1', 'EL1', 'OUT1']) expect(pts(`load:${tag}`)).toEqual([[0, 1]]);
+    // 2 s 에 ELB2 를 내리면 히터만 꺼지고, 4 s 에 올리면 다시 켜진다
+    expect(pts('load:HT1')).toEqual([
+      [0, 1],
+      [2000, 0],
+      [4000, 1],
+    ]);
+  });
+});

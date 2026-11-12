@@ -587,6 +587,67 @@ function feederAnalysis(): Circuit {
   return b.done();
 }
 
+/**
+ * 분전반 (부스바 · 누전차단기 분기): 수전 → 메인 4P 125 A → 세로 부스바 L1 L2 L3 N →
+ * 왼쪽 · 오른쪽으로 옆으로 돌린 분기 차단기 (전원 쪽 단자가 부스바를 본다) → 판넬 밖 부하.
+ *  - 3상 분기 3개 (공조기 · 히터 · 컨베이어), 단상 2P 분기 2개 (조명 L1-N, 콘센트 L2-N)
+ *  - 분기선은 부스바 위로 지나가서 자기 상 막대에만 볼트로 물린다 (점이 찍힌 곳)
+ * 직접 만든 예이며 굵기 · 정격은 문제가 없게 골라 두었다.
+ */
+function busPanel(): Circuit {
+  const b = new Builder();
+  const COL: WireColor[] = ['brown', 'black', 'grey', 'blue'];
+  const xl = (mm2: number, len: number, cores: 2 | 3 = 3, method: CableSpec['method'] = 'B1'): CableSpec => ({ ins: 'xlpe', mm2, method, cores, len });
+  b.part('r_panel', 3, -2, 'LP-1', { name: tr('동력 · 전등 분전반', 'Power & lighting panel'), w: 34, h: 48 });
+  // 수전 · 메인 4P · 부스바 (막대 x = 17 · 19 · 21 · 23)
+  [17, 19, 21, 23].forEach((x, k) => {
+    b.part('r_term', x, -6, '', { pole: (['L1', 'L2', 'L3', 'N'] as const)[k] });
+    b.run(COL[k], xl(35, 20, 3), [x, -6], [x, 2]);
+    b.run(COL[k], xl(35, 0.3, 3, 'C'), [x, 10], [x, 12]);
+  });
+  b.part('r_mcb4', 20, 6, 'MCB0', { name: tr('메인', 'Main'), amps: 125 });
+  b.part('r_bus', 17, 12, 'BUS1', { bars: 4, h: 30, mm2: 100, amps: 250 });
+  // 분기 차단기 (옆으로): 왼쪽은 90° (전원 쪽이 오른쪽), 오른쪽은 270° (전원 쪽이 왼쪽)
+  const branch3 = (x: number, y: number, rot: 90 | 270, tag: string, name: string, amps: number, elb = true) => {
+    b.part('r_mcb3', x, y, tag, { name, amps, rot, ...(elb ? { elb: true } : {}) });
+  };
+  branch3(9, 16, 90, 'ELB1', tr('공조기', 'Air handler'), 30);
+  branch3(9, 26, 90, 'ELB2', tr('히터', 'Heater'), 40);
+  branch3(31, 17, 270, 'MCB3', tr('컨베이어', 'Conveyor'), 20, false);
+  b.part('r_mcb2', 31, 31, 'ELB4', { name: tr('조명', 'Lighting'), amps: 20, rot: 270, elb: true });
+  b.part('r_mcb2', 31, 37, 'ELB5', { name: tr('콘센트', 'Outlets'), amps: 20, rot: 270, elb: true });
+  // 탭 (분기선): 차단기 전원 쪽 단자 → 자기 상 막대
+  const tap = (color: WireColor, mm2: number, from: [number, number], barX: number, cores: 2 | 3 = 3) => b.run(color, xl(mm2, 0.3, cores, 'C'), from, [barX, from[1]]);
+  [0, 1, 2].forEach((k) => {
+    tap(COL[k], 6, [13, 14 + 2 * k], 17 + 2 * k);
+    tap(COL[k], 10, [13, 24 + 2 * k], 17 + 2 * k);
+    tap(COL[k], 4, [27, 19 - 2 * k], 17 + 2 * k);
+  });
+  tap('brown', 2.5, [27, 32], 17, 2);
+  tap('blue', 2.5, [27, 30], 23, 2);
+  tap('black', 2.5, [27, 38], 19, 2);
+  tap('blue', 2.5, [27, 36], 23, 2);
+  // 판넬 밖 부하 (아래 줄): 위 차단기의 선이 바깥쪽 기둥으로 (엇갈리지 않게 계단처럼)
+  b.part('r_load3', -10, 56, 'AHU1', { name: tr('공조기', 'Air handler'), watt: 11000, pf: 0.85 });
+  b.part('r_load3', -1, 56, 'HT1', { name: tr('히터', 'Heater'), watt: 15000, pf: 1 });
+  b.part('r_load3', 58, 56, 'CV1', { name: tr('컨베이어', 'Conveyor'), watt: 5500, pf: 0.85 });
+  b.part('r_load1', 49, 56, 'EL1', { name: tr('조명', 'Lighting'), watt: 2000, pf: 1, lighting: true });
+  b.part('r_load1', 40, 56, 'OUT1', { name: tr('콘센트', 'Outlets'), watt: 2200, pf: 0.95 });
+  [0, 1, 2].forEach((k) => {
+    b.run(COL[k], xl(6, 30), [5, 14 + 2 * k], [-12 + 2 * k, 14 + 2 * k], [-12 + 2 * k, 53]);
+    b.run(COL[k], xl(10, 40), [5, 24 + 2 * k], [-3 + 2 * k, 24 + 2 * k], [-3 + 2 * k, 53]);
+    b.run(COL[k], xl(4, 25), [35, 19 - 2 * k], [56 + 2 * k, 19 - 2 * k], [56 + 2 * k, 53]);
+  });
+  b.run('brown', xl(2.5, 30, 2), [35, 32], [48, 32], [48, 53]);
+  b.run('blue', xl(2.5, 30, 2), [35, 30], [50, 30], [50, 53]);
+  b.run('black', xl(2.5, 20, 2), [35, 38], [39, 38], [39, 53]);
+  b.run('blue', xl(2.5, 20, 2), [35, 36], [41, 36], [41, 53]);
+  b.part('text', 3, -9, '', { text: tr('분전반: 메인 4P → 부스바 → 누전차단기 분기 (옆으로 놓고 자기 상 막대에 탭)', 'Panelboard: 4P main → busbar → ELB branches tapped onto their bars') });
+  b.op(2000, 'ELB2', 'off', tr('히터 끔', 'Heater off'));
+  b.op(2000, 'ELB2', 'on', tr('히터 켬', 'Heater on'));
+  return b.done();
+}
+
 /** PLC 자기유지: 기동 PB → X0, 정지 PB → X1, Y0 운전 램프, T0(3초) 뒤 Y1 램프 */
 function plcSelfHold(): Circuit {
   const b = new Builder();
@@ -640,6 +701,7 @@ export interface CircuitExample {
 
 export function circuitExamples(): CircuitExample[] {
   return [
+    { id: 'busbar', name: tr('분전반: 부스바 · 누전차단기 분기', 'Panelboard: busbar and ELB branches'), desc: tr('메인 4P → 세로 부스바 L1 L2 L3 N → 옆으로 놓은 분기 차단기 (3상 · 단상) → 부하. 탭이 자기 상 막대에만 물리는 것을 확인', 'Main 4P breaker, vertical busbar, sideways branch breakers tapped onto their bars'), build: busPanel },
     { id: 'feeders', name: tr('분전반 급전 해석 (케이블 · 전압강하)', 'Feeder analysis (cables, voltage drop)'), desc: tr('메인 분전반 → 부스바 → 급전선 → 분전반 2개. 케이블 규격으로 허용전류 · 전압강하 · 차단기 정격을 검토', 'Main panel, busbars and feeders to two panels; ampacity, voltage drop and breaker checks'), build: feederAnalysis },
     { id: 'tsw-light', name: tr('타임 스위치로 전등 자동 점멸 (기본)', 'Lights on a time switch (basic)'), desc: tr('24시간 다이얼 타임 스위치 하나로 전등 2개를 정해진 시각에 켜고 끕니다', 'One 24-hour dial time switch turns two lights on and off'), build: timeSwitchLight },
     { id: 'tsw-panel', name: tr('타임 스위치 + 자동/수동 + 전자접촉기', 'Time switch + auto/manual + contactor'), desc: tr('전등이 많을 때: 타임 스위치는 MC 코일만 움직이고, 셀렉터로 수동 점등', 'Many lights: the time switch drives a contactor coil, selector for manual on'), build: timeSwitchPanel },

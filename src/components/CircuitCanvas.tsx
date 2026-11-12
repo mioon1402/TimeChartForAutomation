@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
 import { autoWireColor } from '../circuit/wires';
-import { OPERATOR, partBox, partPins, pinPositions, type PaletteItem } from '../circuit/parts';
+import { busSize, OPERATOR, panelSize, partBox, partPins, partWires, pinPositions, rotate, tbSize, type PaletteItem } from '../circuit/parts';
 import { tagKey, type CircuitModel, type CircuitSim } from '../circuit/engine';
+import { onWireInterior } from '../circuit/netlist';
 import { uid } from '../model/wave';
 import { CircuitLayer, circuitBounds, G, PartGlyph, partState, type CircuitColors, type LayerOptions } from '../render/CircuitSvg';
 import { tr } from '../i18n';
@@ -23,7 +24,39 @@ type Drag =
   | { kind: 'pan'; sx: number; sy: number; left: number; top: number }
   /** 선 위를 누름: 끌면 그 점에서 분기 선, 그냥 떼면 선 선택 */
   | { kind: 'wirePress'; wire: string; from: Pt; shift: boolean }
+  /** 부스바 막대를 누름: 끌면 그 점에서 분기 선, 그냥 떼면 부스바 선택 */
+  | { kind: 'busPress'; part: string; from: Pt; shift: boolean }
+  /** 크기 손잡이 (분전반 모서리, 부스바 아래 끝, 단자대 오른쪽 끝) */
+  | { kind: 'resize'; id: string; key: string }
   | { kind: 'op'; tag: string };
+
+/** 크기를 끌어 바꿀 수 있는 부품의 손잡이 위치 (부품 기준 좌표, 돌리기 전) */
+function resizeHandleLocal(p: Part): Pt | null {
+  if (p.type === 'r_panel') return panelSize(p);
+  if (p.type === 'r_bus') {
+    const { bars, len } = busSize(p);
+    return [bars - 1, len + 0.7];
+  }
+  if (p.type === 'r_tb') return [2 * (tbSize(p) - 1) + 1.6, 0];
+  return null;
+}
+
+export function resizeHandle(p: Part): Pt | null {
+  const l = resizeHandleLocal(p);
+  if (!l) return null;
+  const [dx, dy] = rotate(l[0], l[1], p.rot);
+  return [p.x + dx, p.y + dy];
+}
+
+/** 손잡이를 g 로 끌었을 때 바뀌는 값 */
+function resizeTo(p: Part, g: Pt): Partial<Part> {
+  const back = ((360 - p.rot) % 360) as Part['rot'];
+  const [lx, ly] = rotate(g[0] - p.x, g[1] - p.y, back);
+  if (p.type === 'r_panel') return { w: Math.max(4, Math.round(lx)), h: Math.max(4, Math.round(ly)) };
+  if (p.type === 'r_bus') return { h: Math.max(2, Math.round(ly - 0.7)) };
+  if (p.type === 'r_tb') return { n: Math.min(40, Math.max(1, Math.round((lx - 1.6) / 2) + 1)) };
+  return {};
+}
 
 const k = (p: Pt) => `${p[0]},${p[1]}`;
 
@@ -32,15 +65,27 @@ export function moveSelection(c: Circuit, parts: Set<string>, wires: Set<string>
   if (!dx && !dy) return c;
   const pins = new Set<string>();
   for (const p of c.parts) if (parts.has(p.id)) pinPositions(p).forEach((q) => pins.add(k(q)));
+  // 부스바를 옮기면 막대에 물린 분기선 끝도 함께. 막대 중간의 탭은 막대와 직각 방향으로만 따라가서
+  // 분기선이 비스듬해지지 않는다 (막대를 위아래로 밀어도 탭은 그 자리에 물려 있다)
+  const bars = c.parts.filter((p) => parts.has(p.id)).flatMap(partWires);
+  const on = (b: Wire, q: Pt) => k(b.a) === k(q) || k(b.b) === k(q) || onWireInterior(b, q[0], q[1]);
+  const moved = (b: Wire): Wire => ({ ...b, a: [b.a[0] + dx, b.a[1] + dy], b: [b.b[0] + dx, b.b[1] + dy] });
   const sh = (q: Pt): Pt => [q[0] + dx, q[1] + dy];
+  const follow = (q: Pt): Pt | null => {
+    if (pins.has(k(q))) return sh(q);
+    const bar = bars.find((b) => on(b, q));
+    if (!bar) return null;
+    const along: Pt = bar.a[0] === bar.b[0] ? [q[0] + dx, q[1]] : [q[0], q[1] + dy];
+    return on(moved(bar), along) ? along : sh(q);
+  };
   return {
     ...c,
     parts: c.parts.map((p) => (parts.has(p.id) ? { ...p, x: p.x + dx, y: p.y + dy } : p)),
     wires: c.wires.map((w) => {
       if (wires.has(w.id)) return { ...w, a: sh(w.a), b: sh(w.b) };
-      const ma = pins.has(k(w.a));
-      const mb = pins.has(k(w.b));
-      return ma || mb ? { ...w, a: ma ? sh(w.a) : w.a, b: mb ? sh(w.b) : w.b } : w;
+      const na = follow(w.a);
+      const nb = follow(w.b);
+      return na || nb ? { ...w, a: na ?? w.a, b: nb ?? w.b } : w;
     }),
   };
 }
@@ -164,9 +209,21 @@ export function CircuitCanvas(props: CanvasProps) {
   const hitPart = (g: Pt): Part | null => {
     for (let i = circuit.parts.length - 1; i >= 0; i--) {
       const p = circuit.parts[i];
-      if (p.type === 'r_panel') continue;
+      if (p.type === 'r_panel' || p.type === 'r_bus') continue;
       const [a, b, cc, d] = partBox(p);
       if (g[0] >= a - 0.2 && g[0] <= cc + 0.2 && g[1] >= b - 0.2 && g[1] <= d + 0.2) return p;
+    }
+    // 부스바는 막대 위만 잡힌다 (막대 사이 · 위로 지나가는 분기선은 선으로)
+    for (let i = circuit.parts.length - 1; i >= 0; i--) {
+      const p = circuit.parts[i];
+      if (p.type !== 'r_bus') continue;
+      const onBar = partWires(p).some((b) => distToWire(b, g[0], g[1]) < 0.3);
+      const [a, b, cc, d] = partBox(p);
+      // 막대 위 끝의 상 표시 (L1 L2 …) 줄이나 아래 이름표를 잡아도 부스바
+      const len = busSize(p).len;
+      const inX = g[0] >= a - 0.2 && g[0] <= cc + 0.2;
+      const onLabel = p.rot === 0 && inX && ((g[1] >= b - 0.2 && g[1] <= p.y - 0.3) || (g[1] >= p.y + len + 1.1 && g[1] <= d + 0.2));
+      if ((onBar && !circuit.wires.some((w) => distToWire(w, g[0], g[1]) < 0.25)) || onLabel) return p;
     }
     // 분전반 테두리는 이름표 줄만 잡힌다 (안쪽은 그림을 그리는 자리)
     for (let i = circuit.parts.length - 1; i >= 0; i--) {
@@ -176,6 +233,19 @@ export function CircuitCanvas(props: CanvasProps) {
       if (g[0] >= a - 0.2 && g[0] <= cc + 0.2 && g[1] >= b - 0.3 && g[1] <= b + 1.6) return p;
     }
     return null;
+  };
+  /** 손잡이를 누른 부품: 하나만 골랐을 때 */
+  const resizeTarget = (g: Pt): Part | null => {
+    if (sel.parts.length !== 1 || sel.wires.length) {
+      // 분전반 이름표로 고르면 안의 부품도 함께 골라지므로, 그 안에 분전반이 하나면 그것
+      const panels = circuit.parts.filter((p) => sel.parts.includes(p.id) && p.type === 'r_panel');
+      if (panels.length !== 1) return null;
+      const h = resizeHandle(panels[0])!;
+      return Math.hypot(g[0] - h[0], g[1] - h[1]) < 0.7 * Math.max(1, 0.85 / zoom) ? panels[0] : null;
+    }
+    const p = circuit.parts.find((x) => x.id === sel.parts[0]);
+    const h = p && resizeHandle(p);
+    return p && h && Math.hypot(g[0] - h[0], g[1] - h[1]) < 0.7 * Math.max(1, 0.85 / zoom) ? p : null;
   };
   /** 분전반 안에 있는 부품과 선 (함께 옮긴다) */
   const panelContents = (p: Part): { parts: string[]; wires: string[] } => {
@@ -303,6 +373,12 @@ export function CircuitCanvas(props: CanvasProps) {
       props.onPlace(placing, x, y, e.shiftKey);
       return;
     }
+    // 크기 손잡이 (고른 분전반 · 부스바 · 단자대 하나)
+    const rp = resizeTarget(g);
+    if (rp) {
+      setD({ kind: 'resize', id: rp.id, key: uid('rs') });
+      return;
+    }
     // 단자에서 끌면 선, 몸통에서 끌면 이동
     const pin = hitPin(g);
     if (tool === 'wire' || pin) {
@@ -311,6 +387,10 @@ export function CircuitCanvas(props: CanvasProps) {
       return;
     }
     const part = hitPart(g);
+    if (part && part.type === 'r_bus' && !sel.parts.includes(part.id)) {
+      setD({ kind: 'busPress', part: part.id, from: snap(g), shift: e.shiftKey });
+      return;
+    }
     if (part) {
       let parts = sel.parts;
       if (e.shiftKey) parts = parts.includes(part.id) ? parts.filter((x) => x !== part.id) : [...parts, part.id];
@@ -375,9 +455,14 @@ export function CircuitCanvas(props: CanvasProps) {
       if (to[0] === d.from[0] && to[1] === d.from[1]) axis = null;
       setD({ ...d, to, axis });
     } else if (d.kind === 'box') setD({ ...d, to: g });
-    else if (d.kind === 'wirePress') {
+    else if (d.kind === 'wirePress' || d.kind === 'busPress') {
       const to = hitPin(g) ?? snap(g);
       if (to[0] !== d.from[0] || to[1] !== d.from[1]) setD({ kind: 'wire', from: d.from, to, axis: Math.abs(g[0] - d.from[0]) >= Math.abs(g[1] - d.from[1]) ? 'h' : 'v' });
+    } else if (d.kind === 'resize') {
+      const p = circuit.parts.find((x) => x.id === d.id);
+      if (!p) return;
+      const patch = resizeTo(p, g);
+      if (Object.entries(patch).some(([key, v]) => p[key as keyof Part] !== v)) props.onCommit({ ...circuit, parts: circuit.parts.map((x) => (x.id === d.id ? { ...x, ...patch } : x)) }, d.key, true);
     }
   };
 
@@ -389,7 +474,9 @@ export function CircuitCanvas(props: CanvasProps) {
     else if (d.kind === 'wirePress') {
       const wires = d.shift ? (sel.wires.includes(d.wire) ? sel.wires.filter((x) => x !== d.wire) : [...sel.wires, d.wire]) : [d.wire];
       setSel({ parts: d.shift ? sel.parts : [], wires });
-    }
+    } else if (d.kind === 'busPress') {
+      setSel(d.shift ? { parts: [...sel.parts, d.part], wires: sel.wires } : { parts: [d.part], wires: [] });
+    } else if (d.kind === 'resize') props.onEndMerge();
     else if (d.kind === 'move') {
       if (d.dx || d.dy) {
         props.onCommit(moveSelection(d.orig, d.parts, d.wires, d.dx, d.dy), d.key, true);
@@ -436,7 +523,18 @@ export function CircuitCanvas(props: CanvasProps) {
     }
     return '';
   }, [circuit.parts, hover, sim, placing]);
-  const cursor = sim ? (hoverOp ? 'pointer' : 'grab') : placing ? 'copy' : tool === 'wire' || pinHot ? 'crosshair' : 'default';
+  const onHandle = !sim && !placing && hover && !drag ? resizeTarget(hover) : null;
+  const resizing = drag?.kind === 'resize' ? circuit.parts.find((x) => x.id === drag.id) : null;
+  const handlePart = resizing ?? onHandle;
+  const resizeCursor = handlePart ? (handlePart.type === 'r_panel' ? 'nwse-resize' : (handlePart.type === 'r_bus') === (handlePart.rot % 180 === 0) ? 'ns-resize' : 'ew-resize') : null;
+  const cursor = sim ? (hoverOp ? 'pointer' : 'grab') : resizeCursor ?? (placing ? 'copy' : tool === 'wire' || pinHot ? 'crosshair' : 'default');
+  // 고른 분전반 · 부스바 · 단자대의 크기 손잡이
+  const handles = sim
+    ? []
+    : circuit.parts
+        .filter((p) => sel.parts.includes(p.id) && (sel.parts.length === 1 ? true : p.type === 'r_panel' && circuit.parts.filter((q) => sel.parts.includes(q.id) && q.type === 'r_panel').length === 1))
+        .map((p) => resizeHandle(p))
+        .filter((h): h is Pt => !!h);
 
   let preview: Pt[] | null = null;
   if (drag?.kind === 'wire' && (drag.to[0] !== drag.from[0] || drag.to[1] !== drag.from[1])) {
@@ -517,6 +615,10 @@ export function CircuitCanvas(props: CanvasProps) {
             </g>
           );
         })()}
+        {handles.map(([x, y], i) => {
+          const s = 6 * Math.max(1, 0.85 / zoom);
+          return <rect key={`h${i}`} x={x * G - s} y={y * G - s} width={2 * s} height={2 * s} rx={2} fill={c.bg} stroke={c.select} strokeWidth={2} pointerEvents="none" />;
+        })}
         {ghost && (
           <g transform={`translate(${ghost.x * G},${ghost.y * G})${ghost.rot ? ` rotate(${ghost.rot})` : ''}`} opacity={0.55} fill="none" strokeWidth={1.6} pointerEvents="none">
             <PartGlyph part={ghost} st={partState(ghost, model, null)} c={c} />

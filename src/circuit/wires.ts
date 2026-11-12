@@ -1,6 +1,6 @@
 import type { Circuit, WireColor } from './types';
 import { onWireInterior } from './netlist';
-import { pinPositions, REAL } from './parts';
+import { circuitWires, pinPositions, REAL } from './parts';
 import type { CircuitModel } from './engine';
 
 type Pt = [number, number];
@@ -19,7 +19,8 @@ const same = (a: Pt, b: Pt) => a[0] === b[0] && a[1] === b[1];
  */
 export function autoWireColor(c: Circuit, model: CircuitModel, from: Pt, to: Pt): WireColor | undefined {
   for (const pt of [from, to]) {
-    const w = c.wires.find((x) => x.color && (same(x.a, pt) || same(x.b, pt) || onWireInterior(x, pt[0], pt[1])));
+    // 닿는 선 · 부스바 막대의 색 (막대는 상마다 표준 색)
+    const w = circuitWires(c).find((x) => x.color && (same(x.a, pt) || same(x.b, pt) || onWireInterior(x, pt[0], pt[1])));
     if (w) return w.color;
   }
   const pins: { net: number; real: boolean }[] = [];
@@ -66,7 +67,7 @@ export function wireChain(c: Circuit, ids: string[]): string[] {
     const w = stack.pop()!;
     for (const e of [w.a, w.b]) {
       const ws = ends.get(k(e)) ?? [];
-      if (ws.length !== 2 || pins.has(k(e)) || c.wires.some((x) => onWireInterior(x, e[0], e[1]))) continue;
+      if (ws.length !== 2 || pins.has(k(e)) || circuitWires(c).some((x) => onWireInterior(x, e[0], e[1]))) continue;
       for (const x of ws) {
         // 규격이 다른 선 (부스바에서 내려오는 선 등) 은 다른 가닥이다
         if (out.has(x.id) || JSON.stringify(x.cable) !== JSON.stringify(w.cable)) continue;

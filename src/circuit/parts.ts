@@ -1,4 +1,4 @@
-import type { LampColor, Part, PartType, Pole, Rot } from './types';
+import type { CableSpec, Circuit, LampColor, Part, PartType, Pole, Rot, Wire, WireColor } from './types';
 import type { PlcDialect } from '../plc/types';
 import { tr } from '../i18n';
 
@@ -321,6 +321,24 @@ export const PARTS: Record<PartType, PartDef> = {
   // 부하 (용량으로 전류를 계산): 단상 L · N, 3상 L1 · L2 · L3
   r_load1: { type: 'r_load1', cat: 'output', pins: [pin(-1, -3, 'L'), pin(1, -3, 'N')], load: true, box: [-3.2, -3.8, 3.2, 3], prefix: 'LD' },
   r_load3: { type: 'r_load3', cat: 'output', pins: [pin(-2, -3, 'L1'), pin(0, -3, 'L2'), pin(2, -3, 'L3')], load: true, box: [-3.6, -3.8, 3.6, 3], prefix: 'LD' },
+  // 차단기 4P: 1 3 5 N → 2 4 6 N
+  r_mcb4: {
+    type: 'r_mcb4',
+    cat: 'protect',
+    pins: [pin(-3, -4, '1'), pin(-1, -4, '3'), pin(1, -4, '5'), pin(3, -4, 'N'), pin(-3, 4, '2'), pin(-1, 4, '4'), pin(1, 4, '6'), pin(3, 4, 'N')],
+    poles: [
+      [0, 4],
+      [1, 5],
+      [2, 6],
+      [3, 7],
+    ],
+    operate: 'toggle',
+    defaultOn: true,
+    box: [-4.3, -5, 4.3, 5],
+    prefix: 'MCB',
+  },
+  // 부스바: 막대마다 위 끝에 단자 하나 (단자 목록은 busPins), 막대는 선처럼 이어진다 (partWires)
+  r_bus: { type: 'r_bus', cat: 'misc', pins: [], box: [-0.6, -0.9, 6.6, 22.4], prefix: 'BUS' },
   // 분전반 · 변전함 테두리 (왼쪽 위가 기준점, 크기는 부품마다)
   r_panel: { type: 'r_panel', cat: 'misc', pins: [], box: [0, 0, 20, 20], prefix: 'PNL' },
   r_sw3: {
@@ -340,7 +358,46 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus']);
+
+/** 부스바: 막대 수, 길이 (칸) */
+export function busSize(p: Part): { bars: number; len: number } {
+  return { bars: p.bars === 3 ? 3 : 4, len: Math.min(400, Math.max(2, Math.round(p.h ?? 20))) };
+}
+
+export const BUS_PHASES = ['L1', 'L2', 'L3', 'N'];
+const BUS_COLORS: WireColor[] = ['brown', 'black', 'grey', 'blue'];
+
+/** 부스바 막대 1 m 의 길이로 보는 칸 수 (판넬 안 배치: 1칸 = 5 cm) */
+export const BUS_CELL_M = 0.05;
+
+/**
+ * 부품 안에서 선처럼 동작하는 도체: 부스바 막대. 선 끝이나 단자가 막대 중간에 닿으면 T 분기로 이어지고,
+ * 다른 선이 그냥 지나가면 이어지지 않는다 (판넬의 분기 부스바가 주 부스바 위로 지나가는 것처럼).
+ * 넷 · 전기 해석 · 결선표가 그린 선과 똑같이 다룬다. 선 번호는 `${부품}~bar${k}`.
+ */
+export function partWires(p: Part): Wire[] {
+  if (p.type !== 'r_bus') return [];
+  const { bars, len } = busSize(p);
+  const spec: CableSpec = { kind: 'bus', ins: 'xlpe', mm2: p.mm2 ?? 100, method: 'C', cores: 3, len: Math.round(len * BUS_CELL_M * 100) / 100, ...(p.amps ? { iz: p.amps } : {}) };
+  const at = (x: number, y: number): [number, number] => {
+    const [dx, dy] = rotate(x, y, p.rot);
+    return [p.x + dx, p.y + dy];
+  };
+  // 막대 간격 2칸: 4P 차단기 단자 (2칸 간격) 와 곧게 이어진다
+  return Array.from({ length: bars }, (_, k) => ({ id: `${p.id}~bar${k}`, a: at(2 * k, 0), b: at(2 * k, len), color: BUS_COLORS[k], cable: spec }));
+}
+
+/** 그린 선 + 부품 안의 도체 (부스바 막대) */
+export function circuitWires(c: Pick<Circuit, 'parts' | 'wires'>): Wire[] {
+  const extra = c.parts.flatMap(partWires);
+  return extra.length ? [...c.wires, ...extra] : c.wires;
+}
+
+/** 선 번호가 부스바 막대인가 */
+export function isPartWire(id: string): boolean {
+  return id.includes('~bar');
+}
 
 /** 분전반 테두리의 크기 (격자 칸) */
 export function panelSize(p: Part): [number, number] {
@@ -370,6 +427,7 @@ export function tbSize(p: Part): number {
 
 /** 부품의 단자 (단자대는 극수만큼) */
 export function partPins(p: Part): PinDef[] {
+  if (p.type === 'r_bus') return BUS_PHASES.slice(0, busSize(p).bars).map((ph, k) => pin(2 * k, 0, ph));
   if (p.type !== 'r_tb') return PARTS[p.type].pins;
   const out: PinDef[] = [];
   for (let k = 0; k < tbSize(p); k++) out.push(pin(2 * k, -2, String(k + 1)), pin(2 * k, 2, String(k + 1)));
@@ -553,6 +611,10 @@ export function partKindName(type: PartType): string {
       return tr('부하 (3상)', 'Load (3-phase)');
     case 'r_panel':
       return tr('분전반 · 변전함', 'Panel / switchboard');
+    case 'r_mcb4':
+      return tr('배선용 차단기 4P', 'Circuit breaker 4P');
+    case 'r_bus':
+      return tr('부스바', 'Busbar');
     case 'text':
       return tr('글자', 'Text');
   }
@@ -586,9 +648,13 @@ export function palette(): PaletteGroup[] {
       title: tr('차단기 · 계전기', 'Breakers & relays'),
       mode: 'real',
       items: [
+        it('r_mcb4', tr('차단기 4P', 'Breaker 4P')),
         it('r_mcb3', tr('차단기 3P', 'Breaker 3P')),
         it('r_mcb2', tr('차단기 2P', 'Breaker 2P')),
         it('r_mcb1', tr('차단기 1P', 'Breaker 1P')),
+        it('r_mcb4', tr('누전차단기 4P', 'ELB 4P'), { elb: true }, 'elb4', 'ELB'),
+        it('r_mcb3', tr('누전차단기 3P', 'ELB 3P'), { elb: true }, 'elb3', 'ELB'),
+        it('r_mcb2', tr('누전차단기 2P', 'ELB 2P'), { elb: true }, 'elb2', 'ELB'),
         it('r_mc', tr('전자접촉기', 'Contactor')),
         it('r_thr', tr('열동 계전기 THR', 'Overload THR')),
       ],
@@ -628,6 +694,8 @@ export function palette(): PaletteGroup[] {
       mode: 'real',
       items: [
         it('r_panel', tr('분전반 · 변전함 (테두리)', 'Panel box'), { w: 20, h: 24, name: tr('분전반', 'Panel') }),
+        it('r_bus', tr('부스바 4극 (L1 L2 L3 N)', 'Busbar 4-pole'), { bars: 4, h: 20, mm2: 100, amps: 250 }, 'bus4'),
+        it('r_bus', tr('부스바 3극 (L1 L2 L3)', 'Busbar 3-pole'), { bars: 3, h: 20, mm2: 100, amps: 250 }, 'bus3'),
         it('r_load3', tr('부하 3상 (kW)', '3-phase load (kW)'), { watt: 7500, pf: 0.9 }),
         it('r_load1', tr('부하 단상 (kW)', '1-phase load (kW)'), { watt: 2000, pf: 1 }),
       ],
@@ -753,6 +821,10 @@ export function partBox(p: Part): [number, number, number, number] {
   if (p.type === 'text') x1 = textWidth(p.text ?? '') + 0.2;
   if (p.type === 'r_tb') x1 = 2 * (tbSize(p) - 1) + 1.2;
   if (p.type === 'r_panel') [x1, y1] = panelSize(p);
+  if (p.type === 'r_bus') {
+    const { bars, len } = busSize(p);
+    [x1, y1] = [2 * (bars - 1) + 0.6, len + 2.4];
+  }
   const corners = [rotate(x0, y0, p.rot), rotate(x1, y1, p.rot)];
   const xs = corners.map((c) => c[0]);
   const ys = corners.map((c) => c[1]);
@@ -765,7 +837,7 @@ export const POLE_SYSTEM: Record<string, 'dc' | 'ac' | 'pe'> = { '+24V': 'dc', '
 
 /** 기호를 따라 움직이는 접점 (코일·타이머·THR·스위치) */
 export const FOLLOWER: ReadonlySet<PartType> = new Set(['no', 'nc', 'km3']);
-export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3']);
+export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3']);
 export const VALVES: ReadonlySet<PartType> = new Set(['v32', 'v52', 'v52d', 'v53']);
 export const CONTACT_A: ReadonlySet<PartType> = new Set(['no', 'pb_no', 'sw_no', 'ls_no']);
 export const CONTACT_B: ReadonlySet<PartType> = new Set(['nc', 'pb_nc', 'sw_nc', 'ls_nc', 'estop']);

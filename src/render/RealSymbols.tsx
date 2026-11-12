@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { LAMP_HEX, panelSize, schedOn, tbSize, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, LAMP_HEX, panelSize, schedOn, tbSize, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock, formatTime } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -66,7 +66,7 @@ export function TermGlyph({ p }: { p: Part }) {
 
 /** 차단기 1P·2P·3P: 위 단자(전원), 파란 레버(위 = ON), 아래 단자(부하) */
 export function McbGlyph({ p, st }: { p: Part; st: PartState }) {
-  const n = p.type === 'r_mcb3' ? 3 : p.type === 'r_mcb2' ? 2 : 1;
+  const n = p.type === 'r_mcb4' ? 4 : p.type === 'r_mcb3' ? 3 : p.type === 'r_mcb2' ? 2 : 1;
   const xs = Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * 40);
   const half = n * 20 + 6;
   const on = st.act;
@@ -75,7 +75,13 @@ export function McbGlyph({ p, st }: { p: Part; st: PartState }) {
       <rect x={-half} y={-100} width={half * 2} height={200} rx={4} fill={BODY} stroke={BODY_EDGE} />
       <rect x={-half} y={-100} width={half * 2} height={42} rx={4} fill={BAND} stroke={BODY_EDGE} />
       <rect x={-half} y={58} width={half * 2} height={42} rx={4} fill={BAND} stroke={BODY_EDGE} />
-      <Label x={0} y={-46} text={p.amps ? `AC/${p.amps}A` : p.spec?.trim() || 'AC/25A'} size={8.5} />
+      <Label x={0} y={-46} text={`${p.amps ? `AC/${p.amps}A` : p.spec?.trim() || 'AC/25A'}${p.elb ? ' ELB' : ''}`} size={8.5} fill={p.elb ? '#b91c1c' : '#374151'} />
+      {p.elb && (
+        <g>
+          <rect x={half - 16} y={38} width={10} height={10} rx={2} fill="#facc15" stroke="#a16207" />
+          <Label x={half - 11} y={56} text="T" size={6.5} />
+        </g>
+      )}
       {st.amp !== undefined && st.amp > 0.05 && (
         <Label x={half + 5} y={4} text={`${st.amp.toFixed(1)} A`} anchor="start" size={10.5} weight={800} fill={p.amps && st.amp > p.amps ? '#dc2626' : '#2563eb'} />
       )}
@@ -89,12 +95,42 @@ export function McbGlyph({ p, st }: { p: Part; st: PartState }) {
       ))}
       {n > 1 && <rect x={xs[0] - 11} y={on ? -16 : 12} width={xs[n - 1] - xs[0] + 22} height={6} fill="#1d4ed8" opacity={0.85} />}
       <Label x={0} y={50} text={p.tag} size={10} weight={800} />
-      {xs.map((x) => (
+      {xs.map((x, i) => (
         <g key={`t${x}`}>
           <Screw x={x} y={-80} />
           <Screw x={x} y={80} />
+          <Label x={x} y={-63} text={n === 4 && i === 3 ? 'N' : String(2 * i + 1)} size={7.5} weight={800} fill="#475569" />
+          <Label x={x} y={70} text={n === 4 && i === 3 ? 'N' : String(2 * i + 2)} size={7.5} weight={800} fill="#475569" />
         </g>
       ))}
+    </g>
+  );
+}
+
+const BUS_SLEEVE = ['#8b4513', '#1f2937', '#9ca3af', '#1d4ed8'];
+
+/** 부스바: 세로 구리 막대 (위에 상 표시 슬리브), 전압이 닿으면 흰 점선이 흐른다. 분기선은 막대 위로 지나가고 볼트 점에서만 이어진다 */
+export function BusGlyph({ p, live, c }: { p: Part; live: boolean[]; c: CircuitColors }) {
+  const { bars, len } = busSize(p);
+  const h = len * 20;
+  return (
+    <g>
+      <rect x={-12} y={-6} width={(bars - 1) * 40 + 24} height={h + 12} rx={4} fill={c.ink} fillOpacity={0.06} stroke="none" />
+      {Array.from({ length: bars }, (_, k) => {
+        const x = k * 40;
+        return (
+          <g key={k}>
+            <rect x={x - 5} y={0} width={10} height={h} rx={2} fill="#b45309" stroke="#78350f" strokeWidth={1} />
+            <path d={`M${x - 2},2V${h - 2}`} stroke="#fbbf24" strokeWidth={1.4} opacity={0.6} />
+            <rect x={x - 5} y={6} width={10} height={12} fill={BUS_SLEEVE[k]} stroke="#00000055" strokeWidth={0.6} />
+            {live[k] && <path d={`M${x},20V${h - 2}`} stroke="#ffffff" strokeWidth={1.6} strokeDasharray="5 5" className="cc-flow" />}
+            <Label x={x} y={-10} text={BUS_PHASES[k]} size={8.5} weight={800} fill={c.ink} />
+          </g>
+        );
+      })}
+      {/* 이름표는 막대 아래 (위쪽은 메인 차단기가 붙는 자리, 바로 아래는 길이 손잡이) */}
+      <Label x={(bars - 1) * 20} y={h + 34} text={[p.tag, p.amps ? `${p.amps}A` : '', `${p.mm2 ?? 100}mm²`].filter(Boolean).join(' · ')} size={10} weight={800} fill={c.ink} />
+      {p.name && <Label x={(bars - 1) * 20} y={h + 46} text={p.name} size={9} weight={500} fill={c.muted} />}
     </g>
   );
 }

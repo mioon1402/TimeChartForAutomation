@@ -1,9 +1,9 @@
 import type { ReactNode, JSX } from 'react';
 import type { Circuit, Part, WireColor } from '../circuit/types';
-import { LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
+import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { BusGlyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -445,7 +445,10 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
     case 'r_mcb1':
     case 'r_mcb2':
     case 'r_mcb3':
+    case 'r_mcb4':
       return <McbGlyph p={p} st={st} />;
+    case 'r_bus':
+      return <BusGlyph p={p} live={[]} c={c} />;
     case 'r_mc':
       return <McGlyph p={p} st={st} />;
     case 'r_thr':
@@ -625,6 +628,26 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
             {o.selected?.has(p.id) && <rect x={-3} y={-3} width={partBox(p)[2] * G - p.x * G + 6} height={partBox(p)[3] * G - p.y * G + 6} rx={12} fill="none" stroke={c.select} strokeWidth={2} strokeDasharray="6 4" />}
           </g>
         ))}
+      {/* 부스바는 선 밑에: 분기선이 막대 위로 지나가고, 이어진 곳에만 볼트 점 */}
+      {circuit.parts
+        .filter((p) => p.type === 'r_bus')
+        .map((p) => {
+          const live = Array.from({ length: busSize(p).bars }, (_, k) => {
+            const n = model.net.wireNet.get(`${p.id}~bar${k}`);
+            const pole = sim && n !== undefined ? sim.netPole[n] : null;
+            return !!pole && pole !== 'short' && pole !== 'PE';
+          });
+          const [x0, y0, x1, y1] = partBox(p);
+          const sel = o.selected?.has(p.id);
+          return (
+            <g key={p.id} data-part={p.id}>
+              {(sel || o.flagged?.has(p.id)) && <rect x={x0 * G - 3} y={y0 * G - 3} width={(x1 - x0) * G + 6} height={(y1 - y0) * G + 6} rx={4} fill={sel ? c.select : 'none'} fillOpacity={0.14} stroke={sel ? c.select : c.danger} strokeDasharray={sel ? undefined : '4 3'} />}
+              <g transform={`translate(${p.x * G},${p.y * G})${p.rot ? ` rotate(${p.rot})` : ''}`} fill="none">
+                <BusGlyph p={p} live={live} c={c} />
+              </g>
+            </g>
+          );
+        })}
       <g opacity={o.progress ? 0.16 : undefined}>
       {circuit.wires.map((w) => {
         const col = wireColor(w.id);
@@ -670,7 +693,7 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         ),
       )}
       {circuit.parts.map((p) => {
-        if (p.type === 'r_panel') return null;
+        if (p.type === 'r_panel' || p.type === 'r_bus') return null;
         const st = partState(p, model, sim);
         if (o.power) {
           st.pw = o.power.loads.get(p.id);

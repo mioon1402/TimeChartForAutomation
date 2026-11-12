@@ -5,7 +5,7 @@ import { emptyCircuit, type CableMethod, type CableSpec, type Circuit, type Lamp
 import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
-import { DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -383,7 +383,9 @@ export function CircuitPanel() {
   // 전기 해석: 조작 순서 전체에서 가장 나쁜 값 (허용전류 · 전압강하 · 차단기), 시뮬레이션 중에는 그 순간의 전류
   const powerModel = useMemo(() => new PowerModel(circuit, model), [circuit, model]);
   // 케이블 규격이 하나도 없고 [해석] 탭도 닫혀 있으면 계산하지 않는다 (PLC 회로처럼 시뮬레이션이 긴 회로를 끌 때 버벅이지 않게)
-  const needPower = side === 'power' || circuit.wires.some((w) => w.cable);
+  const needPower = side === 'power' || circuit.wires.some((w) => w.cable) || circuit.parts.some((q) => q.type === 'r_bus');
+  // 그린 선 + 부스바 막대 (전류표 · 강조에 함께 쓴다)
+  const allWires = useMemo(() => circuitWires(circuit), [circuit]);
   const analysis = useMemo(() => (needPower ? analyzePower(circuit, model) : NO_ANALYSIS), [needPower, circuit, model]);
   const powerErrs = analysis.issues.filter((i) => i.level === 'error').length;
   const liveRef = useRef<{ pm: PowerModel; sig: string; st: PowerState } | null>(null);
@@ -406,7 +408,7 @@ export function CircuitPanel() {
     if (!src) return undefined;
     // 시뮬레이션 중에는 0.05 A 이상만 (제어 회로 그림을 가리지 않게), [해석] 탭에서는 mA 단위의 제어 전류까지
     const min = livePower && showAmps ? 0.05 : 0.002;
-    const byId = new Map(circuit.wires.map((w) => [w.id, w]));
+    const byId = new Map(allWires.map((w) => [w.id, w]));
     const len = (w: Wire) => Math.abs(w.a[0] - w.b[0]) + Math.abs(w.a[1] - w.b[1]);
     const out: { a: [number, number]; b: [number, number]; text: string; bad?: boolean; i: number }[] = [];
     for (const run of powerModel.runs) {
@@ -420,15 +422,15 @@ export function CircuitPanel() {
       out.push({ a: long.a, b: long.b, text: i >= 10 ? `${i.toFixed(1)} A` : i >= 1 ? `${i.toFixed(2)} A` : `${Math.round(i * 1000)} mA`, bad: iz !== null && i > iz, i });
     }
     return out;
-  }, [livePower, staticI, showAmps, powerModel, circuit.wires]);
+  }, [livePower, staticI, showAmps, powerModel, allWires]);
   // [해석] 탭에서 고른 줄: 그림에서 강조하고 화면 밖이면 그쪽으로
   const [powerPick, setPowerPick] = useState<{ parts: string[]; wires: string[] } | null>(null);
   const powerHighlight = useMemo(() => {
     if (!powerPick || side !== 'power') return null;
     const ws = new Set(powerPick.wires);
     const ps = new Set(powerPick.parts);
-    return { segs: circuit.wires.filter((w) => ws.has(w.id)).map((w) => [w.a, w.b] as [[number, number], [number, number]]), pts: circuit.parts.filter((q) => ps.has(q.id)).map((q) => [q.x, q.y] as [number, number]) };
-  }, [powerPick, side, circuit.wires, circuit.parts]);
+    return { segs: allWires.filter((w) => ws.has(w.id)).map((w) => [w.a, w.b] as [[number, number], [number, number]]), pts: circuit.parts.filter((q) => ps.has(q.id) && q.type !== 'r_panel' && q.type !== 'r_bus').map((q) => [q.x, q.y] as [number, number]) };
+  }, [powerPick, side, allWires, circuit.parts]);
   /** 부품 위에 마우스를 올렸을 때의 정보 */
   const partInfo = (q: Part): string[] => {
     const lines = [[q.tag, q.name].filter(Boolean).join('  ') || partKindName(q.type)];
@@ -1228,7 +1230,7 @@ function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>
   const r = loadRating(p);
   if (p.type === 'r_panel')
     return (
-      <div className="grid2">
+      <div className="grid2" title={tr('오른쪽 아래 모서리 손잡이를 끌어도 됩니다', 'or drag the bottom-right handle')}>
         <Field label={tr('가로 (칸)', 'Width (cells)')}>
           <NumberInput value={p.w ?? 20} min={4} max={400} step={1} onChange={(v) => set({ w: Math.max(4, Math.round(v ?? 20)) })} />
         </Field>
@@ -1237,11 +1239,41 @@ function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>
         </Field>
       </div>
     );
+  if (p.type === 'r_bus') {
+    const { bars, len } = busSize(p);
+    return (
+      <>
+        <div className="grid2">
+          <Field label={tr('막대 수', 'Bars')}>
+            <Select value={String(bars) as '3' | '4'} onChange={(v) => set({ bars: v === '3' ? 3 : 4 })} options={[{ value: '4', label: tr('4극 (L1 L2 L3 N)', '4 (L1 L2 L3 N)') }, { value: '3', label: tr('3극 (L1 L2 L3)', '3 (L1 L2 L3)') }]} />
+          </Field>
+          <Field label={tr('길이 (칸)', 'Length (cells)')} hint={tr('아래 끝 손잡이를 끌어도 됩니다', 'or drag the bottom handle')}>
+            <NumberInput value={len} min={2} max={400} step={1} onChange={(v) => set({ h: Math.max(2, Math.round(v ?? 20)) })} />
+          </Field>
+          <Field label={tr('단면적 (mm²)', 'Section (mm²)')} hint={tr('예: 20 × 5 = 100', 'e.g. 20 × 5 = 100')}>
+            <NumberInput value={p.mm2 ?? 100} min={1} step={10} onChange={(v) => set({ mm2: v && v > 0 ? v : undefined })} />
+          </Field>
+          <Field label={tr('정격 전류 (A)', 'Rated current (A)')} hint={tr('제조사 표의 값', 'from the maker table')}>
+            <NumberInput value={p.amps} min={1} step={10} onChange={(v) => set({ amps: v && v > 0 ? v : undefined })} />
+          </Field>
+        </div>
+        <p className="small muted">
+          {tr(
+            '분기선 끝을 막대 위에 대면 그 상에 이어집니다 (볼트 점). 막대 위를 끌면 그 자리에서 분기선이 시작됩니다. 부스바를 옮기면 물린 분기선도 따라옵니다.',
+            'A wire end on a bar connects to that phase (bolt dot). Drag from a bar to start a branch wire. Moving the busbar keeps its branch wires attached.',
+          )}
+        </p>
+      </>
+    );
+  }
   if (isBreaker(p))
     return (
-      <Field label={tr('정격 전류 (A)', 'Rated current (A)')} wide hint={tr('[해석] 탭에서 흐르는 전류와 전선 허용전류를 이 값과 비교합니다', 'Compared with the current and the cable ampacity in the Analysis tab')}>
-        <NumberInput value={breakerAmps(p) ?? undefined} min={1} step={1} onChange={(v) => set({ amps: v && v > 0 ? v : undefined })} />
-      </Field>
+      <>
+        <Field label={tr('정격 전류 (A)', 'Rated current (A)')} wide hint={tr('[해석] 탭에서 흐르는 전류와 전선 허용전류를 이 값과 비교합니다', 'Compared with the current and the cable ampacity in the Analysis tab')}>
+          <NumberInput value={breakerAmps(p) ?? undefined} min={1} step={1} onChange={(v) => set({ amps: v && v > 0 ? v : undefined })} />
+        </Field>
+        {p.type.startsWith('r_mcb') && p.type !== 'r_mcb1' && <Check checked={!!p.elb} onChange={(v) => set({ elb: v || undefined })} label={tr('누전차단기 (ELB)', 'Earth leakage breaker (ELB)')} />}
+      </>
     );
   if (!big && p.type !== 'r_light') return null;
   const vll = circuit.vll && circuit.vll > 0 ? circuit.vll : 220 * Math.sqrt(3);
@@ -1723,7 +1755,10 @@ function PowerPane({ circuit, a, onChange, onPick, onAuto, title }: { circuit: C
                       {f1(r.ib)}
                       {pct(r.ib, r.iz) !== null && <div className={`small ${over ? 'cc-bad' : 'muted'}`}>{pct(r.ib, r.iz)}%</div>}
                     </td>
-                    <td className="num">{r.breakerAmps ?? '—'}</td>
+                    <td className="num" title={r.tap ? tr(`3 m 이내 분기 (KEC 212.4.2): 분기점에서 3 m 안에 있는 ${r.breaker} 가 과부하 보호를 맡습니다. 단락 보호는 위쪽 차단기`, `Tap within 3 m: ${r.breaker} provides overload protection; the upstream breaker covers short circuits`) : r.breaker}>
+                      {r.breakerAmps ?? '—'}
+                      {r.tap && <div className="small muted">{tr('탭 3m', 'tap')}</div>}
+                    </td>
                     <td className="num">{r.iz ?? '—'}</td>
                   </tr>
                 );
@@ -1752,7 +1787,10 @@ function PowerPane({ circuit, a, onChange, onPick, onAuto, title }: { circuit: C
                     {r.count > 1 ? ` (${tr(`${r.count}가닥`, `×${r.count}`)})` : ''}
                   </td>
                   <td className="num">{fmtI(r.ib)}</td>
-                  <td className="num">{r.breakerAmps ?? '—'}</td>
+                  <td className="num" title={r.tap ? tr(`3 m 이내 분기 (KEC 212.4.2): 분기점에서 3 m 안에 있는 ${r.breaker} 가 과부하 보호를 맡습니다. 단락 보호는 위쪽 차단기`, `Tap within 3 m: ${r.breaker} provides overload protection; the upstream breaker covers short circuits`) : r.breaker}>
+                    {r.breakerAmps ?? '—'}
+                    {r.tap && <div className="small muted">{tr('탭 3m', 'tap')}</div>}
+                  </td>
                   <td className="num">{r.suggest === null ? '—' : `${r.suggest} mm²`}</td>
                 </tr>
               ))}
