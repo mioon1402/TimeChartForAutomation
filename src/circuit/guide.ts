@@ -37,6 +37,7 @@ export function partGuide(type: PartType): PartGuide | null {
     case 'r_mcb1':
     case 'r_mcb2':
     case 'r_mcb3':
+    case 'r_mcb4':
       return g(
         tr('배선용 차단기입니다. 전원을 손으로 넣고 끊는 곳이고, 실제로는 과전류가 흐르면 스스로 떨어집니다.', 'A circuit breaker: the manual on/off point of the circuit.'),
         [
@@ -221,6 +222,25 @@ export function partGuide(type: PartType): PartGuide | null {
         ],
         tr('전압이 들어오면 상자에 전류 (A) 와 단자 전압 (V) 이 나옵니다. 전선 위에 마우스를 올리면 그 선의 전류가 클램프 미터처럼 보입니다.', 'When powered the box shows its current and voltage; hover a wire to read its current like a clamp meter.'),
         'feeders',
+      );
+    case 'r_bus':
+      return g(
+        tr(
+          '부스바입니다. 분전반 가운데에 세로로 서는 구리 막대 (L1 · L2 · L3 · N) 로, 메인 차단기에서 받은 전원을 분기 차단기들에 나눠 줍니다.',
+          'A busbar: the vertical copper bars (L1, L2, L3, N) in the middle of a panel that feed the branch breakers from the main breaker.',
+        ),
+        [
+          [tr('위 끝 단자', 'top terminals'), tr('L1 · L2 · L3 · N: 메인 차단기 아래 단자에서', 'L1, L2, L3, N from the main breaker')],
+          [tr('막대 어디든', 'anywhere on a bar'), tr('분기 선 끝을 막대에 대면 그 상에 이어집니다 (볼트 점이 찍힘). 그냥 지나가는 선은 이어지지 않습니다', 'a wire end on a bar connects to that phase (bolt dot); wires that only cross do not')],
+        ],
+        [
+          tr('메인 차단기 아래 단자 → 부스바 위 끝 단자 (L1 L2 L3 N)', 'Main breaker outputs → the top terminals'),
+          tr('분기 차단기는 옆으로 돌려 (R) 전원 쪽 단자가 부스바를 보게 놓고, 단자에서 각 상 막대까지 가로로 끌어 잇습니다', 'Turn branch breakers sideways (R) and drag from each terminal across to its bar'),
+          tr('단상 (2P) 은 한 상 막대와 N 막대에 잇습니다', 'Single-phase (2P) breakers take one phase bar and the N bar'),
+          tr('길이는 아래 끝 손잡이를 끌어 바꾸고, 단면적 · 정격 전류 (제조사 표 값) 는 속성에서 적습니다', 'Drag the bottom handle to change the length; enter section and rating in the properties'),
+        ],
+        tr('[해석] 탭에서 막대마다 흐르는 전류를 정격 전류와 비교하고, 메인 차단기 정격이 부스바 정격보다 크지 않은지 봅니다.', 'The Analysis tab compares each bar current with the rating and checks the main breaker against it.'),
+        'busbar',
       );
     case 'r_panel':
       return g(

@@ -61,6 +61,8 @@ export type PartType =
   | 'r_load1' // 부하 (단상): L · N, 용량 kW · 역률
   | 'r_load3' // 부하 (3상): L1 · L2 · L3, 용량 kW · 역률
   | 'r_panel' // 분전반 · 변전함 테두리 (안의 기기를 한 함으로 묶어 보여 준다)
+  | 'r_mcb4' // 차단기 4P (3상 + N)
+  | 'r_bus' // 부스바: 세로 막대 3 · 4 개 (L1 L2 L3 N), 막대 어디에 선 끝을 대도 이어진다
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -125,9 +127,14 @@ export interface Part {
   lighting?: boolean;
   /** 차단기 · 퓨즈: 정격 전류 (A) */
   amps?: number;
-  /** 분전반 테두리: 크기 (격자 칸) */
+  /** 분전반 테두리: 크기 (격자 칸). 부스바는 h 가 막대 길이 */
   w?: number;
   h?: number;
+  /** 차단기: 누전차단기 (ELB) */
+  elb?: boolean;
+  /** 부스바: 막대 수 (3 = L1 L2 L3, 4 = + N), 단면적 (mm²) */
+  bars?: number;
+  mm2?: number;
 }
 
 /** 전선 색: 갈색 L1, 검정 L2, 회색 L3, 파랑 N, 녹황 PE, 그 밖 제어선 */

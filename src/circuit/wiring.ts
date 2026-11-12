@@ -1,5 +1,5 @@
 import type { Circuit, Part, WireColor } from './types';
-import { partKindName, partPins, partPoles, pinPositions } from './parts';
+import { circuitWires, partKindName, partPins, partPoles, pinPositions } from './parts';
 import type { CircuitModel } from './engine';
 import { tr } from '../i18n';
 
@@ -87,7 +87,8 @@ export function wiringList(c: Circuit, model: CircuitModel): WiringRow[] {
     });
   }
   const nodeSet = new Set<string>(termsAt.keys());
-  const wires = c.wires.filter((w) => {
+  // 부스바 막대도 전선처럼 (막대에 닿는 선은 막대의 단자로 이어진다)
+  const wires = circuitWires(c).filter((w) => {
     const n = model.net.wireNet.get(w.id);
     return n === undefined || !model.airNets.has(n);
   });

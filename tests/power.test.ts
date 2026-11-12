@@ -476,3 +476,106 @@ describe('ease of use helpers', () => {
     expect(a.issues.filter((i) => i.level === 'error')).toEqual([]);
   });
 });
+
+describe('busbar, 4-pole breakers, taps', () => {
+  it('a branch wire connects only to the bar it ends on, not to the bars it crosses', async () => {
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const c = circuitExamples().find((e) => e.id === 'busbar')!.build();
+    const bus = c.parts.find((p) => p.type === 'r_bus')!;
+    const net = new CircuitModel(c).net.wireNet;
+    const bar = (k: number) => net.get(`${bus.id}~bar${k}`)!;
+    expect(new Set([0, 1, 2, 3].map(bar)).size).toBe(4);
+    // ELB1 의 탭 (x 13 → 17 · 19 · 21): 각자 끝나는 막대의 상에만 물린다
+    const taps = c.wires.filter((w) => w.a[0] === 13 && w.a[1] >= 14 && w.a[1] <= 18 && w.b[1] === w.a[1]);
+    expect(taps).toHaveLength(3);
+    for (const w of taps) expect(net.get(w.id)).toBe(bar((w.b[0] - 17) / 2));
+    // L3 탭은 L1 · L2 막대 위를 지나가지만 붙지 않는다
+    const l3 = taps.find((w) => w.b[0] === 21)!;
+    expect(net.get(l3.id)).not.toBe(bar(0));
+  });
+
+  it('checks the busbar and the taps (3 m tap rule) without false alarms', async () => {
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const c = circuitExamples().find((e) => e.id === 'busbar')!.build();
+    const a = analyzePower(c);
+    expect(a.issues.filter((i) => i.level !== 'info')).toEqual([]);
+    const bus = a.cables.find((r) => r.spec.kind === 'bus')!;
+    expect(bus).toMatchObject({ from: 'BUS1', count: 4, iz: 250, breaker: 'MCB0', breakerAmps: 125 });
+    // 수전 전류: 3상 부하 + 단상 두 회로 (L1 · L2) → L2 가 가장 크다
+    expect(bus.ib).toBeGreaterThan(55);
+    expect(bus.ib).toBeLessThan(65);
+    // 부스바 → 분기 차단기 0.3 m 탭: 위쪽 125 A 가 아니라 끝의 분기 차단기로 검토
+    const tap = a.cables.find((r) => r.from === 'BUS1' && r.to.startsWith('ELB1'))!;
+    expect(tap).toMatchObject({ count: 3, breaker: 'ELB1', breakerAmps: 30, tap: true });
+    expect(a.cables.find((r) => r.from === 'ELB1')!.tap).toBeUndefined();
+    // 단상 분기 (L1-N, L2-N) 는 2가닥
+    expect(a.cables.find((r) => r.to.startsWith('ELB4'))!.count).toBe(2);
+  });
+
+  it('applies the tap rule only within 3 m and only below another breaker', () => {
+    const build = (len: number): Circuit => {
+      const src = part('src', 0, 0, 'L1', { pole: 'L' });
+      const neu = part('src', 20, 0, 'N', { pole: 'N' });
+      const main = part('r_mcb1', 0, 6, 'MCB0', { amps: 63 });
+      const br = part('r_mcb1', 0, 16, 'MCB1', { amps: 16 });
+      const ld = part('r_load1', 0, 26, 'LD1', { watt: 2000, pf: 1 });
+      const wires: Wire[] = [
+        ...link(pinAt(src, 0), pinAt(main, 0)),
+        ...link(pinAt(main, 1), pinAt(br, 0), spec({ mm2: 2.5, len, method: 'C' })),
+        ...link(pinAt(br, 1), pinAt(ld, 0), spec({ mm2: 2.5 })),
+        ...link(pinAt(ld, 1), pinAt(neu, 0)),
+      ];
+      return { parts: [src, neu, main, br, ld], wires, ops: [] };
+    };
+    const short = analyzePower(build(0.5));
+    expect(short.cables.find((r) => r.to.startsWith('MCB1'))).toMatchObject({ breaker: 'MCB1', breakerAmps: 16, tap: true });
+    expect(short.issues.filter((i) => i.level === 'error')).toEqual([]);
+    // 5 m 면 위쪽 63 A 가 보호 → 2.5 mm² 로는 In ≤ Iz 가 안 된다
+    const long = analyzePower(build(5));
+    expect(long.cables.find((r) => r.to.startsWith('MCB1'))).toMatchObject({ breaker: 'MCB0', breakerAmps: 63 });
+    expect(long.issues.some((i) => i.level === 'error' && i.msg.includes('MCB0'))).toBe(true);
+  });
+
+  it('a 4-pole breaker switches all three phases and N', () => {
+    const p = part('r_mcb4', 0, 0, 'MCB1', { amps: 100 });
+    const pins = pinPositions(p);
+    expect(pins).toHaveLength(8);
+    const c: Circuit = { parts: [p], wires: [], ops: [] };
+    const model = new CircuitModel(c);
+    const sim = new CircuitSim(model);
+    const poles = model.conductors.filter((k) => k.part.id === p.id);
+    expect(poles).toHaveLength(4);
+    expect(poles.every((k) => sim.conductorClosed(k))).toBe(true);
+  });
+
+  it('keeps busbar and ELB settings when a file is loaded', () => {
+    const c = sanitizeCircuit({
+      parts: [
+        { id: 'a', type: 'r_bus', x: 0, y: 0, rot: 0, tag: 'BUS1', bars: 3, h: 24, mm2: 60, amps: 200 },
+        { id: 'b', type: 'r_mcb4', x: 10, y: 0, rot: 90, tag: 'ELB1', elb: true, amps: 40 },
+      ],
+      wires: [],
+      ops: [],
+    })!;
+    expect(c.parts[0]).toMatchObject({ bars: 3, h: 24, mm2: 60, amps: 200 });
+    expect(c.parts[1]).toMatchObject({ type: 'r_mcb4', elb: true, rot: 90 });
+  });
+});
+
+describe('editing a busbar', () => {
+  it('moving the busbar keeps the branch taps on their bars and square', async () => {
+    const { moveSelection } = await import('../src/components/CircuitCanvas');
+    const { circuitExamples } = await import('../src/circuit/examples');
+    const c = circuitExamples().find((e) => e.id === 'busbar')!.build();
+    const bus = c.parts.find((p) => p.type === 'r_bus')!;
+    const taps = (x: Circuit) => x.wires.filter((w) => w.a[0] === 13 && w.a[1] >= 14 && w.a[1] <= 18).map((w) => [w.a, w.b]);
+    // 막대 방향 (아래로) 으로 밀면 탭은 그 자리
+    expect(taps(moveSelection(c, new Set([bus.id]), new Set(), 0, 2))).toEqual(taps(c));
+    // 옆으로 밀면 탭 끝이 막대를 따라 옆으로만
+    const side = moveSelection(c, new Set([bus.id]), new Set(), 2, 0);
+    expect(taps(side)).toEqual(taps(c).map(([a, b]) => [a, [b[0] + 2, b[1]]]));
+    const net = new CircuitModel(side).net.wireNet;
+    const l3 = side.wires.find((w) => w.a[0] === 13 && w.a[1] === 18)!;
+    expect(net.get(l3.id)).toBe(net.get(`${bus.id}~bar2`));
+  });
+});

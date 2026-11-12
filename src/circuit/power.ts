@@ -1,5 +1,5 @@
 import type { CableMethod, CableSpec, Circuit, Part, PartType, Wire } from './types';
-import { panelSize, partKindName, partPins, pinPositions, PARTS, POLE_IDENTITY } from './parts';
+import { BUS_PHASES, circuitWires, panelSize, partKindName, partPins, pinPositions, PARTS, POLE_IDENTITY } from './parts';
 import { CircuitModel, runScenario, type CircuitSim, type Conductor } from './engine';
 import { tr } from '../i18n';
 
@@ -236,7 +236,7 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
 
 const THREE: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'r_load3']);
 const MOTOR: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'motor']);
-const BREAKER: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'mcb', 'mcb3', 'fuse', 'fuse3']);
+const BREAKER: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'mcb', 'mcb3', 'fuse', 'fuse3']);
 
 /** 해석에서 부하로 보는 부품의 용량: 유효 전력 (W), 역률, 피상 전력 (VA) */
 export function loadRating(p: Part): { w: number; pf: number; va: number; out: number } | null {
@@ -397,8 +397,8 @@ export class PowerModel {
         }
       });
     }
-    // 공압 배관은 뺀다
-    const wires = circuit.wires.filter((w) => {
+    // 공압 배관은 뺀다. 부스바 막대는 넣는다
+    const wires = circuitWires(circuit).filter((w) => {
       const n = model.net.wireNet.get(w.id);
       return n === undefined || !model.airNets.has(n);
     });
@@ -421,6 +421,20 @@ export class PowerModel {
       }
       const pos = (i: number) => (horiz ? this.pts[i][0] : this.pts[i][1]);
       cuts.set(w.id, list.sort((x, y) => pos(x) - pos(y)));
+    }
+    // 부스바 막대 위의 점 (탭 자리) 은 '분기점' 대신 그 부스바 이름 + 상
+    for (const w of wires) {
+      const k = w.id.indexOf('~bar');
+      if (k < 0) continue;
+      const bus = circuit.parts.find((p) => p.id === w.id.slice(0, k));
+      if (!bus) continue;
+      const dev = bus.tag.trim() || partKindName(bus.type);
+      const phase = BUS_PHASES[Number(w.id.slice(k + 4))] ?? '';
+      for (const n of cuts.get(w.id)!) {
+        if (this.pinName.has(n)) continue;
+        this.pinName.set(n, `${dev} ${phase}`);
+        this.pinDev.set(n, dev);
+      }
     }
     // 케이블: 규격이 같은 선이 모퉁이 (선 끝 둘만 만나는 점) 로 이어진 한 가닥
     const group = new Map<string, string>();
@@ -617,6 +631,8 @@ export class PowerModel {
 
   /** 한 가닥을 보호하는 차단기 (전원 쪽 끝에서 가장 가까운 것) */
   runBreaker(r: Run): Part | null {
+    const tap = this.tapBreaker(r.ends, r.cable >= 0 ? this.cables[r.cable].spec : null, r.drawn);
+    if (tap) return tap;
     const ids = new Set(r.wires);
     const nodes = this.segs.filter((s) => ids.has(s.wire)).flatMap((s) => [s.a, s.b]);
     let best = -1;
@@ -633,9 +649,35 @@ export class PowerModel {
     return null;
   }
 
+  /**
+   * 3 m 이내 분기 (KEC 212.4.2, KS C IEC 60364-4-43 433.2.2): 분기점에서 3 m 안에 과부하 보호 장치가 있고
+   * 그 사이에 다른 분기가 없으면 그 장치가 선을 보호한다. 판넬 안 부스바 → 분기 차단기 탭이 이 경우다
+   * (단락 보호는 위쪽 차단기가 맡는다)
+   */
+  tapBreaker(ends: number[], spec: CableSpec | null, drawn: number): Part | null {
+    if (ends.length !== 2 || spec?.kind === 'bus') return null;
+    if ((spec ? spec.len : drawnLength(drawn)) > TAP_M) return null;
+    const deep = this.depth[ends[0]] > this.depth[ends[1]] ? ends[0] : ends[1];
+    const br = this.breakerAt.get(deep);
+    // 위쪽에 이미 다른 차단기가 있을 때만 (메인 차단기 앞의 인입선은 그대로)
+    const up = this.prot[deep === ends[0] ? ends[1] : ends[0]];
+    return br && up && up.id !== br.id ? br : null;
+  }
+
+  /** 3 m 이내 분기로 끝의 차단기가 보호하는 케이블 · 가닥인가 */
+  cableIsTap(ci: number): boolean {
+    const c = this.cables[ci];
+    return !!this.tapBreaker(c.ends, c.spec, c.drawn);
+  }
+  runIsTap(r: Run): boolean {
+    return !!this.tapBreaker(r.ends, r.cable >= 0 ? this.cables[r.cable].spec : null, r.drawn);
+  }
+
   /** 케이블을 보호하는 차단기 (전원 쪽 끝에서 가장 가까운 것) */
   cableBreaker(ci: number): Part | null {
     const c = this.cables[ci];
+    const tap = this.tapBreaker(c.ends, c.spec, c.drawn);
+    if (tap) return tap;
     const nodes = this.segs.filter((s) => s.cable === ci).flatMap((s) => [s.a, s.b]);
     let best = -1;
     for (const nd of nodes.length ? nodes : c.ends) if (best < 0 || this.depth[nd] < this.depth[best]) best = nd;
@@ -912,6 +954,8 @@ export interface CableRow {
   dv: number;
   breaker: string;
   breakerAmps: number | null;
+  /** 3 m 이내 분기: 아래쪽 (끝에 물린) 차단기가 과부하 보호 */
+  tap?: boolean;
 }
 
 export interface LoadRow {
@@ -948,6 +992,7 @@ export interface BareRow {
   ib: number;
   breaker: string;
   breakerAmps: number | null;
+  tap?: boolean;
   /** XLPE · B1 로 깔 때 권장 굵기 (mm²) */
   suggest: number | null;
   /** 부하 도체 수 (권장 굵기를 고른 기준) 와 그림에서의 길이 (칸, 가장 긴 가닥) */
@@ -1060,7 +1105,7 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
       row.count++;
       row.wires.push(...cb.wires);
       row.ib = Math.max(row.ib, ib);
-    } else grouped.set(k, { id, count: 1, wires: [...cb.wires], from: '', to: '', ends, spec: cb.spec, text: cableText(cb.spec), iz: cableIz(cb.spec), ib, dv: 0, breaker: br?.tag ?? '', breakerAmps: br ? breakerAmps(br) : null });
+    } else grouped.set(k, { id, count: 1, wires: [...cb.wires], from: '', to: '', ends, spec: cb.spec, text: cableText(cb.spec), iz: cableIz(cb.spec), ib, dv: 0, breaker: br?.tag ?? '', breakerAmps: br ? breakerAmps(br) : null, ...(pm.cableIsTap(id) ? { tap: true } : {}) });
   });
   // 케이블 번호 → 표의 줄 (부하까지의 길을 찾을 때)
   const rowOfCable = new Map<number, number>();
@@ -1073,12 +1118,17 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
     const z = cableZ(row.spec);
     const many = row.count > 1;
     // 부스바는 양 끝이 분기점이라 이름 대신 '부스바 (위쪽 차단기)' 로
-    if (row.spec.kind === 'bus') return { ...row, from: tr('부스바', 'Busbar'), to: `${row.breaker ? tr(`${row.breaker} 아래`, `below ${row.breaker}`) : ''}${many ? ` (${tr(`${row.count}가닥`, `×${row.count}`)})` : ''}`.trim(), ib: r2(row.ib), dv: r2(row.ib * Math.hypot(z[0], z[1])) };
+    if (row.spec.kind === 'bus') {
+      const owner = c.parts.find((p) => p.id === row.wires[0].slice(0, row.wires[0].indexOf('~bar')));
+      return { ...row, from: owner?.tag.trim() || tr('부스바', 'Busbar'), to: tr(`부스바 ${row.count}가닥`, `busbar ×${row.count}`), ib: r2(row.ib), dv: r2(row.ib * Math.hypot(z[0], z[1])) };
+    }
     return { ...row, from: many ? ends[0].dev : ends[0].name, to: many ? `${ends[1].dev} (${tr(`${row.count}가닥`, `×${row.count}`)})` : ends[1].name, ib: r2(row.ib), dv: r2(row.ib * Math.hypot(z[0], z[1])) };
   });
   for (const cb of cables) {
     const name = `${cb.from || '?'} → ${cb.to || '?'}`;
     const br = cb.breaker ? c.parts.filter((p) => p.tag === cb.breaker && isBreaker(p)).map((p) => p.id) : [];
+    // 부스바 막대 (부품 안의 선) 는 그 부스바 부품을 가리킨다
+    const owners = [...new Set(cb.wires.filter((w) => w.includes('~bar')).map((w) => w.slice(0, w.indexOf('~bar'))))];
     if (cb.iz === null) {
       issues.push({ level: 'info', msg: tr(`${name}: 허용전류 표에 없는 규격입니다 (${cb.text})`, `${name}: no ampacity table entry (${cb.text})`), partIds: [], wireIds: cb.wires });
       continue;
@@ -1086,12 +1136,21 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
     // 권장 굵기: 전류와 차단기 정격을 모두 감당하는 가장 가는 것
     const want = cb.spec.kind === 'bus' ? null : suggestSize(cb.spec, Math.max(cb.ib, cb.breakerAmps ?? 0));
     const hint = want !== null && want > cb.spec.mm2 ? tr(` → ${want} mm² 이상`, ` → ${want} mm² or larger`) : '';
-    if (cb.ib > cb.iz + 1e-6) issues.push({ level: 'error', msg: tr(`${name}: 전류 ${r1(cb.ib)} A 가 허용전류 ${cb.iz} A 를 넘습니다 (${cb.text}). 더 굵은 전선이 필요합니다${hint}`, `${name}: ${r1(cb.ib)} A exceeds the ampacity ${cb.iz} A (${cb.text})${hint}`), partIds: [], wireIds: cb.wires });
+    if (cb.ib > cb.iz + 1e-6)
+      issues.push({
+        level: 'error',
+        msg: cb.spec.kind === 'bus' ? tr(`${name}: 전류 ${r1(cb.ib)} A 가 부스바 정격 ${cb.iz} A 를 넘습니다. 더 큰 부스바가 필요합니다`, `${name}: ${r1(cb.ib)} A exceeds the busbar rating ${cb.iz} A`) : tr(`${name}: 전류 ${r1(cb.ib)} A 가 허용전류 ${cb.iz} A 를 넘습니다 (${cb.text}). 더 굵은 전선이 필요합니다${hint}`, `${name}: ${r1(cb.ib)} A exceeds the ampacity ${cb.iz} A (${cb.text})${hint}`),
+        partIds: owners,
+        wireIds: cb.wires,
+      });
     if (cb.breakerAmps !== null && cb.breakerAmps > cb.iz + 1e-6)
       issues.push({
         level: 'error',
-        msg: tr(`${name}: 차단기 ${cb.breaker} 정격 ${cb.breakerAmps} A 가 전선 허용전류 ${cb.iz} A 보다 큽니다. 과부하 때 전선이 먼저 탑니다 (In ≤ Iz 가 되게)${hint}`, `${name}: breaker ${cb.breaker} ${cb.breakerAmps} A is above the cable ampacity ${cb.iz} A (need In ≤ Iz)${hint}`),
-        partIds: br,
+        msg:
+          cb.spec.kind === 'bus'
+            ? tr(`${name}: 차단기 ${cb.breaker} 정격 ${cb.breakerAmps} A 가 부스바 정격 ${cb.iz} A 보다 큽니다 (In ≤ Iz 가 되게)`, `${name}: breaker ${cb.breaker} ${cb.breakerAmps} A is above the busbar rating ${cb.iz} A`)
+            : tr(`${name}: 차단기 ${cb.breaker} 정격 ${cb.breakerAmps} A 가 전선 허용전류 ${cb.iz} A 보다 큽니다. 과부하 때 전선이 먼저 탑니다 (In ≤ Iz 가 되게)${hint}`, `${name}: breaker ${cb.breaker} ${cb.breakerAmps} A is above the cable ampacity ${cb.iz} A (need In ≤ Iz)${hint}`),
+        partIds: [...br, ...owners],
         wireIds: cb.wires,
       });
   }
@@ -1118,7 +1177,7 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
       row.wires.push(...r.wires);
       row.ib = Math.max(row.ib, ib);
       row.drawn = Math.max(row.drawn, r.drawn);
-    } else bareGroups.set(k, { wires: [...r.wires], count: 1, from: ends[0].dev, to: ends[1].dev, ib, breaker: br?.tag ?? '', breakerAmps: br ? breakerAmps(br) : null, suggest: null, cores: 2, drawn: r.drawn });
+    } else bareGroups.set(k, { wires: [...r.wires], count: 1, from: ends[0].dev, to: ends[1].dev, ib, breaker: br?.tag ?? '', breakerAmps: br ? breakerAmps(br) : null, ...(pm.runIsTap(r) ? { tap: true } : {}), suggest: null, cores: 2, drawn: r.drawn });
   }
   const bare = [...bareGroups.values()]
     .map((r) => {
@@ -1206,6 +1265,9 @@ export interface AutoSizeResult {
 }
 
 /** 그림 1칸을 1 cm 로 보고 어림한 길이 (m). 판넬 안 배선에 맞는 값이라 판넬 사이 급전선은 실제 길이로 고쳐야 한다 */
+/** 3 m 이내 분기 규정의 길이 (m) */
+export const TAP_M = 3;
+
 export function drawnLength(cells: number): number {
   return Math.max(0.1, Math.round(cells) / 100);
 }

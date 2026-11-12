@@ -1,5 +1,5 @@
 import type { Circuit, Wire } from './types';
-import { pinPositions } from './parts';
+import { circuitWires, pinPositions } from './parts';
 
 /**
  * 선과 단자를 이어서 "같은 전선(넷)" 을 찾는다.
@@ -51,7 +51,8 @@ export function buildNetlist(c: Pick<Circuit, 'parts' | 'wires'>): Netlist {
     if (ra !== rb) parent.set(ra, rb);
   };
 
-  const wires = c.wires.filter((w) => w.a[0] !== w.b[0] || w.a[1] !== w.b[1]);
+  // 부스바 막대도 선처럼 (막대 중간에 닿는 선 끝은 이어진다)
+  const wires = circuitWires(c).filter((w) => w.a[0] !== w.b[0] || w.a[1] !== w.b[1]);
   const degree = new Map<string, number>();
   const bump = (k: string, n = 1) => degree.set(k, (degree.get(k) ?? 0) + n);
 

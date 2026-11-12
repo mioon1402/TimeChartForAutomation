@@ -75,6 +75,9 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (typeof q.volt === 'number' && q.volt > 0 && q.volt < 1e5) p.volt = q.volt;
     if (q.lighting === true) p.lighting = true;
     if (typeof q.amps === 'number' && q.amps > 0 && q.amps < 1e5) p.amps = q.amps;
+    if (q.elb === true) p.elb = true;
+    if (q.bars === 3 || q.bars === 4) p.bars = q.bars;
+    if (typeof q.mm2 === 'number' && q.mm2 > 0 && q.mm2 < 1e5) p.mm2 = q.mm2;
     if (typeof q.w === 'number' && q.w >= 2) p.w = Math.min(400, Math.round(q.w));
     if (typeof q.h === 'number' && q.h >= 2) p.h = Math.min(400, Math.round(q.h));
     if (Array.isArray(q.sched)) {
