@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project } from '../model/types';
-import { emptyCircuit, type CableMethod, type CableSpec, type Circuit, type LampColor, type OpStep, type Part, type PartType, type Pole, type Wire, type WireColor } from '../circuit/types';
+import { emptyCircuit, type CableMethod, type CableSpec, type Circuit, type LampColor, type OpStep, type Part, type PartType, type Pole, type PowerSystem, type Wire, type WireColor } from '../circuit/types';
+import { defaultVolt, poleLive, POWER_SYSTEMS, systemName, systemOf, systemVolts, systemVoltText, voltFieldLabel } from '../circuit/supply';
 import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
@@ -595,6 +596,7 @@ export function CircuitPanel() {
                   const ws = new Set(sel.wires);
                   commitCircuit({ ...circuit, wires: circuit.wires.map((w) => (ws.has(w.id) ? (color ? { ...w, color } : { id: w.id, a: w.a, b: w.b, ...(w.cable ? { cable: w.cable } : {}) }) : w)) });
                 }}
+                setCircuit={(c) => commitCircuit(c, 'power-sys', false)}
                 setWireCable={(cable, parallel) => {
                   // 꺾여 이어진 한 가닥 전체에 같은 규격. 나란한 가닥 (3상의 나머지 두 가닥) 도 함께
                   const ws = new Set(parallel ? parallelWires(circuit, sel.wires) : wireChain(circuit, sel.wires));
@@ -800,6 +802,7 @@ function PropsPane({
   rotate,
   setWireColor,
   setWireCable,
+  setCircuit,
 }: {
   circuit: Circuit;
   model: CircuitModel;
@@ -812,6 +815,7 @@ function PropsPane({
   rotate: () => void;
   setWireColor: (c: WireColor | undefined) => void;
   setWireCable: (c: CableSpec | undefined, parallel: boolean) => void;
+  setCircuit: (c: Circuit) => void;
 }) {
   const bom = useMemo(() => partsList(circuit), [circuit]);
   if (!p) {
@@ -881,13 +885,23 @@ function PropsPane({
           <TagInput value={p.text ?? ''} onChange={(v) => set({ text: v })} />
         </Field>
       ) : p.type === 'src' || p.type === 'r_term' ? (
-        <Field label={tr('전원 극', 'Supply pole')} wide hint={tr('같은 계통끼리 동작: +24V↔0V, L(L1)·L2·L3↔N. PE 는 접지 (L 과 닿으면 지락)', 'Works within a system: +24V↔0V, L/L1/L2/L3↔N. PE is earth')}>
-          <Select value={p.pole ?? 'L'} onChange={(v: Pole) => set({ pole: v })} options={(['L', 'N', '+24V', '0V', 'L1', 'L2', 'L3', 'PE'] as Pole[]).map((x) => ({ value: x, label: x }))} />
-        </Field>
+        <>
+          <Field label={tr('전원 극', 'Supply pole')} wide hint={tr('같은 계통끼리 동작: +24V↔0V, L(L1)·L2·L3↔N. PE 는 접지 (L 과 닿으면 지락)', 'Works within a system: +24V↔0V, L/L1/L2/L3↔N. PE is earth')}>
+            <Select
+              value={p.pole ?? 'L'}
+              onChange={(v: Pole) => set({ pole: v })}
+              options={(['L', 'N', '+24V', '0V', 'L1', 'L2', 'L3', 'PE'] as Pole[]).map((x) => ({ value: x, label: poleLive(circuit, x === 'L' ? 'L1' : x) ? x : `${x} ${tr('(이 계통에 없음)', '(not in this system)')}` }))}
+            />
+          </Field>
+          <SupplyFields circuit={circuit} onChange={setCircuit} />
+        </>
       ) : p.type === 'plc' ? (
         <PlcProps p={p} set={set} model={model} />
       ) : p.type === 'src3' ? (
-        <p className="muted small">{tr('3상 전원 L1 · L2 · L3. 전동기 U·V·W 에 L1→L2→L3 순서로 닿으면 정회전, 두 상을 바꾸면 역회전.', '3-phase supply. L1→L2→L3 on U·V·W runs forward; swapping two phases reverses.')}</p>
+        <>
+          <p className="muted small">{tr('3상 전원 L1 · L2 · L3. 전동기 U·V·W 에 L1→L2→L3 순서로 닿으면 정회전, 두 상을 바꾸면 역회전.', '3-phase supply. L1→L2→L3 on U·V·W runs forward; swapping two phases reverses.')}</p>
+          <SupplyFields circuit={circuit} onChange={setCircuit} />
+        </>
       ) : (
         <>
           <div className="grid2">
@@ -1101,7 +1115,7 @@ function GuideCard({ type }: { type: PartType }) {
   );
 }
 
-const NO_ANALYSIS: PowerAnalysis = { shorted: false, cables: [], bare: [], loads: [], breakers: [], issues: [], supply: [], peakKw: 0, panels: [], wireI: new Map(), vll: 220 * Math.sqrt(3), vln: 220 };
+const NO_ANALYSIS: PowerAnalysis = { shorted: false, cables: [], bare: [], loads: [], breakers: [], issues: [], supply: [], peakKw: 0, panels: [], wireI: new Map(), vll: 220 * Math.sqrt(3), vln: 220, system: '3p4w', systemText: '' };
 
 const METHOD_LABEL: Record<CableMethod, [string, string]> = {
   A1: ['A1 단열벽 속 전선관 (절연전선)', 'A1 conduit in insulated wall (wires)'],
@@ -1223,6 +1237,28 @@ function CableEditor({ circuit, ids, onChange: apply }: { circuit: Circuit; ids:
 }
 
 /** 해석에 쓰는 정격: 부하 용량 · 역률, 차단기 정격 전류, 분전반 크기 */
+/** 전원 계통 (3상 4선식 · 3상 3선식 · 단상 3선식 · 단상 2선식) 과 전압. 그림의 모든 전원 단자에 적용 */
+function SupplyFields({ circuit, onChange }: { circuit: Circuit; onChange: (c: Circuit) => void }) {
+  const sys = systemOf(circuit);
+  const sv = systemVolts(circuit);
+  const hint = (s: PowerSystem) => (s === '3p4w' ? '380/220 V' : s === '3p3w' ? '380 · 220 V' : s === '1p3w' ? '220/110 V' : '220 V');
+  return (
+    <div className="cc-supply">
+      <div className="grid2">
+        <Field label={tr('전원 계통', 'Supply system')}>
+          <Select value={sys} onChange={(v) => onChange({ ...circuit, system: v === '3p4w' ? undefined : v, vll: undefined })} options={POWER_SYSTEMS.map((s) => ({ value: s, label: `${systemName(s)} (${hint(s)})` }))} />
+        </Field>
+        <Field label={voltFieldLabel(sys)}>
+          <NumberInput value={circuit.vll ?? defaultVolt(sys)} min={1} step={10} onChange={(v) => onChange({ ...circuit, vll: v && v > 0 && v !== defaultVolt(sys) ? v : undefined })} />
+        </Field>
+      </div>
+      <p className="small muted">
+        {systemVoltText(sv)}. {tr('그림의 모든 전원 단자에 적용됩니다.', 'Applies to every supply terminal in this drawing.')}
+      </p>
+    </div>
+  );
+}
+
 function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>) => void; circuit: Circuit }) {
   const big = p.type === 'r_load1' || p.type === 'r_load3' || p.type === 'r_motor3' || p.type === 'motor3' || p.type === 'motor';
   const motor = p.type === 'r_motor3' || p.type === 'motor3' || p.type === 'motor';
@@ -1276,8 +1312,9 @@ function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>
       </>
     );
   if (!big && p.type !== 'r_light') return null;
-  const vll = circuit.vll && circuit.vll > 0 ? circuit.vll : 220 * Math.sqrt(3);
-  const volt = p.volt ?? (three ? vll : vll / Math.sqrt(3));
+  // 정격 전압을 적지 않으면 전원 계통의 보통 전압 (3상은 선간, 단상은 3상 4선식이면 L-N, 3상 3선식이면 선간)
+  const sv = systemVolts(circuit);
+  const volt = p.volt ?? (three ? sv.vll : sv.v1);
   const amps = r ? (three ? r.va / (Math.sqrt(3) * volt) : r.va / volt) : 0;
   return (
     <>
@@ -1299,6 +1336,11 @@ function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>
         {motor && (
           <Field label={tr('효율', 'Efficiency')}>
             <NumberInput value={p.eff ?? 0.88} min={0.05} max={1} step={0.01} onChange={(v) => set({ eff: v && v > 0 ? Math.min(1, v) : undefined })} />
+          </Field>
+        )}
+        {big && (
+          <Field label={tr('정격 전압 (V)', 'Rated voltage (V)')} hint={tr('비우면 이어진 전원에 맞춤. 적으면 다른 전압에 이었을 때 알려 줍니다', 'Empty: follows the supply. Set it to be warned about a wrong voltage')}>
+            <NumberInput value={p.volt} allowEmpty min={1} step={10} placeholder={String(nominalVolt(volt))} onChange={(v) => set({ volt: v && v > 0 ? v : undefined })} />
           </Field>
         )}
       </div>
@@ -1675,10 +1717,8 @@ function PowerPane({ circuit, a, onChange, onPick, onAuto, title }: { circuit: C
     );
   return (
     <div className="cc-power">
+      <SupplyFields circuit={circuit} onChange={onChange} />
       <div className="grid2">
-        <Field label={tr('선간 전압 (V)', 'Line voltage (V)')} hint={tr(`상전압 ${nominalVolt(a.vln)} V`, `phase ${nominalVolt(a.vln)} V`)}>
-          <NumberInput value={circuit.vll ?? 380} min={1} step={10} onChange={(v) => onChange({ ...circuit, vll: v && v > 0 && v !== 380 ? v : undefined })} />
-        </Field>
         <Field label={tr('수전 (전압강하 허용값)', 'Supply (drop limits)')}>
           <Select value={circuit.supply ?? 'lv'} onChange={(v) => onChange({ ...circuit, supply: v === 'hv' ? 'hv' : undefined })} options={[{ value: 'lv', label: tr('저압 수전: 조명 3% · 기타 5%', 'LV supply: 3% / 5%') }, { value: 'hv', label: tr('고압 이상 수전: 조명 6% · 기타 8%', 'HV supply: 6% / 8%') }]} />
         </Field>

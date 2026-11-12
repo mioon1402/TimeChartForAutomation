@@ -4,6 +4,7 @@ import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
 import { loadRating } from './power';
+import { supplyProblems } from './supply';
 import { tr } from '../i18n';
 
 /** 부품 리스트 한 줄 = 기호 하나 (코일과 그 접점들은 한 기기) */
@@ -396,5 +397,7 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   if (c.parts.some((p) => partPins(p).length) && !c.parts.some((p) => p.type === 'src' || p.type === 'src3' || p.type === 'r_term')) {
     out.push({ level: 'error', msg: tr('전원(L·N, +24V·0V, 3상)이 없습니다', 'No supply (L/N, +24V/0V or 3-phase)'), partIds: [] });
   }
+  // 전원 계통에 없는 극 (3상 3선식의 N 등) 은 전압이 없다
+  out.push(...supplyProblems(c));
   return out;
 }

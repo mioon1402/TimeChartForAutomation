@@ -3,6 +3,7 @@ import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
 import { isLinkedSensor, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, schedOn, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
+import { poleLive } from './supply';
 import type { PlcConfig, SimSettings } from '../plc/types';
 import { parseProgram, type ParsedProgram } from '../plc/program';
 import { parseDeviceComments } from '../plc/comments';
@@ -180,8 +181,9 @@ export class CircuitModel {
           this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: def.polesNc?.[k] ?? !!def.nc, always, inst: p.type === 'r_timer8' && !!p.inst13 && k < 2 });
         });
       }
-      if (p.type === 'src' || p.type === 'r_term') this.sources.push({ net: this.net.pinNet.get(`${p.id}:0`)!, id: POLE_IDENTITY[p.pole ?? 'L'] });
-      if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => this.sources.push({ net: this.net.pinNet.get(`${p.id}:${i}`)!, id }));
+      // 전원 계통에 없는 극 (3상 3선식의 N, 단상의 L3 …) 은 전압이 없다
+      if ((p.type === 'src' || p.type === 'r_term') && poleLive(circuit, POLE_IDENTITY[p.pole ?? 'L'])) this.sources.push({ net: this.net.pinNet.get(`${p.id}:0`)!, id: POLE_IDENTITY[p.pole ?? 'L'] });
+      if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => poleLive(circuit, id) && this.sources.push({ net: this.net.pinNet.get(`${p.id}:${i}`)!, id }));
       const pin = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
       partPins(p).forEach((pd, i) => pd.air && this.airNets.add(pin(i)));
       const tubed = (n: number) => this.net.pinCount[n] > 1 || this.net.hasWire[n];

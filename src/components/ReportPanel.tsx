@@ -17,7 +17,7 @@ import { WEB_TRIAL } from '../env';
 import { CircuitSvg } from '../render/CircuitSvg';
 import { bomSummary, contactsLabel, partsList } from '../circuit/bom';
 import { termText, wireColorName, wiringList } from '../circuit/wiring';
-import { analyzePower, nominalVolt } from '../circuit/power';
+import { analyzePower } from '../circuit/power';
 import { CircuitModel, opTimes } from '../circuit/engine';
 
 export interface ReportOpts {
@@ -1528,7 +1528,7 @@ function circuitBlocks(project: Project, o: ReportOpts): Block[] {
       if (a.loads.length)
         blocks.push({
           id: 'power-loads',
-          title: tr(`전기 해석: 부하 전압강하 (${nominalVolt(a.vll)}/${nominalVolt(a.vln)} V, 최대 부하 ${a.peakKw} kW)`, `Electrical analysis: load voltage drop (${nominalVolt(a.vll)}/${nominalVolt(a.vln)} V, peak ${a.peakKw} kW)`),
+          title: tr(`전기 해석: 부하 전압강하 (${a.systemText}, 최대 부하 ${a.peakKw} kW)`, `Electrical analysis: load voltage drop (${a.systemText}, peak ${a.peakKw} kW)`),
           head: (
             <tr>
               <th>{tr('기호', 'Tag')}</th>

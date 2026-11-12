@@ -119,6 +119,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   if (typeof o.clock === 'number' && o.clock > 0 && o.clock < 86400000) c.clock = o.clock;
   if (o.supply === 'hv') c.supply = 'hv';
   if (typeof o.vll === 'number' && o.vll > 0 && o.vll < 1e5) c.vll = o.vll;
+  if (o.system === '3p3w' || o.system === '1p3w' || o.system === '1p2w') c.system = o.system;
   if (Array.isArray(o.wired)) {
     const wired = o.wired.filter((x): x is string => typeof x === 'string' && x.length < 200);
     if (wired.length) c.wired = wired;

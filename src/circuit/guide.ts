@@ -23,14 +23,15 @@ export function partGuide(type: PartType): PartGuide | null {
     // ───────────── 실물 배선 ─────────────
     case 'r_term':
       return g(
-        tr('전원이 들어오는 단자입니다. 회로는 여기서 시작합니다. 극(L1 · L2 · L3 · N · PE · +24V · 0V)은 속성에서 고릅니다.', 'Where the supply comes in. Choose its pole (L1, L2, L3, N, PE, +24V, 0V) in the properties.'),
+        tr('전원이 들어오는 단자입니다. 회로는 여기서 시작합니다. 극(L1 · L2 · L3 · N · PE · +24V · 0V)과 전원 계통 (3상 4선식 380/220 V · 3상 3선식 380 · 220 V · 단상 3선식 220/110 V · 단상 2선식 220 V) 은 속성에서 고릅니다.', 'Where the supply comes in. Choose its pole and the supply system (3-phase 4-wire, 3-phase 3-wire, 1-phase 3-wire, 1-phase 2-wire) in the properties.'),
         [
-          ['L1 · L2 · L3', tr('3상 전원의 세 상 (전동기)', 'the three phases')],
-          ['L (L1) · N', tr('단상 220V: L 과 N 사이에 부하를 둡니다', 'single phase: put the load between L and N')],
+          ['L1 · L2 · L3', tr('3상 전원의 세 상 (전동기). 두 상 사이 = 선간 전압 (380 V)', 'the three phases; line voltage between two of them')],
+          ['L (L1) · N', tr('단상: L 과 N 사이에 부하를 둡니다 (3상 4선식이면 220 V)', 'single phase: put the load between L and N')],
+          [tr('단상 3선식 L1 · N · L2', '1-phase 3-wire L1 · N · L2'), tr('L1-N · L2-N 110 V, L1-L2 220 V. 3상 3선식에는 N 이 없습니다', 'L1-N, L2-N 110 V; L1-L2 220 V. 3-phase 3-wire has no N')],
           ['+24V · 0V', tr('직류 제어 전원', 'DC control supply')],
           ['PE', tr('접지 (전동기 몸체 등). L 과 닿으면 지락', 'earth; touching L is a fault')],
         ],
-        [tr('전원 단자를 맨 위에 놓고, 바로 아래에 차단기를 둡니다', 'Put the supply terminals at the top and a breaker right below'), tr('부하(램프 · 코일 · 전동기)는 서로 다른 극 사이에 있어야 동작합니다 (L↔N, +24V↔0V, L1↔L2↔L3)', 'A load works only between two different poles of the same system')],
+        [tr('전원 단자를 맨 위에 놓고, 바로 아래에 차단기를 둡니다', 'Put the supply terminals at the top and a breaker right below'), tr('부하(램프 · 코일 · 전동기)는 서로 다른 극 사이에 있어야 동작합니다 (L↔N, +24V↔0V, L1↔L2↔L3)', 'A load works only between two different poles of the same system'), tr('전원 계통은 그림 전체에 하나입니다. 계통에 없는 극 (3상 3선식의 N 등) 은 전압이 나오지 않고 [검사] 에 표시됩니다', 'One supply system per drawing; a pole the system does not have stays dead and is reported')],
         tr('늘 전압이 나옵니다.', 'Always live.'),
         'real',
       );

@@ -1,13 +1,17 @@
 import type { CableMethod, CableSpec, Circuit, Part, PartType, Wire } from './types';
 import { BUS_PHASES, circuitWires, panelSize, partKindName, partPins, pinPositions, PARTS, POLE_IDENTITY } from './parts';
 import { CircuitModel, runScenario, type CircuitSim, type Conductor } from './engine';
+import { nominalVolt, supplyProblems, systemLabel, systemVolts, type SystemVolts } from './supply';
 import { tr } from '../i18n';
+
+export { nominalVolt };
 
 /**
  * 전기 해석: 회로의 그 순간 상태 (어느 접점이 붙어 있는가) 에서 전선마다 흐르는 전류와 부하의 단자 전압을 계산하고,
  * 허용전류 (KEC 232.5, KS C IEC 60364-5-52 부속서 B) · 전압강하 (KEC 232.3.9) · 차단기 정격 (IB ≤ In ≤ Iz) 을 검토한다.
  *
- *  - 전원은 이상적인 전압원 (L1 · L2 · L3 = 상전압, 120° 차, N · PE = 0, +24V = 24 V).
+ *  - 전원은 이상적인 전압원. 극마다 전압 · 위상은 전원 계통이 정한다 (supply.ts: 3상은 120° 차, 단상 3선식은 L1 · L2 반대 위상,
+ *    N · PE = 0, +24V = 24 V). 계통에 없는 극의 단자는 전압이 없다.
  *  - 부하는 정격 전압에서 정격 용량을 쓰는 임피던스 (정임피던스). 3상 부하는 Y 결선 (중성점은 떠 있음).
  *  - 케이블 규격이 있는 전선만 임피던스를 가진다: R = ρ·L/S (ρ = 0.0225 Ω·mm²/m, 사용 온도의 구리), X = 0.08 mΩ/m
  *    (KS C IEC 60364-5-52 부속서 G 의 전압강하 식과 같은 값). 규격이 없는 선과 닫힌 접점은 임피던스 0.
@@ -198,15 +202,6 @@ export function cableZ(spec: CableSpec): C {
   return [(RHO_CU * len) / Math.max(0.01, spec.mm2), spec.kind === 'bus' ? 0 : X_PER_M * len];
 }
 
-/**
- * 정격 · 공칭 전압을 적을 때: 220 V 기준 계통의 선간 전압은 381 V 지만 공칭은 380 V 라서,
- * 흔한 공칭값에 0.5% 안으로 가까우면 그 값으로 적는다 (측정값에는 쓰지 않는다)
- */
-export function nominalVolt(v: number): number {
-  for (const n of [24, 110, 127, 220, 380, 440, 480]) if (Math.abs(v - n) <= n * 0.005) return n;
-  return Math.round(v);
-}
-
 export function cableText(spec: CableSpec): string {
   if (spec.kind === 'bus') return tr(`부스바 ${spec.mm2} mm² · ${spec.len} m`, `Busbar ${spec.mm2} mm² · ${spec.len} m`);
   const ins = spec.ins === 'pvc' ? 'PVC' : 'XLPE';
@@ -303,6 +298,8 @@ interface LoadDef {
   y: C;
   /** 전원이 정상일 때 단자 사이 전압 (전압강하의 기준) */
   vSup: number;
+  /** 이어진 전원 극으로 정해진 전압 (어디에도 안 닿으면 null) */
+  vConn: number | null;
   rating: { w: number; pf: number; va: number; out: number };
 }
 
@@ -356,17 +353,17 @@ export class PowerModel {
   /** 점에 단자가 있는 차단기 */
   private readonly breakerAt = new Map<number, Part>();
   private readonly phasor: Record<string, C>;
+  readonly sys: SystemVolts;
 
   constructor(
     readonly circuit: Circuit,
     readonly model: CircuitModel,
   ) {
-    // 선간 전압을 따로 적지 않으면 380/220 V 계통 (상전압 220 V 기준)
-    this.vln = circuit.vll && circuit.vll > 0 ? circuit.vll / Math.sqrt(3) : 220;
-    this.vll = this.vln * Math.sqrt(3);
-    const v = this.vln;
-    const s = Math.sqrt(3) / 2;
-    this.phasor = { L1: [v, 0], L2: [-v / 2, -v * s], L3: [-v / 2, v * s], N: [0, 0], PE: [0, 0], '+24V': [24, 0], '0V': [0, 0] };
+    // 전원 계통 (기본 3상 4선식 380/220 V, 상전압 220 V 기준)
+    this.sys = systemVolts(circuit);
+    this.vln = this.sys.vln;
+    this.vll = this.sys.vll;
+    this.phasor = this.sys.phasor;
 
     const node = (p: Pt): number => {
       const k = key(p);
@@ -504,8 +501,11 @@ export class PowerModel {
     }
     for (const p of circuit.parts) {
       const pin = (i: number) => pinNode.get(`${p.id}:${i}`)!;
-      if (p.type === 'src' || p.type === 'r_term') this.srcs.push({ node: pin(0), pole: POLE_IDENTITY[p.pole ?? 'L'] });
-      else if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => this.srcs.push({ node: pin(i), pole: id }));
+      // 계통에 없는 극은 전원이 아니다 (떠 있는 단자)
+      if (p.type === 'src' || p.type === 'r_term') {
+        const pole = POLE_IDENTITY[p.pole ?? 'L'];
+        if (this.phasor[pole]) this.srcs.push({ node: pin(0), pole });
+      } else if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => this.phasor[id] && this.srcs.push({ node: pin(i), pole: id }));
       else if (p.type === 'smps') this.smps.push({ part: p, p: pin(2), m: pin(3) });
     }
     const hasAc = this.srcs.some((s) => s.pole !== '+24V' && s.pole !== '0V');
@@ -519,7 +519,8 @@ export class PowerModel {
       const idx = three ? [0, 1, 2] : def.selfCoil ?? [0, 1];
       const nodes = idx.map((i) => pinNode.get(`${p.id}:${i}`)!);
       if (nodes.some((n) => n === undefined)) continue;
-      let vSup = three ? this.vll : hasAc ? this.vln : 24;
+      let vSup = three ? this.vll : hasAc ? this.sys.v1 : 24;
+      let vConn: number | null = three ? this.vll : null;
       if (!three) {
         // 두 단자가 닿는 전원 극으로 정상 전압을 정한다 (L-N 220, L-L 380, 직류 24)
         const [A, B] = idx.map((i) => reach(model.net.pinNet.get(`${p.id}:${i}`)!));
@@ -528,19 +529,19 @@ export class PowerModel {
         let between = 0;
         for (const a of A) {
           for (const b of B) {
-            if (a === b) continue;
-            const v = cabs(csub(this.phasor[a] ?? [0, 0], this.phasor[b] ?? [0, 0]));
+            if (a === b || !this.phasor[a] || !this.phasor[b]) continue;
+            const v = cabs(csub(this.phasor[a], this.phasor[b]));
             if (a === 'N' || b === 'N' || a === '0V' || b === '0V') toNeutral = Math.max(toNeutral, v);
             else between = Math.max(between, v);
           }
         }
-        if (toNeutral > 0 || between > 0) vSup = toNeutral > 0 ? toNeutral : between;
+        if (toNeutral > 0 || between > 0) vSup = vConn = toNeutral > 0 ? toNeutral : between;
       }
       const vRated = p.volt && p.volt > 0 ? p.volt : vSup;
       // S = V²/|Z| (3상 Y 는 선간 전압으로), 뒤진 역률이면 유도성
       const yAbs = rating.va / (vRated * vRated);
       const sin = Math.sqrt(Math.max(0, 1 - rating.pf * rating.pf));
-      this.loads.push({ part: p, nodes, three, y: [yAbs * rating.pf, -yAbs * sin], vSup, rating });
+      this.loads.push({ part: p, nodes, three, y: [yAbs * rating.pf, -yAbs * sin], vSup, vConn, rating });
     }
     this.buildPaths();
   }
@@ -1030,6 +1031,9 @@ export interface PowerAnalysis {
   wireI: Map<string, number>;
   vll: number;
   vln: number;
+  /** 전원 계통과 그 이름 ('3상 4선식 380/220 V') */
+  system: SystemVolts['system'];
+  systemText: string;
 }
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
@@ -1161,7 +1165,8 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
   for (const b of breakers) {
     if (b.amps !== null && b.i > b.amps + 1e-6) issues.push({ level: 'error', msg: tr(`${b.tag}: 흐르는 전류 ${r1(b.i)} A 가 차단기 정격 ${b.amps} A 를 넘습니다 (과부하로 트립)`, `${b.tag}: ${r1(b.i)} A exceeds the breaker rating ${b.amps} A`), partIds: [b.partId], wireIds: [] });
   }
-  const three = pm.loads.some((l) => l.three) || c.parts.some((p) => p.type === 'src3' || ((p.type === 'src' || p.type === 'r_term') && (p.pole === 'L2' || p.pole === 'L3')));
+  // 3상 계통이고 3상 기기나 L2 · L3 단자가 있으면 3상 (단상 3선식의 L2 는 단상)
+  const three = pm.sys.three && (pm.loads.some((l) => l.three) || c.parts.some((p) => p.type === 'src3' || ((p.type === 'src' || p.type === 'r_term') && (p.pole === 'L2' || p.pole === 'L3'))));
   // 규격 없는 전선: 같은 두 기기를 잇는 가닥끼리 묶어서, 전류가 큰 순서로
   const bareGroups = new Map<string, BareRow>();
   for (const r of pm.runs) {
@@ -1211,6 +1216,22 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
       path,
     };
   });
+  // 정격 전압을 적은 부하가 다른 전압에 이어져 있으면 (단상 3선식의 110 V · 220 V 를 바꿔 이은 경우 등)
+  for (const l of pm.loads) {
+    const rated = l.part.volt;
+    if (!rated || l.vConn === null || Math.abs(l.vConn - rated) <= rated * 0.1) continue;
+    const tag = l.part.tag || partKindName(l.part.type);
+    issues.push({
+      level: 'error',
+      msg:
+        l.vConn > rated
+          ? tr(`${tag}: 정격 ${rated} V 기기가 ${nominalVolt(l.vConn)} V 에 이어져 있습니다 (과전압으로 탑니다)`, `${tag}: a ${rated} V device is connected to ${nominalVolt(l.vConn)} V (overvoltage)`)
+          : tr(`${tag}: 정격 ${rated} V 기기가 ${nominalVolt(l.vConn)} V 에 이어져 있습니다 (전압이 모자라 제대로 동작하지 않습니다)`, `${tag}: a ${rated} V device is connected to ${nominalVolt(l.vConn)} V (undervoltage)`),
+      partIds: [l.part.id],
+      wireIds: [],
+    });
+  }
+  for (const s of supplyProblems(c)) issues.unshift({ ...s, wireIds: [] });
   for (const l of loads) {
     if (l.dropPct !== null && l.dropPct > l.limit + 1e-6)
       issues.push({
@@ -1251,6 +1272,8 @@ export function analyzePower(c: Circuit, model: CircuitModel = new CircuitModel(
     wireI,
     vll: pm.vll,
     vln: pm.vln,
+    system: pm.sys.system,
+    systemText: systemLabel(pm.sys),
   };
 }
 
