@@ -200,10 +200,16 @@ export interface Circuit {
   wired?: string[];
   /** 시뮬레이션을 시작하는 시각 (하루 안의 ms, 기본 00:00) - 타임 스위치가 있을 때 */
   clock?: number;
-  /** 전기 해석: 수전 유형 (lv = 저압 수전, hv = 고압 이상 수전), 선간 전압 (기본 380 V, 상전압은 선간 / √3) */
+  /** 전기 해석: 수전 유형 (lv = 저압 수전, hv = 고압 이상 수전) */
   supply?: 'lv' | 'hv';
+  /** 전원 계통 (없으면 3상 4선식) */
+  system?: PowerSystem;
+  /** 계통의 대표 전압 (V): 3상은 선간 (3상 4선식 기본 380, 상전압은 선간 / √3), 단상 3선식은 L1-L2 (기본 220), 단상 2선식은 L-N (기본 220) */
   vll?: number;
 }
+
+/** 전원 계통: 3상 4선식 · 3상 3선식 · 단상 3선식 · 단상 2선식 */
+export type PowerSystem = '3p4w' | '3p3w' | '1p3w' | '1p2w';
 
 export function emptyCircuit(): Circuit {
   return { parts: [], wires: [], ops: [] };

@@ -579,3 +579,107 @@ describe('editing a busbar', () => {
     expect(net.get(l3.id)).toBe(net.get(`${bus.id}~bar2`));
   });
 });
+
+describe('supply systems (3-phase 4/3-wire, single-phase 3/2-wire)', () => {
+  it('sets the voltage and phase of each pole by the system', async () => {
+    const { systemVolts, systemLabel } = await import('../src/circuit/supply');
+    const mag = (v: [number, number]) => Math.hypot(v[0], v[1]);
+    const d = (a: [number, number], b: [number, number]) => mag([a[0] - b[0], a[1] - b[1]]);
+    // 3상 4선식: 상전압 = 선간 ÷ √3
+    const a = systemVolts({});
+    expect(a.vln).toBe(220);
+    expect(d(a.phasor.L1, a.phasor.L2)).toBeCloseTo(381.05, 1);
+    expect(systemLabel(a)).toBe('3상 4선식 380/220 V');
+    // 3상 3선식 220 V: 선간 220, 중성선 없음
+    const b = systemVolts({ system: '3p3w', vll: 220 });
+    expect(d(b.phasor.L1, b.phasor.L3)).toBeCloseTo(220, 6);
+    expect(b.phasor.N).toBeUndefined();
+    expect(systemLabel(b)).toBe('3상 3선식 220 V');
+    // 단상 3선식 220/110: L1 · L2 반대 위상
+    const c = systemVolts({ system: '1p3w' });
+    expect(d(c.phasor.L1, c.phasor.N)).toBeCloseTo(110, 6);
+    expect(d(c.phasor.L2, c.phasor.N)).toBeCloseTo(110, 6);
+    expect(d(c.phasor.L1, c.phasor.L2)).toBeCloseTo(220, 6);
+    expect(c.phasor.L3).toBeUndefined();
+    expect(systemLabel(c)).toBe('단상 3선식 220/110 V');
+    // 단상 2선식
+    const e = systemVolts({ system: '1p2w' });
+    expect(d(e.phasor.L1, e.phasor.N)).toBeCloseTo(220, 6);
+    expect(systemLabel(e)).toBe('단상 2선식 220 V');
+  });
+
+  /** L1 · L2 모선 (왼쪽), N 모선 (오른쪽), 부하 셋: LA = L1-N 1.1 kW, LB = L2-N 1.1 kW, LC = L1-L2 2.2 kW */
+  const threeWire = (extra: Partial<Circuit> = {}, volt?: number): Circuit => {
+    const l1 = part('src', 0, 0, 'L1', { pole: 'L1' });
+    const l2 = part('src', 2, 0, 'L2', { pole: 'L2' });
+    const nn = part('src', 40, 0, 'N', { pole: 'N' });
+    const a = part('r_load1', 20, 20, 'LA', { watt: 1100, pf: 1, ...(volt ? { volt } : {}) });
+    const b = part('r_load1', 20, 40, 'LB', { watt: 1100, pf: 1 });
+    const c = part('r_load1', 20, 60, 'LC', { watt: 2200, pf: 1 });
+    const w = (a: [number, number], b: [number, number]): Wire => ({ id: `w${n++}`, a, b });
+    const bus = (p: Part) => w(pinAt(p, 0), [pinAt(p, 0)[0], 70]);
+    const [x1, x2, xn] = [pinAt(l1, 0)[0], pinAt(l2, 0)[0], pinAt(nn, 0)[0]];
+    const wires = [
+      bus(l1),
+      bus(l2),
+      bus(nn),
+      w([x1, pinAt(a, 0)[1]], pinAt(a, 0)),
+      w([xn, pinAt(a, 1)[1]], pinAt(a, 1)),
+      w([x2, pinAt(b, 0)[1]], pinAt(b, 0)),
+      w([xn, pinAt(b, 1)[1]], pinAt(b, 1)),
+      w([x1, pinAt(c, 0)[1]], pinAt(c, 0)),
+      w([x2, pinAt(c, 1)[1] - 2], [pinAt(c, 1)[0], pinAt(c, 1)[1] - 2]),
+      w([pinAt(c, 1)[0], pinAt(c, 1)[1] - 2], pinAt(c, 1)),
+    ];
+    return { parts: [l1, l2, nn, a, b, c], wires, ops: [], ...extra };
+  };
+
+  it('single-phase 3-wire 220/110 V: 110 V to N, 220 V between L1 and L2, no neutral current when balanced', () => {
+    const r = analyzePower(threeWire({ system: '1p3w' }));
+    const load = (t: string) => r.loads.find((l) => l.tag === t)!;
+    expect(load('LA')).toMatchObject({ v: 110, i: 10 });
+    expect(load('LB')).toMatchObject({ v: 110, i: 10 });
+    expect(load('LC')).toMatchObject({ v: 220, i: 10 });
+    // L1 · L2 는 반대 위상이라 N 으로 돌아오는 전류가 서로 지운다
+    expect(r.supply.find((s) => s.pole === 'N')?.i ?? 0).toBeLessThan(0.01);
+    expect(r.supply.find((s) => s.pole === 'L1')!.i).toBeCloseTo(20, 1);
+    expect(r.systemText).toBe('단상 3선식 220/110 V');
+    expect(r.issues.filter((i) => i.level === 'error')).toEqual([]);
+  });
+
+  it('the same drawing on 3-phase 4-wire gives 220 V to N and 381 V between lines', () => {
+    const r = analyzePower(threeWire());
+    expect(r.loads.find((l) => l.tag === 'LA')!.v).toBe(220);
+    expect(r.loads.find((l) => l.tag === 'LC')!.v).toBeCloseTo(381, 0);
+  });
+
+  it('warns when a device rated for one voltage is wired to another', () => {
+    // 정격 220 V 부하를 단상 3선식의 L1-N (110 V) 에
+    const r = analyzePower(threeWire({ system: '1p3w' }, 220));
+    expect(r.issues.some((i) => i.level === 'error' && i.msg.includes('LA') && i.msg.includes('110 V'))).toBe(true);
+  });
+
+  it('3-phase 3-wire has no neutral: an L-N lamp stays off and the check says why', async () => {
+    const { checkCircuit } = await import('../src/circuit/bom');
+    const { runScenario } = await import('../src/circuit/engine');
+    const c = threeWire({ system: '3p3w' });
+    const res = runScenario(c);
+    const on = (t: string) => res.tracks.find((k) => k.key === `load:${t}`)!.points.some((p) => p.v === 1);
+    expect(on('LA')).toBe(false);
+    expect(on('LC')).toBe(true);
+    expect(checkCircuit(c).some((i) => i.level === 'error' && i.msg.startsWith('N 단자'))).toBe(true);
+    const a = analyzePower(c);
+    expect(a.loads.find((l) => l.tag === 'LC')!.v).toBeCloseTo(380, 0);
+    // N 이 전원이 아니라서 LA · LB 는 떠 있는 N 선을 거쳐 L1-L2 사이에 직렬로 걸린다 (정격보다 작은 전류)
+    expect(a.loads.find((l) => l.tag === 'LA')!.i).toBeLessThan(5);
+  });
+
+  it('keeps the system when a file is loaded and the timechart follows a change', async () => {
+    const { circuitSig } = await import('../src/circuit/chart');
+    const c = sanitizeCircuit({ parts: [], wires: [], ops: [], system: '1p3w', vll: 230 })!;
+    expect(c).toMatchObject({ system: '1p3w', vll: 230 });
+    expect(sanitizeCircuit({ parts: [], wires: [], ops: [], system: 'x' })!.system).toBeUndefined();
+    const base = threeWire();
+    expect(circuitSig({ ...base, system: '3p3w' })).not.toBe(circuitSig(base));
+  });
+});

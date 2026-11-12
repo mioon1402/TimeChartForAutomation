@@ -216,8 +216,8 @@ function opSteps(c: Circuit, res: ScenarioResult, until: number): Step[] {
 /** 회로가 바뀌었는지 보는 서명 (차트에 영향을 주는 것만) */
 export function circuitSig(c: Circuit, plcSource = ''): string {
   const plc = c.parts.some((p) => p.type === 'plc') ? plcSource : '';
-  // 시작 시각은 있을 때만 넣는다 (예전 회로의 서명이 바뀌지 않게)
-  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc, ...(c.clock ? [c.clock] : [])]);
+  // 시작 시각 · 전원 계통은 있을 때만 넣는다 (예전 회로의 서명이 바뀌지 않게). 계통에 없는 극은 전압이 없어 동작이 바뀐다
+  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc, ...(c.clock ? [c.clock] : []), ...(c.system ? [c.system] : [])]);
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
