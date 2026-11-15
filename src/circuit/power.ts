@@ -215,6 +215,7 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
   r_load1: 2000,
   r_load3: 7500,
   r_motor3: 3700,
+  r_motor6: 3700,
   motor3: 3700,
   motor: 200,
   r_light: 100,
@@ -227,13 +228,17 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
   r_timer8: 3,
   r_my2: 2,
   r_my4: 2,
+  r_buzzer: 3,
+  r_sol: 6,
+  r_fan: 20,
+  r_pbl: 2,
   r_mc: 10,
   sol: 6,
 };
 
-const THREE: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'r_load3']);
-const MOTOR: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'motor']);
-const BREAKER: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'mcb', 'mcb3', 'fuse', 'fuse3']);
+const THREE: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'r_load3', 'r_motor6']);
+const MOTOR: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'motor', 'r_motor6']);
+const BREAKER: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'mcb', 'mcb3', 'fuse', 'fuse3', 'r_fuse']);
 
 /** 한전 쪽 (계통) 임피던스의 X/R */
 const UTILITY_XR = 10;
@@ -346,6 +351,8 @@ export interface PowerState {
   voltAt: (x: number, y: number) => number | null;
   /** 변압기마다 2차 (X1 X2 X3) 로 나가는 전류 (복소수) */
   trI: Map<string, [number, number][]>;
+  /** 두 점 사이 전압 (전압계) */
+  voltBetween: (a: [number, number], b: [number, number]) => number | null;
 }
 
 const key = (p: Pt) => `${p[0]},${p[1]}`;
@@ -554,7 +561,7 @@ export class PowerModel {
         if (this.phasor[pole]) this.srcs.push({ node: pin(0), pole });
       } else if (p.type === 'src3') ['L1', 'L2', 'L3'].forEach((id, i) => this.phasor[id] && this.srcs.push({ node: pin(i), pole: id }));
       else if (p.type === 'r_kepco') ['H1', 'H2', 'H3'].forEach((id, i) => this.srcs.push({ node: pin(i), pole: id }));
-      else if (p.type === 'smps') this.smps.push({ part: p, p: pin(2), m: pin(3) });
+      else if (p.type === 'smps' || p.type === 'r_smps') this.smps.push({ part: p, p: pin(2), m: pin(3) });
       else if (p.type === 'r_tr3') this.trs.push({ part: p, h: [pin(0), pin(1), pin(2)], x: [pin(3), pin(4), pin(5)], x0: pin(6) });
     }
     const hasAc = this.srcs.some((s) => s.pole !== '+24V' && s.pole !== '0V' && s.pole[0] !== 'H') || this.trs.length > 0;
@@ -565,7 +572,7 @@ export class PowerModel {
       const rating = loadRating(p);
       if (!rating) continue;
       const three = THREE.has(p.type);
-      const idx = three ? [0, 1, 2] : def.selfCoil ?? [0, 1];
+      const idx = three ? [0, 1, 2] : def.selfCoil ?? def.loadPins ?? [0, 1];
       const nodes = idx.map((i) => pinNode.get(`${p.id}:${i}`)!);
       if (nodes.some((n) => n === undefined)) continue;
       let vSup = three ? this.vll : hasAc ? this.sys.v1 : 24;
@@ -767,7 +774,7 @@ export class PowerModel {
   /** 그 순간의 상태에서 전류 · 전압을 푼다 */
   solve(sim: CircuitSim): PowerState {
     const n = this.pts.length;
-    const out: PowerState = { shorted: false, wireI: new Map(), partI: new Map(), loads: new Map(), supply: new Map(), voltAt: () => null, trI: new Map() };
+    const out: PowerState = { shorted: false, wireI: new Map(), partI: new Map(), loads: new Map(), supply: new Map(), voltAt: () => null, trI: new Map(), voltBetween: () => null };
     // 1) 임피던스 0 으로 이어진 점 묶기
     const parent = new Int32Array(n);
     for (let i = 0; i < n; i++) parent[i] = i;
@@ -977,6 +984,13 @@ export class PowerModel {
     out.voltAt = (px, py) => {
       const nd = this.nodeOf.get(`${px},${py}`);
       return nd === undefined ? null : cabs(V(find(nd)));
+    };
+    // 전압이 정해지지 않은 (어느 전원에도 닿지 않은) 점은 전압계가 0 을 가리킨다
+    const known = (nd: number) => fixed.has(find(nd)) || unknown.has(find(nd));
+    out.voltBetween = (a, b) => {
+      const [na, nb] = [this.nodeOf.get(`${a[0]},${a[1]}`), this.nodeOf.get(`${b[0]},${b[1]}`)];
+      if (na === undefined || nb === undefined) return null;
+      return known(na) && known(nb) ? cabs(csub(V(find(na)), V(find(nb)))) : 0;
     };
     return out;
   }

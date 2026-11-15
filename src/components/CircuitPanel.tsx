@@ -7,7 +7,7 @@ import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, trImpedance, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
 import { changeSocketLayout } from '../circuit/socket';
-import { busSize, circuitWires, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, palette, PARTS, partBox, partKindName, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -23,7 +23,7 @@ import { downloadText, safeFileName } from '../io/files';
 import { niceCeil } from '../plc/simulator';
 import { askConfirm, askText, Check, Field, Icon, IconButton, Menu, NumberInput, Select, TimeInput } from './ui';
 import * as F from './fileActions';
-import { circuitExamples } from '../circuit/examples';
+import { circuitExamples, exampleGroups } from '../circuit/examples';
 import { tr } from '../i18n';
 import { WEB_TRIAL } from '../env';
 import { WIRE_HEX } from '../render/RealSymbols';
@@ -66,7 +66,7 @@ export function makePart(c: Circuit, item: PaletteItem, x: number, y: number, id
   }
   // 아직 아무것도 쓰지 않는 솔레노이드 기호를 실린더·밸브에 붙여 준다
   const used = new Set(c.parts.flatMap((q) => [q.solPlus, q.solMinus, q.solA, q.solB].map((t) => normTag(t ?? ''))));
-  const free = c.parts.filter((q) => q.type === 'sol' && q.tag.trim() && !used.has(normTag(q.tag))).map((q) => q.tag);
+  const free = c.parts.filter((q) => SOL_TYPES.has(q.type) && q.tag.trim() && !used.has(normTag(q.tag))).map((q) => q.tag);
   if (item.type === 'cyl') {
     p.solPlus = free[0] ?? '';
     p.solMinus = free[1] ?? '';
@@ -469,7 +469,13 @@ export function CircuitPanel() {
           label={tr('예제 회로', 'Examples')}
           icon="circuit"
           items={[
-            ...circuitExamples().map((ex) => ({ label: ex.name, icon: 'circuit', onClick: () => F.openCircuitExample(ex.id) })),
+            ...exampleGroups().flatMap((g, k) => [
+              ...(k ? [{ divider: true }] : []),
+              { label: g.title, disabled: true },
+              ...circuitExamples()
+                .filter((ex) => ex.group === g.key)
+                .map((ex) => ({ label: ex.name, icon: 'circuit', onClick: () => F.openCircuitExample(ex.id) })),
+            ]),
             { divider: true },
             { label: tr('새 회로도 (새 차트 탭)', 'New circuit (new chart tab)'), icon: 'plus', onClick: F.addCircuitSheet },
           ]}
@@ -643,7 +649,7 @@ export function CircuitPanel() {
                 title={project.meta.title}
               />
             )}
-            {side === 'check' && <CheckPane issues={issues} onPick={(ids) => (setSel({ parts: ids, wires: [] }), setSide('props'))} />}
+            {side === 'check' && <CheckPane issues={issues} onPick={(ids, wires) => (setSel({ parts: ids, wires }), setPowerPick({ parts: ids, wires }), ids.length === 1 && !wires.length && setSide('props'))} />}
           </div>
         </aside>
       </div>
@@ -863,7 +869,7 @@ function PropsPane({
   const row = bom.find((r) => normTag(r.tag) === tag && r.tag);
   const kind = model.tagKind.get(tag);
   const coilTags = [...model.tagKind].filter(([, k]) => k !== 'sensor').map(([t]) => model.label(t)).filter((t) => !t.startsWith('#'));
-  const solTags = circuit.parts.filter((q) => q.type === 'sol' && q.tag.trim()).map((q) => q.tag);
+  const solTags = circuit.parts.filter((q) => SOL_TYPES.has(q.type) && q.tag.trim()).map((q) => q.tag);
   const cylTags = circuit.parts.filter((q) => q.type === 'cyl' && q.tag.trim()).map((q) => q.tag);
   const set = (patch: Partial<Part>) => update(p.id, patch);
   const sameTag = circuit.parts.filter((q) => q.id !== p.id && q.tag.trim() && normTag(q.tag) === tag);
@@ -985,12 +991,34 @@ function PropsPane({
               <NumberInput value={p.n ?? 6} min={1} max={40} onChange={(v) => set({ n: v ?? 6 })} />
             </Field>
           )}
-          {(p.type === 'lamp' || p.type === 'pb_no' || p.type === 'pb_nc' || p.type === 'r_lamp' || p.type === 'r_pb') && (
+          {p.type === 'r_nbar' && (
+            <div className="grid2">
+              <Field label={tr('쓰임', 'Use')}>
+                <Select value={p.pole === 'PE' ? 'PE' : 'N'} onChange={(v: 'N' | 'PE') => set({ pole: v })} options={[{ value: 'N', label: tr('중성선 바 (N)', 'Neutral bar (N)') }, { value: 'PE', label: tr('접지 바 (PE)', 'Earth bar (PE)') }]} />
+              </Field>
+              <Field label={tr('나사 수', 'Screws')} hint={tr('모두 한 막대에 이어져 있습니다', 'all on one bar')}>
+                <NumberInput value={p.n ?? 6} min={2} max={40} onChange={(v) => set({ n: Math.max(2, v ?? 6) })} />
+              </Field>
+            </div>
+          )}
+          {(p.type === 'r_duct' || p.type === 'r_rail') && (
+            <div className="grid2" title={tr('손잡이를 끌어도 됩니다', 'or drag the handle')}>
+              <Field label={tr('길이 (칸)', 'Length (cells)')}>
+                <NumberInput value={p.w ?? 16} min={2} max={400} step={1} onChange={(v) => set({ w: Math.max(2, Math.round(v ?? 16)) })} />
+              </Field>
+              {p.type === 'r_duct' && (
+                <Field label={tr('폭 (칸)', 'Width (cells)')}>
+                  <NumberInput value={p.h ?? 2} min={1} max={400} step={1} onChange={(v) => set({ h: Math.max(1, Math.round(v ?? 2)) })} />
+                </Field>
+              )}
+            </div>
+          )}
+          {(p.type === 'lamp' || p.type === 'pb_no' || p.type === 'pb_nc' || p.type === 'r_lamp' || p.type === 'r_pb' || p.type === 'r_pbl') && (
             <Field label={tr('색', 'Colour')} wide>
               <Select value={p.color ?? (p.type === 'lamp' || p.type === 'r_lamp' ? 'red' : '')} onChange={(v) => set({ color: (v || undefined) as LampColor | undefined })} options={[...(p.type !== 'lamp' && p.type !== 'r_lamp' ? [{ value: '', label: '—' }] : []), ...(['red', 'green', 'yellow', 'white', 'blue'] as LampColor[]).map((x) => ({ value: x, label: lampColorName(x) }))]} />
             </Field>
           )}
-          {p.type === 'prox' && (
+          {PROX_TYPES.has(p.type) && (
             <div className="grid2">
               <Field label={tr('센서 종류', 'Sensor type')}>
                 <Select value={p.sense ?? 'inductive'} onChange={(v) => set({ sense: v as Part['sense'] })} options={[{ value: 'inductive', label: tr('근접 (유도형, 금속)', 'Inductive (metal)') }, { value: 'capacitive', label: tr('근접 (정전용량형)', 'Capacitive') }, { value: 'photo', label: tr('광전 센서', 'Photoelectric') }]} />
@@ -1005,7 +1033,7 @@ function PropsPane({
               <Select value={p.sense ?? ''} onChange={(v) => set({ sense: (v || undefined) as Part['sense'] })} options={[{ value: '', label: tr('리밋 스위치 (롤러)', 'Limit switch (roller)') }, { value: 'reed', label: tr('리드 스위치 (실린더 센서)', 'Reed switch') }, { value: 'float', label: tr('플로트 스위치 (수위)', 'Float switch') }, { value: 'pressure', label: tr('압력 스위치', 'Pressure switch') }]} />
             </Field>
           )}
-          {(p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'prox') && (
+          {(p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'r_ls' || PROX_TYPES.has(p.type)) && (
             <div className="grid2">
               <Field label={tr('실린더 연결', 'Cylinder')} hint={tr('비우면 시뮬레이션에서 눌러서 조작', 'Empty: operate by clicking')}>
                 <Select value={p.cyl ?? ''} onChange={(v) => set({ cyl: v || undefined })} options={[{ value: '', label: tr('(손으로 조작)', '(manual)') }, ...cylTags.map((t) => ({ value: t, label: t }))]} />
@@ -2227,12 +2255,12 @@ function WiringPane({
   );
 }
 
-function CheckPane({ issues, onPick }: { issues: CircuitIssue[]; onPick: (ids: string[]) => void }) {
+function CheckPane({ issues, onPick }: { issues: CircuitIssue[]; onPick: (ids: string[], wires: string[]) => void }) {
   if (!issues.length) return <p className="cc-ok">{tr('문제가 없습니다.', 'No problems found.')}</p>;
   return (
     <div className="msgs cc-check">
       {issues.map((i, k) => (
-        <button type="button" key={k} className={`msg ${i.level === 'error' ? 'error' : 'warning'}`} onClick={() => i.partIds.length && onPick(i.partIds)}>
+        <button type="button" key={k} className={`msg ${i.level === 'error' ? 'error' : 'warning'}`} onClick={() => (i.partIds.length || i.wireIds?.length) && onPick(i.partIds, i.wireIds ?? [])}>
           {i.msg}
         </button>
       ))}

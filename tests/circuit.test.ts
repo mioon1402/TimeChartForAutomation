@@ -952,3 +952,80 @@ describe('relay and timer sockets (wires land on the socket screws)', () => {
     expect(rows).toContain('T1 1 ~ T1 2');
   });
 });
+
+describe('example projects: motor control, DC sensor, home wiring', () => {
+  const run = (id: string) => {
+    const c = example(id);
+    expect(checkCircuit(c), id).toEqual([]);
+    const res = runScenario(c);
+    expect(res.warnings, id).toEqual([]);
+    return { c, res, at: (key: string) => edges(res, key).map((e) => [e.t, e.v]) };
+  };
+
+  it('jog: the motor runs only while the button is held', () => {
+    const { at } = run('motor-jog');
+    expect(at('coil:MC1')).toEqual([[0, 0], [500, 1], [2500, 0], [3500, 1], [4000, 0]]);
+  });
+
+  it('self-holding with lamps: run, stop and overload lamps follow the contactor and the overload relay', () => {
+    const { at } = run('motor-lamps');
+    expect(at('coil:MC1')).toEqual([[0, 0], [500, 1], [3500, 0], [4500, 1], [6000, 0]]);
+    expect(at('load:GL')).toEqual([[0, 0], [500, 1], [3500, 0], [4500, 1], [6000, 0]]);
+    // 정지등은 조작 전원이 살아 있고 MC 가 떨어져 있을 때 (트립 중에는 조작 전원이 끊겨 꺼진다)
+    expect(at('load:RL')).toEqual([[0, 1], [500, 0], [3500, 1], [4500, 0], [7500, 1]]);
+    expect(at('load:YL')).toEqual([[0, 0], [6000, 1], [7500, 0]]);
+  });
+
+  it('two-place control: either start button starts, either stop button stops', () => {
+    const { at } = run('motor-2place');
+    expect(at('coil:MC1')).toEqual([[0, 0], [500, 1], [3000, 0], [4000, 1], [6000, 0]]);
+  });
+
+  it('star-delta: star for 3 s, then delta, never both', () => {
+    const { at, res } = run('star-delta');
+    expect(at('coil:MC1')).toEqual([[0, 0], [500, 1], [7500, 0]]);
+    expect(at('coil:MC2')).toEqual([[0, 0], [500, 1], [3500, 0]]);
+    expect(at('coil:MC3')).toEqual([[0, 0], [3500, 1], [7500, 0]]);
+    expect(at('load:M1')).toEqual([[0, 0], [500, 1], [7500, 0]]);
+    // 인터록: Y 와 Δ 가 함께 붙는 순간이 없다 (붙으면 단락 경고가 난다)
+    expect(res.warnings).toEqual([]);
+  });
+
+  it('feed pump: float switch in auto, direct run in manual', () => {
+    const { at } = run('pump-float');
+    expect(at('coil:MC1')).toEqual([[0, 1], [2000, 0], [5000, 1], [9500, 0]]);
+    expect(at('load:GL')).toEqual([[0, 1], [2000, 0], [5000, 1], [9500, 0]]);
+  });
+
+  it('24 V DC sensor: the PNP sensor pulls in the relay, which drives the solenoid valve and buzzer', () => {
+    const { at, c } = run('dc-sensor');
+    expect(at('coil:X1')).toEqual([[0, 0], [1000, 1], [3000, 0]]);
+    expect(at('load:SOL1')).toEqual([[0, 0], [1000, 1], [3000, 0]]);
+    expect(at('load:BZ1')).toEqual([[0, 0], [1000, 1], [3000, 0]]);
+    const rows = partsList(c);
+    expect(rows.find((r) => r.tag === 'PS1')).toMatchObject({ kind: 'SMPS' });
+    expect(rows.find((r) => r.tag === 'PX1')!.spec).toContain('PNP');
+    expect(rows.find((r) => r.tag === 'X1')!.spec).toContain('PYF08A');
+  });
+
+  it('home wiring: the switch controls the light; the outlet is earthed through the earth bar', () => {
+    const { at, c } = run('home-outlet');
+    expect(at('load:EL1')).toEqual([[0, 0], [1000, 1], [4000, 0]]);
+    const net = new CircuitModel(c).net.pinNet;
+    const con = c.parts.find((p) => p.tag === 'CON1')!;
+    const pe = c.parts.find((p) => p.type === 'r_term' && p.pole === 'PE')!;
+    const bar = c.parts.find((p) => p.tag === 'PEB1')!;
+    // 콘센트 PE 는 접지 바의 둘째 나사, 전원 PE 는 첫째 나사 (바가 이어 준다)
+    expect(net.get(`${con.id}:2`)).toBe(net.get(`${bar.id}:1`));
+    expect(net.get(`${pe.id}:0`)).toBe(net.get(`${bar.id}:0`));
+  });
+
+  it('examples are listed in groups', async () => {
+    const { exampleGroups } = await import('../src/circuit/examples');
+    const groups = exampleGroups().map((g) => g.key);
+    const all = circuitExamples();
+    expect(all.every((e) => groups.includes(e.group))).toBe(true);
+    expect(all.filter((e) => e.group === 'motor').map((e) => e.id)).toEqual(expect.arrayContaining(['real', 'motor-jog', 'motor-lamps', 'motor-2place', 'star-delta', 'pump-float']));
+    expect(new Set(all.map((e) => e.id)).size).toBe(all.length);
+  });
+});

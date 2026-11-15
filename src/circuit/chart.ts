@@ -38,6 +38,28 @@ function defaultName(p: Part): string {
       return p.elb ? t_('누전차단기', 'ELB') : t_('차단기', 'Breaker');
     case 'r_vcb':
       return t_('VCB 진공차단기', 'VCB');
+    case 'r_fuse':
+      return t_('퓨즈', 'Fuse');
+    case 'r_ls':
+      return t_('리밋 스위치', 'Limit switch');
+    case 'r_fsw':
+      return t_('풋 스위치', 'Foot switch');
+    case 'r_float':
+      return t_('플로트 스위치', 'Float switch');
+    case 'r_psw':
+      return t_('압력 스위치', 'Pressure switch');
+    case 'r_pbl':
+      return t_('조광형 버튼', 'Illuminated button');
+    case 'r_prox':
+      return p.sense === 'photo' ? t_('광전 센서', 'Photo sensor') : t_('근접 센서', 'Proximity sensor');
+    case 'r_buzzer':
+      return t_('부저', 'Buzzer');
+    case 'r_sol':
+      return t_('솔레노이드', 'Solenoid');
+    case 'r_fan':
+      return t_('팬', 'Fan');
+    case 'r_motor6':
+      return t_('전동기', 'Motor');
     case 'r_mc':
       return t_('전자접촉기', 'Contactor');
     case 'r_thr':

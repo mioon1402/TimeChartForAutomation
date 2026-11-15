@@ -5,6 +5,7 @@ import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
 import { loadRating } from './power';
 import { supplyProblems } from './supply';
+import { verifyWiring } from './verify';
 import { tr } from '../i18n';
 
 /** 부품 리스트 한 줄 = 기호 하나 (코일과 그 접점들은 한 기기) */
@@ -65,6 +66,24 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_relay8: 3,
   r_my2: 3,
   r_my4: 3,
+  r_fuse: 0,
+  r_smps: 1,
+  r_pbl: 5,
+  r_ls: 6,
+  r_fsw: 6,
+  r_float: 6,
+  r_psw: 6,
+  r_prox: 6,
+  r_buzzer: 7,
+  r_sol: 7,
+  r_fan: 8,
+  r_outlet: 8,
+  r_motor6: 9,
+  r_vm: 9,
+  r_am: 9,
+  r_nbar: 10,
+  r_duct: 11,
+  r_rail: 11,
   r_timer8: 4,
   r_ss: 6,
   r_estop: 6,
@@ -190,6 +209,42 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'r_mcb3':
     case 'r_mcb4':
       return { kind: p.elb ? tr('누전차단기 (ELB)', 'Earth leakage breaker (ELB)') : tr('배선용 차단기', 'Circuit breaker'), spec: `${p.type.slice(-1)}P${p.amps ? ` ${p.amps}A` : ''}${p.ka ? ` ${p.ka}kA` : ''}` };
+    case 'r_fuse':
+      return { kind: tr('퓨즈 홀더', 'Fuse holder'), spec: `1P${p.amps ? ` ${p.amps}A` : ''}` };
+    case 'r_smps':
+      return { kind: 'SMPS', spec: tr('입력 AC 100-240V, 출력 DC 24V', 'in AC 100-240V, out DC 24V') };
+    case 'r_prox':
+      return { kind: p.sense === 'photo' ? tr('광전 센서 (3선식)', 'Photo sensor (3-wire)') : tr('근접 센서 (3선식)', 'Proximity sensor (3-wire)'), spec: `${p.npn ? 'NPN' : 'PNP'} NO, DC 24V` };
+    case 'r_ls':
+      return { kind: tr('리밋 스위치', 'Limit switch'), spec: ab };
+    case 'r_fsw':
+      return { kind: tr('풋 스위치', 'Foot switch'), spec: ab };
+    case 'r_float':
+      return { kind: tr('플로트 스위치', 'Float switch'), spec: ab };
+    case 'r_psw':
+      return { kind: tr('압력 스위치', 'Pressure switch'), spec: ab };
+    case 'r_pbl':
+      return { kind: tr('조광형 푸시버튼', 'Illuminated push button'), spec: [p.color ? lampColorName(p.color) : '', ab].filter(Boolean).join(' ') };
+    case 'r_buzzer':
+      return { kind: tr('부저', 'Buzzer'), spec: '' };
+    case 'r_sol':
+      return { kind: tr('솔레노이드 밸브', 'Solenoid valve'), spec: tr('코일 DC 24V', 'coil DC 24V') };
+    case 'r_fan':
+      return { kind: tr('판넬 팬', 'Panel fan'), spec: 'AC 220V' };
+    case 'r_outlet':
+      return { kind: tr('콘센트', 'Socket outlet'), spec: tr('접지형 2구', 'earthed') };
+    case 'r_motor6':
+      return { kind: tr('3상 유도 전동기 (6단자, Y-Δ 기동)', '3-phase induction motor (6 leads, Y-Δ)'), spec: '' };
+    case 'r_vm':
+      return { kind: tr('전압계', 'Voltmeter'), spec: '' };
+    case 'r_am':
+      return { kind: tr('전류계', 'Ammeter'), spec: '' };
+    case 'r_nbar':
+      return { kind: p.pole === 'PE' ? tr('접지 바 (PE)', 'Earth bar (PE)') : tr('중성선 바 (N)', 'Neutral bar (N)'), spec: `${tbSize(p)}P` };
+    case 'r_duct':
+      return { kind: tr('배선 덕트', 'Wire duct'), spec: '' };
+    case 'r_rail':
+      return { kind: tr('DIN 레일', 'DIN rail'), spec: '35 mm' };
     case 'r_vcb':
       return { kind: tr('진공차단기 (VCB)', 'Vacuum circuit breaker (VCB)'), spec: `3P${p.amps ? ` ${p.amps}A` : ''}${p.ka ? ` ${p.ka}kA` : ''}` };
     case 'r_tr3':
@@ -279,7 +334,7 @@ export function partsList(c: Circuit): BomRow[] {
   const valveSols = new Set(c.parts.filter((p) => VALVES.has(p.type)).flatMap((p) => [normTag(p.solA ?? ''), p.type === 'v52d' || p.type === 'v53' ? normTag(p.solB ?? '') : '']).filter(Boolean));
   for (const p of c.parts) {
     if (p.type === 'src' || p.type === 'src3' || p.type === 'text' || p.type === 'air' || p.type === 'r_term') continue;
-    if (p.type === 'sol' && valveSols.has(normTag(p.tag))) continue;
+    if ((p.type === 'sol' || p.type === 'r_sol') && valveSols.has(normTag(p.tag))) continue;
     const k = tagKey(p);
     groups.set(k, [...(groups.get(k) ?? []), p]);
   }
@@ -287,7 +342,7 @@ export function partsList(c: Circuit): BomRow[] {
   for (const [k, parts] of groups) {
     const main = mainOf(parts);
     // 실물 기기는 몸 안의 보조 접점(1a1b)도 센다
-    const inside = parts.reduce((n, p) => n + (p.type === 'r_my4' ? 4 : p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_my2' ? 2 : p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' ? 1 : 0), 0);
+    const inside = parts.reduce((n, p) => n + (p.type === 'r_my4' ? 4 : p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_my2' ? 2 : p.type === 'r_ls' || p.type === 'r_fsw' || p.type === 'r_float' || p.type === 'r_psw' || p.type === 'r_pbl' || p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' ? 1 : 0), 0);
     const a = parts.filter((p) => CONTACT_A.has(p.type)).length + inside;
     const b = parts.filter((p) => CONTACT_B.has(p.type)).length + inside;
     const poles = (parts.filter((p) => p.type === 'km3').length + parts.filter((p) => p.type === 'r_mc').length) * 3;
@@ -339,6 +394,8 @@ export function bomCsv(c: Circuit): string {
 export interface CircuitIssue {
   level: 'error' | 'warn';
   msg: string;
+  /** 표시할 전선 (배선 검사) */
+  wireIds?: string[];
   /** 표시할 부품 */
   partIds: string[];
 }
@@ -430,5 +487,7 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
   }
   // 전원 계통에 없는 극 (3상 3선식의 N 등) 은 전압이 없다
   out.push(...supplyProblems(c));
+  // 배선 검사: 선 빠짐 · 전압 불일치 · 단락 · 접지 · 전선 색 …
+  out.push(...verifyWiring(c, model));
   return out;
 }

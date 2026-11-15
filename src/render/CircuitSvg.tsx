@@ -1,9 +1,9 @@
 import type { ReactNode, JSX } from 'react';
-import type { Circuit, Part, WireColor } from '../circuit/types';
+import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
 import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { BusGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { BusGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -53,6 +53,10 @@ export interface PartState {
   /** 전기 해석: 부하의 전압 · 전류, 차단기 · 접점에 흐르는 전류 */
   pw?: { v: number; i: number; p: number };
   amp?: number;
+  /** 전압계: 두 단자 사이 전압 (V) */
+  volt?: number;
+  /** 6단자 전동기의 결선 (Y · Δ) */
+  mode?: 'Y' | 'D';
   /** 타임 스위치: 다이얼 시각, 접점, 시계가 도는 중 */
   tsw?: { dial: number; out: boolean; run: boolean };
   /** 실린더: 스프링 복귀 (단동), 배관으로 움직임 */
@@ -84,6 +88,7 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     act: sim.on(tag),
     on: sim.energized.has(p.id),
     dir: sim.motorDir.get(p.id) ?? 0,
+    mode: sim.motorMode.get(p.id),
     openPhase: sim.openPhase.has(p.id),
     timer: p.type === 'timer' || p.type === 'r_timer8' ? sim.timerView(tag) : null,
     pos: p.type === 'cyl' ? sim.cylPos(tag) : 0,
@@ -472,6 +477,41 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
     case 'r_my2':
     case 'r_my4':
       return <MyRelayGlyph p={p} st={st} c={c} />;
+    case 'r_fuse':
+      return <FuseGlyph p={p} st={st} />;
+    case 'r_smps':
+      return <RSmpsGlyph p={p} st={st} c={c} />;
+    case 'r_prox':
+      return <RProxGlyph p={p} st={st} c={c} />;
+    case 'r_ls':
+      return <LsGlyph p={p} st={st} c={c} />;
+    case 'r_fsw':
+      return <FswGlyph p={p} st={st} c={c} />;
+    case 'r_float':
+      return <FloatGlyph p={p} st={st} c={c} />;
+    case 'r_psw':
+      return <PswGlyph p={p} st={st} c={c} />;
+    case 'r_pbl':
+      return <PblGlyph p={p} st={st} c={c} />;
+    case 'r_buzzer':
+      return <BuzzerGlyph p={p} st={st} c={c} />;
+    case 'r_sol':
+      return <SolGlyph p={p} st={st} c={c} />;
+    case 'r_fan':
+      return <FanGlyph p={p} st={st} c={c} />;
+    case 'r_nbar':
+      return <NbarGlyph p={p} c={c} />;
+    case 'r_vm':
+    case 'r_am':
+      return <MeterGlyph p={p} st={st} c={c} />;
+    case 'r_duct':
+      return <DuctGlyph p={p} />;
+    case 'r_rail':
+      return <RailGlyph p={p} />;
+    case 'r_outlet':
+      return <OutletGlyph p={p} c={c} />;
+    case 'r_motor6':
+      return <Motor6Glyph p={p} st={st} c={c} />;
     case 'r_ss':
       return <SsGlyph p={p} st={st} c={c} />;
     case 'r_estop':
@@ -637,6 +677,12 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
             {o.selected?.has(p.id) && <rect x={-3} y={-3} width={partBox(p)[2] * G - p.x * G + 6} height={partBox(p)[3] * G - p.y * G + 6} rx={12} fill="none" stroke={c.select} strokeWidth={2} strokeDasharray="6 4" />}
           </g>
         ))}
+      {/* DIN 레일은 기기 밑에 깔린다 */}
+      {circuit.parts
+        .filter((p) => p.type === 'r_rail')
+        .map((p) => (
+          <StripPart key={p.id} p={p} c={c} selected={!!o.selected?.has(p.id)} />
+        ))}
       {/* 부스바는 선 밑에: 분기선이 막대 위로 지나가고, 이어진 곳에만 볼트 점 */}
       {circuit.parts
         .filter((p) => p.type === 'r_bus')
@@ -659,6 +705,7 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         })}
       <g opacity={o.progress ? 0.16 : undefined}>
       {circuit.wires.map((w) => {
+        const hops = wireHops(circuit.wires);
         const col = wireColor(w.id);
         const sel = o.selected?.has(w.id);
         const n = model.net.wireNet.get(w.id);
@@ -681,7 +728,7 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
           return (
             <g key={w.id}>
               {sel && <line x1={w.a[0] * G} y1={w.a[1] * G} x2={w.b[0] * G} y2={w.b[1] * G} stroke={c.select} strokeWidth={9} opacity={0.5} />}
-              <Cable a={w.a} b={w.b} color={w.color} pole={pole} c={c} />
+              <Cable a={w.a} b={w.b} color={w.color} pole={pole} c={c} hops={hops.get(w.id)} />
             </g>
           );
         }
@@ -696,17 +743,31 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         <circle key={`j${x},${y}`} cx={x * G} cy={y * G} r={3.4} fill={c.ink} />
       ))}
       </g>
+      {/* 배선 덕트는 선 위에 덮인다 (선이 덕트 안으로 지나가는 모양) */}
+      {circuit.parts
+        .filter((p) => p.type === 'r_duct')
+        .map((p) => (
+          <StripPart key={p.id} p={p} c={c} selected={!!o.selected?.has(p.id)} />
+        ))}
       {o.progress?.map((r, i) =>
         r.segs.map(([a, b], j) =>
           r.color ? <Cable key={`d${i}-${j}`} a={a} b={b} color={r.color} pole={null} c={c} /> : <line key={`d${i}-${j}`} x1={a[0] * G} y1={a[1] * G} x2={b[0] * G} y2={b[1] * G} stroke={c.ink} strokeWidth={1.8} />,
         ),
       )}
       {circuit.parts.map((p) => {
-        if (p.type === 'r_panel' || p.type === 'r_bus') return null;
+        if (p.type === 'r_panel' || p.type === 'r_bus' || p.type === 'r_duct' || p.type === 'r_rail') return null;
         const st = partState(p, model, sim);
         if (o.power) {
           st.pw = o.power.loads.get(p.id);
           st.amp = o.power.partI.get(p.id);
+          if (p.type === 'r_vm') {
+            const [a, b] = pinPositions(p);
+            st.volt = o.power.voltBetween(a, b) ?? undefined;
+          }
+        } else if (sim && (p.type === 'r_vm' || p.type === 'r_am')) {
+          // 전원이 꺼져 있거나 부하가 없으면 0
+          if (p.type === 'r_vm') st.volt = 0;
+          else st.amp = 0;
         }
         const sel = o.selected?.has(p.id);
         const flag = o.flagged?.has(p.id);
@@ -797,19 +858,66 @@ function placeLabels(items: NonNullable<LayerOptions['currents']>, ls: number): 
   return placed;
 }
 
-/** 실제 전선 한 토막: 색 + 얇은 테두리, 녹황은 줄무늬, 전압이 닿으면 흰 점선이 흐른다 */
-function Cable({ a, b, color, pole, c }: { a: [number, number]; b: [number, number]; color: WireColor; pole: string | null; c: CircuitColors }) {
-  const live = !!pole && pole !== 'short' && pole !== 'PE';
-  const L = { x1: a[0] * G, y1: a[1] * G, x2: b[0] * G, y2: b[1] * G };
+/** 덕트 · DIN 레일 (그림만 있는 부품) */
+function StripPart({ p, c, selected }: { p: Part; c: CircuitColors; selected: boolean }) {
+  const [x0, y0, x1, y1] = partBox(p);
   return (
-    <g>
-      <line {...L} stroke={c.bg === CIRCUIT_DARK.bg ? '#ffffff55' : '#00000045'} strokeWidth={5.6} />
-      <line {...L} stroke={WIRE_HEX[color]} strokeWidth={3.8} />
-      {color === 'gy' && <line {...L} stroke="#facc15" strokeWidth={3.8} strokeDasharray="7 7" strokeLinecap="butt" />}
-      {live && <line {...L} stroke="#ffffff" strokeWidth={1.6} strokeDasharray="5 5" className="cc-flow" />}
-      {pole === 'short' && <line {...L} stroke={POLE_COLOR.short} strokeWidth={2.4} className="cc-short" />}
+    <g data-part={p.id}>
+      <g transform={`translate(${p.x * G},${p.y * G})${p.rot ? ` rotate(${p.rot})` : ''}`} fill="none">
+        {p.type === 'r_duct' ? <DuctGlyph p={p} /> : <RailGlyph p={p} />}
+      </g>
+      {selected && <rect x={x0 * G - 3} y={y0 * G - 3} width={(x1 - x0) * G + 6} height={(y1 - y0) * G + 6} rx={4} fill={c.select} fillOpacity={0.12} stroke={c.select} strokeWidth={2} strokeDasharray="6 4" />}
     </g>
   );
+}
+
+/** 실제 전선 한 토막: 색 + 얇은 테두리, 녹황은 줄무늬, 전압이 닿으면 흰 점선이 흐른다 */
+function Cable({ a, b, color, pole, c, hops }: { a: [number, number]; b: [number, number]; color: WireColor; pole: string | null; c: CircuitColors; hops?: number[] }) {
+  const live = !!pole && pole !== 'short' && pole !== 'PE';
+  // 다른 선 위를 건너가는 곳은 작은 다리 (반원) 로: 이어진 것이 아니라 지나가는 것임을 보인다
+  let d = `M${a[0] * G},${a[1] * G}L${b[0] * G},${b[1] * G}`;
+  if (hops?.length && a[1] === b[1]) {
+    const [x1, x2] = [Math.min(a[0], b[0]) * G, Math.max(a[0], b[0]) * G];
+    const y = a[1] * G;
+    d = `M${x1},${y}` + [...hops].sort((p, q) => p - q).map((h) => `H${h * G - HOP}A${HOP},${HOP} 0 0 1 ${h * G + HOP},${y}`).join('') + `H${x2}`;
+  }
+  const P = { d, fill: 'none' };
+  return (
+    <g>
+      <path {...P} stroke={c.bg === CIRCUIT_DARK.bg ? '#ffffff55' : '#00000045'} strokeWidth={5.6} />
+      <path {...P} stroke={WIRE_HEX[color]} strokeWidth={3.8} />
+      {color === 'gy' && <path {...P} stroke="#facc15" strokeWidth={3.8} strokeDasharray="7 7" strokeLinecap="butt" />}
+      {live && <path {...P} stroke="#ffffff" strokeWidth={1.6} strokeDasharray="5 5" className="cc-flow" />}
+      {pole === 'short' && <path {...P} stroke={POLE_COLOR.short} strokeWidth={2.4} className="cc-short" />}
+    </g>
+  );
+}
+
+const HOP = 5;
+
+/** 가로 전선마다, 이어지지 않고 엇갈리는 세로 전선의 자리 (칸). 실물 배선 (색 있는 전선) 에서만 */
+const hopCache = new WeakMap<Wire[], Map<string, number[]>>();
+function wireHops(wires: Wire[]): Map<string, number[]> {
+  const hit = hopCache.get(wires);
+  if (hit) return hit;
+  const out = new Map<string, number[]>();
+  const vert = wires.filter((w) => w.a[0] === w.b[0] && w.a[1] !== w.b[1]);
+  for (const h of wires) {
+    if (!h.color || h.a[1] !== h.b[1] || h.a[0] === h.b[0]) continue;
+    const [x1, x2] = [Math.min(h.a[0], h.b[0]), Math.max(h.a[0], h.b[0])];
+    const xs = new Set<number>();
+    for (const v of vert) {
+      const x = v.a[0];
+      if (x <= x1 + 0.3 || x >= x2 - 0.3) continue;
+      const [y1, y2] = [Math.min(v.a[1], v.b[1]), Math.max(v.a[1], v.b[1])];
+      if (h.a[1] > y1 && h.a[1] < y2) xs.add(x);
+    }
+    // 다리끼리 너무 붙으면 겹치므로 반 칸 안의 것은 하나로
+    const list = [...xs].sort((p, q) => p - q).filter((x, i, arr) => i === 0 || x - arr[i - 1] > 0.6);
+    if (list.length) out.set(h.id, list);
+  }
+  hopCache.set(wires, out);
+  return out;
 }
 
 /**
@@ -840,12 +948,23 @@ function WireEnds({ circuit, model, sim, c, doneEnds }: { circuit: Circuit; mode
       const key = `${w.id}:${end[0]},${end[1]}`;
       // 따라 배선하기: 아직 잇지 않은 전선 끝은 흐리게
       const dim = doneEnds && !doneEnds.has(`${end[0]},${end[1]}|${dx},${dy}`) ? 0.16 : undefined;
-      if (w.color)
+      if (w.color) {
+        // 압착 단자: 나사에 물리는 끝은 은색 슬리브, 그 뒤에 절연 캡
+        const at = (t: number) => `${(end[0] + dx * t) * G},${(end[1] + dy * t) * G}`;
         out.push(
           <g key={key} opacity={dim}>
             <Cable a={from} b={to} color={w.color} pole={pole} c={c} />
+            {dx * dy === 0 && s >= 1 && (
+              <g strokeLinecap="butt" fill="none">
+                <path d={`M${at(0.36)}L${at(0.62)}`} stroke="#4b5563" strokeWidth={6.6} />
+                <path d={`M${at(0.38)}L${at(0.6)}`} stroke="#e5e7eb" strokeWidth={4.8} />
+                <path d={`M${at(0.62)}L${at(0.82)}`} stroke="#00000055" strokeWidth={6.4} />
+                <path d={`M${at(0.63)}L${at(0.81)}`} stroke={WIRE_HEX[w.color]} strokeWidth={5.2} />
+              </g>
+            )}
           </g>,
         );
+      }
       else out.push(<line key={key} x1={from[0] * G} y1={from[1] * G} x2={to[0] * G} y2={to[1] * G} stroke={(pole && POLE_COLOR[pole]) || c.ink} strokeWidth={1.8} opacity={dim} />);
     }
   }

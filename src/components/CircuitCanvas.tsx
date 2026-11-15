@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
 import { autoWireColor } from '../circuit/wires';
-import { busSize, OPERATOR, panelSize, partBox, partPins, partWires, pinPositions, rotate, tbSize, type PaletteItem } from '../circuit/parts';
+import { busSize, OPERATOR, panelSize, partBox, partPins, partWires, pinPositions, rotate, stripSize, tbSize, type PaletteItem } from '../circuit/parts';
 import { tagKey, type CircuitModel, type CircuitSim } from '../circuit/engine';
 import { onWireInterior } from '../circuit/netlist';
 import { uid } from '../model/wave';
@@ -37,7 +37,9 @@ function resizeHandleLocal(p: Part): Pt | null {
     const { bars, len } = busSize(p);
     return [bars - 1, len + 0.7];
   }
-  if (p.type === 'r_tb') return [2 * (tbSize(p) - 1) + 1.6, 0];
+  if (p.type === 'r_tb' || p.type === 'r_nbar') return [2 * (tbSize(p) - 1) + 1.6, 0];
+  if (p.type === 'r_duct') return stripSize(p);
+  if (p.type === 'r_rail') return [stripSize(p)[0], 0];
   return null;
 }
 
@@ -55,6 +57,9 @@ function resizeTo(p: Part, g: Pt): Partial<Part> {
   if (p.type === 'r_panel') return { w: Math.max(4, Math.round(lx)), h: Math.max(4, Math.round(ly)) };
   if (p.type === 'r_bus') return { h: Math.max(2, Math.round(ly - 0.7)) };
   if (p.type === 'r_tb') return { n: Math.min(40, Math.max(1, Math.round((lx - 1.6) / 2) + 1)) };
+  if (p.type === 'r_nbar') return { n: Math.min(40, Math.max(2, Math.round((lx - 1.6) / 2) + 1)) };
+  if (p.type === 'r_duct') return { w: Math.max(1, Math.round(lx)), h: Math.max(1, Math.round(ly)) };
+  if (p.type === 'r_rail') return { w: Math.max(2, Math.round(lx)) };
   return {};
 }
 
@@ -209,9 +214,16 @@ export function CircuitCanvas(props: CanvasProps) {
   const hitPart = (g: Pt): Part | null => {
     for (let i = circuit.parts.length - 1; i >= 0; i--) {
       const p = circuit.parts[i];
-      if (p.type === 'r_panel' || p.type === 'r_bus') continue;
+      // 덕트 · 레일은 다른 기기 밑에 깔리는 그림이라 맨 나중에 잡는다
+      if (p.type === 'r_panel' || p.type === 'r_bus' || p.type === 'r_duct' || p.type === 'r_rail') continue;
       const [a, b, cc, d] = partBox(p);
       if (g[0] >= a - 0.2 && g[0] <= cc + 0.2 && g[1] >= b - 0.2 && g[1] <= d + 0.2) return p;
+    }
+    for (let i = circuit.parts.length - 1; i >= 0; i--) {
+      const p = circuit.parts[i];
+      if (p.type !== 'r_duct' && p.type !== 'r_rail') continue;
+      const [a, b, cc, d] = partBox(p);
+      if (g[0] >= a && g[0] <= cc && g[1] >= b && g[1] <= d && !circuit.wires.some((w) => distToWire(w, g[0], g[1]) < 0.25)) return p;
     }
     // 부스바는 막대 위만 잡힌다 (막대 사이 · 위로 지나가는 분기선은 선으로)
     for (let i = circuit.parts.length - 1; i >= 0; i--) {
@@ -526,7 +538,7 @@ export function CircuitCanvas(props: CanvasProps) {
   const onHandle = !sim && !placing && hover && !drag ? resizeTarget(hover) : null;
   const resizing = drag?.kind === 'resize' ? circuit.parts.find((x) => x.id === drag.id) : null;
   const handlePart = resizing ?? onHandle;
-  const resizeCursor = handlePart ? (handlePart.type === 'r_panel' ? 'nwse-resize' : (handlePart.type === 'r_bus') === (handlePart.rot % 180 === 0) ? 'ns-resize' : 'ew-resize') : null;
+  const resizeCursor = handlePart ? (handlePart.type === 'r_panel' || handlePart.type === 'r_duct' ? 'nwse-resize' : (handlePart.type === 'r_bus') === (handlePart.rot % 180 === 0) ? 'ns-resize' : 'ew-resize') : null;
   const cursor = sim ? (hoverOp ? 'pointer' : 'grab') : resizeCursor ?? (placing ? 'copy' : tool === 'wire' || pinHot ? 'crosshair' : 'default');
   // 고른 분전반 · 부스바 · 단자대의 크기 손잡이
   const handles = sim
