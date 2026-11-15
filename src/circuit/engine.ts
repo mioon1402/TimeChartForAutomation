@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { isLinkedSensor, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, schedOn, tswSched, VALVES } from './parts';
+import { ALWAYS_ON, isLinkedSensor, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import { poleLive } from './supply';
 import type { PlcConfig, SimSettings } from '../plc/types';
@@ -176,7 +176,7 @@ export class CircuitModel {
       const poles = partPoles(p);
       if (poles) {
         // 단자대는 늘 통한다. 8핀 타이머의 1-3 · 1-4 는 순시로 고를 수 있다
-        const always = p.type === 'fuse' || p.type === 'fuse3' || p.type === 'r_tb';
+        const always = ALWAYS_ON.has(p.type);
         poles.forEach(([i, j], k) => {
           const a = this.net.pinNet.get(`${p.id}:${i}`)!;
           const b = this.net.pinNet.get(`${p.id}:${j}`)!;
@@ -195,11 +195,11 @@ export class CircuitModel {
       const pin = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
       partPins(p).forEach((pd, i) => pd.air && this.airNets.add(pin(i)));
       const tubed = (n: number) => this.net.pinCount[n] > 1 || this.net.hasWire[n];
-      if (p.type === 'prox') {
+      if (PROX_TYPES.has(p.type)) {
         // PNP: 감지하면 출력이 + 에, NPN: 출력이 0V 에 이어진다
         this.proxs.push({ part: p, bn: pin(0), bu: pin(2) });
         this.conductors.push({ part: p, a: p.npn ? pin(1) : pin(0), b: p.npn ? pin(2) : pin(1), ia: p.npn ? 1 : 0, ib: p.npn ? 2 : 1, tag, nc: false, always: false, power: p.id });
-      } else if (p.type === 'smps') this.smpsList.push({ part: p, inL: pin(0), inN: pin(1), outP: pin(2), outM: pin(3) });
+      } else if (SMPS_TYPES.has(p.type)) this.smpsList.push({ part: p, inL: pin(0), inN: pin(1), outP: pin(2), outM: pin(3) });
       else if (p.type === 'air') this.airSrc.push(pin(0));
       else if (p.type === 'frl' || p.type === 'fc') {
         this.airAlways.push([pin(0), pin(1)]);
@@ -306,6 +306,8 @@ export class CircuitSim {
   readonly plcOut = new Map<string, boolean[]>();
   /** 3선식 센서·SMPS 에 전원이 들어와 있는가 */
   readonly powered = new Map<string, boolean>();
+  /** 6단자 전동기의 결선: Y (기동) · D (Δ 운전) */
+  readonly motorMode = new Map<string, 'Y' | 'D'>();
   /** 밸브 위치: a = 14쪽 솔레노이드, b = 12쪽(또는 스프링), c = 가운데 */
   readonly valvePos = new Map<string, 'a' | 'b' | 'c'>();
   /** 공압 넷마다 상태 (공압이 아닌 넷은 null) */
@@ -508,6 +510,7 @@ export class CircuitSim {
     this.netPole = Array.from({ length: n }, (_, i) => groupPole.get(find(i)) ?? null);
 
     this.energized.clear();
+    this.motorMode.clear();
     this.motorDir.clear();
     this.openPhase.clear();
     const live = (net: number | undefined) => {
@@ -517,7 +520,30 @@ export class CircuitSim {
     for (const p of this.m.loads) {
       const def = PARTS[p.type];
       let nets = def.pins.map((_, i) => this.m.net.pinNet.get(`${p.id}:${i}`));
-      if (def.selfCoil) nets = def.selfCoil.map((i) => nets[i]);
+      const lp = def.selfCoil ?? def.loadPins;
+      if (lp) nets = lp.map((i) => nets[i]);
+      if (p.type === 'r_motor6') {
+        // 6단자 전동기: 권선 U1-U2 · V1-V2 · W1-W2. 한쪽 끝 (U1 V1 W1) 에 세 상이 닿고,
+        // 반대쪽 끝이 한데 묶이면 Y 결선, 저마다 다른 상에 닿으면 Δ 결선으로 돈다
+        const idx = nets.slice(0, 3).map((x) => ['L1', 'L2', 'L3'].indexOf(live(x) ?? ''));
+        if (new Set(idx.filter((i) => i >= 0)).size === 3) {
+          const far = [nets[4], nets[5], nets[3]]; // U2 V2 W2
+          const star = far.every((x) => x !== undefined) && find(far[0]!) === find(far[1]!) && find(far[1]!) === find(far[2]!) && !live(far[0]);
+          const delta = far.every((x, k) => {
+            const f = ['L1', 'L2', 'L3'].indexOf(live(x) ?? '');
+            return f >= 0 && f !== idx[k];
+          });
+          if (star || delta) {
+            this.energized.add(p.id);
+            this.motorDir.set(p.id, (idx[1] - idx[0] + 3) % 3 === 1 ? 1 : -1);
+            this.motorMode.set(p.id, star ? 'Y' : 'D');
+          }
+        } else if (new Set(idx.filter((i) => i >= 0)).size === 2) {
+          this.openPhase.add(p.id);
+          this.warn(`${p.tag || 'M'}: 결상 - 두 상만 이어져서 돌지 않습니다`, `open:${p.id}`);
+        }
+        continue;
+      }
       if (p.type === 'motor3' || p.type === 'r_motor3' || p.type === 'r_load3') {
         const ph = nets.slice(0, 3).map(live);
         const idx = ph.map((x) => (x === 'L1' ? 0 : x === 'L2' ? 1 : x === 'L3' ? 2 : -1));

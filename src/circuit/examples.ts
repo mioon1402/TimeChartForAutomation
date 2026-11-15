@@ -471,6 +471,279 @@ function relaySocket(): Circuit {
   return b.done();
 }
 
+/**
+ * 전동기 주회로 한 벌 (실물 배선): L1 L2 L3 → MCB1 3P → MC1 → THR1 → M1, 전동기 접지.
+ * 조작 전원은 L1 에서 퓨즈 F1 을 거쳐 THR 95-96 (b) 을 지난 선으로 주고 (ctlTo 까지), 코일 A1 은 조작 회로의 끝 (coilFrom) 에서 받는다.
+ * A2 와 램프의 N 은 x = 14 기둥 (N 단자) 으로 돌아간다. 조작 기기는 x ≥ 20 에 놓는다.
+ */
+function motorKit(b: Builder, o: { ctlTo: [number, number]; coilFrom: [number, number]; hold?: boolean; motor?: string }): void {
+  const COL: WireColor[] = ['brown', 'black', 'grey'];
+  [4, 6, 8].forEach((x, k) => {
+    b.part('r_term', x, 0, '', { pole: (['L1', 'L2', 'L3'] as const)[k] });
+    b.cable(COL[k], [x, 0], [x, 2]);
+    b.cable(COL[k], [x, 10], [x, 16]);
+    b.cable(COL[k], [x, 24], [x, 32]);
+    b.cable(COL[k], [x, 38], [x, 42]);
+  });
+  b.part('r_term', 14, 0, '', { pole: 'N' });
+  b.part('r_mcb3', 6, 6, 'MCB1', { name: tr('주 차단기', 'Main breaker'), spec: 'AC/20A' });
+  b.part('r_mc', 7, 20, 'MC1', { name: tr('전동기 운전', 'Motor run'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  b.part('r_thr', 6, 35, 'THR1', { name: tr('과부하', 'Overload') });
+  b.part('r_motor3', 6, 45, 'M1', { name: o.motor ?? tr('3상 전동기', '3-phase motor'), spec: 'AC 380V' });
+  b.part('r_term', 14, 46, '', { pole: 'PE' });
+  b.cable('gy', [10, 46], [14, 46]);
+  // 조작 전원: L1 (차단기 아래) → 퓨즈 F1 → THR 95, THR 96 → 조작 회로
+  b.part('r_fuse', 0, 16, 'F1', { name: tr('조작 회로', 'Control'), amps: 5 });
+  b.cable('red', [4, 12], [0, 12], [0, 13]);
+  b.cable('red', [0, 19], [0, 30], [10, 30], [10, 32]);
+  b.cable('red', [10, 38], [10, 40], [18, 40], [18, o.ctlTo[1]], o.ctlTo);
+  // 코일 A1 ← 조작 회로 끝 (아래 모선 y = 28), 자기유지면 14 도 같은 선에. A2 → N
+  b.cable('red', o.coilFrom, [o.coilFrom[0] + 2, o.coilFrom[1]], [o.coilFrom[0] + 2, 28], [2, 28], [2, 13], [5, 13], [5, 14]);
+  if (o.hold) b.cable('red', [10, 28], [10, 24]);
+  b.cable('blue', [9, 26], [9, 27], [14, 27], [14, 0]);
+}
+
+/** 조그 (인칭) 운전: 버튼을 누르고 있는 동안만 전동기가 돈다. L1 → F1 → THR 95-96 → PB1 23-24 → MC1 A1, A2 → N */
+function motorJog(): Circuit {
+  const b = new Builder();
+  b.part('r_pb', 21, 20, 'PB1', { name: tr('조그', 'Jog'), color: 'yellow' });
+  motorKit(b, { ctlTo: [20, 22], coilFrom: [22, 22] });
+  b.part('text', -2, -4, '', { text: tr('조그 (인칭) 운전: 버튼을 누르고 있는 동안만 운전 (위치 맞춤 · 시운전)', 'Jog: the motor runs only while the button is held') });
+  b.op(500, 'PB1', 'press', tr('조그 (2초 동안 누름)', 'Jog for 2 s'), 2000);
+  b.op(3000, 'PB1', 'press', tr('짧게 한 번 더', 'A short jog'), 500);
+  return b.done();
+}
+
+/**
+ * 표시등 부착 자기유지: 정지 PB0 (b) → 기동 PB1 (a) ∥ MC1 13-14 → 코일.
+ *  - GL 운전등: 코일과 나란히, RL 정지등: MC1 21-22 (b), YL 과부하등: THR 97-98 (a)
+ */
+function motorLamps(): Circuit {
+  const b = new Builder();
+  b.part('r_pb', 21, 20, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('r_pb', 29, 20, 'PB1', { name: tr('기동', 'Start'), color: 'green' });
+  b.part('r_lamp', 22, 6, 'GL', { name: tr('운전', 'Running'), color: 'green' });
+  b.part('r_lamp', 28, 6, 'RL', { name: tr('정지', 'Stopped'), color: 'red' });
+  b.part('r_lamp', 34, 6, 'YL', { name: tr('과부하', 'Overload'), color: 'yellow' });
+  motorKit(b, { ctlTo: [20, 20], coilFrom: [30, 22], hold: true });
+  // 정지 12 → 기동 23, MC1 13 (자기유지)
+  b.cable('red', [22, 20], [25, 20], [25, 22], [28, 22]);
+  b.cable('red', [25, 20], [25, 11], [10, 11], [10, 16]);
+  // 운전등: 코일과 나란히
+  b.cable('red', [21, 7], [21, 10], [34, 10], [34, 24], [32, 24]);
+  // 정지등: 조작 전원 → MC1 21-22 (b) → RL
+  b.cable('red', [18, 20], [18, 14], [12, 14], [12, 16]);
+  b.cable('red', [27, 7], [27, 12], [16, 12], [16, 26], [12, 26], [12, 24]);
+  // 과부하등: 퓨즈 뒤 → THR 97-98 (a) → YL
+  b.cable('red', [10, 30], [12, 30], [12, 32]);
+  b.cable('red', [12, 38], [12, 41], [36, 41], [36, 13], [33, 13], [33, 7]);
+  // 램프 N
+  b.cable('blue', [35, 7], [35, 9], [14, 9]);
+  b.cable('blue', [29, 7], [29, 9]);
+  b.cable('blue', [23, 7], [23, 9]);
+  b.part('text', -2, -4, '', { text: tr('표시등 부착 자기유지: 운전 GL · 정지 RL · 과부하 YL (THR 트립)', 'Self-holding with run, stop and overload lamps') });
+  b.op(500, 'PB1', 'press', tr('기동', 'Start'));
+  b.op(3000, 'PB0', 'press', tr('정지', 'Stop'));
+  b.op(1000, 'PB1', 'press', tr('다시 기동', 'Restart'));
+  b.op(1500, 'THR1', 'on', tr('과부하 트립', 'Overload trip'));
+  b.op(1500, 'THR1', 'off', tr('복귀', 'Reset'));
+  return b.done();
+}
+
+/** 2개소 (다점) 제어: 정지 버튼은 직렬로, 기동 버튼은 병렬로. 현장과 조작반 어디서나 기동 · 정지 */
+function motorTwoPlace(): Circuit {
+  const b = new Builder();
+  b.part('r_pb', 21, 20, 'PB0', { name: tr('정지 (조작반)', 'Stop (panel)'), color: 'red' });
+  b.part('r_pb', 29, 20, 'PB2', { name: tr('정지 (현장)', 'Stop (local)'), color: 'red' });
+  b.part('r_pb', 37, 20, 'PB1', { name: tr('기동 (조작반)', 'Start (panel)'), color: 'green' });
+  b.part('r_pb', 45, 20, 'PB3', { name: tr('기동 (현장)', 'Start (local)'), color: 'green' });
+  motorKit(b, { ctlTo: [20, 20], coilFrom: [46, 22], hold: true });
+  // 정지 두 개 직렬
+  b.cable('red', [22, 20], [28, 20]);
+  // 기동 두 개 병렬: 앞쪽 (23) 끼리, MC1 13 도 같은 선
+  b.cable('red', [30, 20], [33, 20], [33, 22], [36, 22]);
+  b.cable('red', [33, 22], [33, 24], [41, 24], [41, 22], [44, 22]);
+  b.cable('red', [33, 20], [33, 11], [10, 11], [10, 16]);
+  // 뒤쪽 (24) 끼리 → 코일
+  b.cable('red', [38, 22], [40, 22], [40, 28]);
+  b.part('text', -2, -4, '', { text: tr('2개소 제어: 정지는 직렬 · 기동은 병렬 (조작반과 현장 어디서나)', 'Two-place control: stops in series, starts in parallel') });
+  b.op(500, 'PB1', 'press', tr('조작반에서 기동', 'Start at the panel'));
+  b.op(2500, 'PB2', 'press', tr('현장에서 정지', 'Stop locally'));
+  b.op(1000, 'PB3', 'press', tr('현장에서 기동', 'Start locally'));
+  b.op(2000, 'PB0', 'press', tr('조작반에서 정지', 'Stop at the panel'));
+  return b.done();
+}
+
+/**
+ * 급수 펌프 자동 운전: 셀렉터 SS (자동 11-12 / 수동 23-24) 와 플로트 스위치 FLS1.
+ *  - 자동: 저수위면 FLS1 11-12 (b) 가 닫혀 펌프 운전, 만수가 되면 열려 정지
+ *  - 수동: 수위와 상관없이 운전
+ */
+function pumpFloat(): Circuit {
+  const b = new Builder();
+  b.part('r_ss', 21, 20, 'SS', { name: tr('자동 0 / 수동 1', 'Auto 0 / manual 1') });
+  b.part('r_float', 29, 20, 'FLS1', { name: tr('수조 수위', 'Tank level') });
+  b.part('r_lamp', 22, 6, 'GL', { name: tr('펌프 운전', 'Pump running'), color: 'green' });
+  motorKit(b, { ctlTo: [20, 20], coilFrom: [30, 20], motor: tr('급수 펌프', 'Feed pump') });
+  b.cable('red', [18, 22], [20, 22]);
+  // 자동: SS 12 → 플로트 11, 플로트 12 → 코일. 수동: SS 24 → 코일
+  b.cable('red', [22, 20], [28, 20]);
+  b.cable('red', [22, 22], [24, 22], [24, 28]);
+  b.cable('red', [21, 7], [21, 10], [34, 10], [34, 24], [32, 24]);
+  b.cable('blue', [23, 7], [23, 9], [14, 9]);
+  b.part('text', -2, -4, '', { text: tr('급수 펌프: 자동은 플로트 스위치 (저수위에서 운전 · 만수에서 정지), 수동은 바로 운전', 'Feed pump: float switch in auto, direct run in manual') });
+  b.op(2000, 'FLS1', 'on', tr('만수 → 정지', 'Tank full: stop'));
+  b.op(3000, 'FLS1', 'off', tr('저수위 → 운전', 'Level low: run'));
+  b.op(2000, 'SS', 'on', tr('수동으로', 'Manual'));
+  b.op(1000, 'FLS1', 'on', tr('만수여도 수동은 계속 운전', 'Full, but manual keeps running'));
+  b.op(1500, 'SS', 'off', tr('자동으로 → 만수라 정지', 'Back to auto: stops'));
+  return b.done();
+}
+
+/**
+ * 직류 24V 센서 회로 (실물): L → 퓨즈 F1 → SMPS → +24V · 0V 모선 (덕트 안).
+ *  - 근접 센서 PX1 (PNP): 갈색 +24V, 파랑 0V, 검정 → 릴레이 X1 코일 14, 13 → 0V
+ *  - X1 9-5 (a) → 솔레노이드 밸브 SOL1, X1 12-8 (a) → 부저 BZ1
+ *  - 전압계 V1 이 24V 를 보여 준다
+ */
+function dcSensor(): Circuit {
+  const b = new Builder();
+  b.part('r_term', -2, 0, '', { pole: 'PE' });
+  b.part('r_term', 0, 0, '', { pole: 'L' });
+  b.part('r_term', 2, 0, '', { pole: 'N' });
+  b.part('r_fuse', 0, 6, 'F1', { name: tr('SMPS 입력', 'SMPS input'), amps: 3 });
+  b.part('r_smps', 10, 10, 'PS1', { name: tr('직류 전원', 'DC supply') });
+  b.cable('brown', [0, 0], [0, 3]);
+  b.cable('brown', [0, 9], [0, 17], [6, 17], [6, 14]);
+  b.cable('blue', [2, 0], [2, 18], [8, 18], [8, 14]);
+  b.cable('gy', [-2, 0], [-2, 19], [10, 19], [10, 14]);
+  // 직류 모선: +24V (y = 22), 0V (y = 24). 덕트가 덮는다
+  b.cable('red', [14, 14], [14, 22], [32, 22]);
+  b.cable('blue', [12, 14], [12, 24], [49, 24]);
+  b.part('r_duct', 13, 21, '', { w: 37, h: 4 });
+  b.part('r_prox', 22, 6, 'PX1', { name: tr('제품 감지', 'Part present'), sense: 'inductive' });
+  b.part('r_my2', 32, 12, 'X1', { name: tr('감지 릴레이', 'Detect relay'), spec: 'DC 24V' });
+  b.part('r_sol', 42, 8, 'SOL1', { name: tr('스토퍼 전진', 'Stopper out') });
+  b.part('r_buzzer', 48, 8, 'BZ1', { name: tr('감지 알림', 'Detect alert') });
+  // 센서: 갈색 → +24V, 파랑 → 0V, 검정 → X1 14
+  b.cable('red', [20, 9], [20, 22]);
+  b.cable('blue', [24, 9], [24, 24]);
+  b.cable('yellow', [22, 9], [22, 19], [31, 19], [31, 17]);
+  b.cable('blue', [33, 17], [33, 24]);
+  // X1 공통 9 · 12 ← +24V, 5 → SOL1, 8 → BZ1
+  b.cable('red', [32, 15], [32, 22]);
+  b.cable('red', [30, 15], [30, 22]);
+  b.cable('yellow', [32, 9], [32, 4], [38, 4], [38, 13], [41, 13], [41, 10]);
+  b.cable('blue', [43, 10], [43, 24]);
+  b.cable('yellow', [30, 9], [30, 3], [46, 3], [46, 12], [47, 12], [47, 9]);
+  b.cable('blue', [49, 9], [49, 24]);
+  // 전압계
+  b.part('r_vm', 18, 30, 'V1', { name: tr('직류 전압', 'DC voltage') });
+  b.cable('red', [17, 33], [17, 36], [14, 36], [14, 22]);
+  b.cable('blue', [19, 33], [19, 37], [12, 37], [12, 24]);
+  b.part('text', -3, -4, '', { text: tr('직류 24V 센서 회로: SMPS → 근접 센서 (PNP) → 릴레이 → 솔레노이드 밸브 · 부저', '24 V DC sensor circuit: SMPS, PNP proximity sensor, relay, solenoid valve and buzzer') });
+  b.op(1000, 'PX1', 'on', tr('제품 감지', 'Part detected'));
+  b.op(2000, 'PX1', 'off', tr('제품 지나감', 'Part gone'));
+  return b.done();
+}
+
+/**
+ * 자동 Y-Δ 기동 (6단자 전동기): 기동하면 주 접촉기 MC1 과 Y 접촉기 MC2 가 붙어 Y 결선으로 돌고,
+ * 타이머 T1 (3초) 뒤 MC2 가 떨어지고 Δ 접촉기 MC3 이 붙어 Δ 결선으로 운전한다.
+ *  - 주회로: MCB1 → MC1 → U1 V1 W1. MC3 은 L1 → W2, L2 → U2, L3 → V2 (Δ). MC2 는 W2 · U2 · V2 를 한데 묶는다 (Y)
+ *  - 조작: F1 → 정지 PB0 → 기동 PB1 ∥ MC1 13-14 → MC1 코일 · T1 전원
+ *    T1 8-5 (한시 b) → MC3 21-22 → MC2 코일 (Y), T1 8-6 (한시 a) → MC2 21-22 → MC3 코일 (Δ). MC2 · MC3 은 서로 b접점 인터록
+ */
+function starDelta(): Circuit {
+  const b = new Builder();
+  const COL: WireColor[] = ['brown', 'black', 'grey'];
+  [4, 6, 8].forEach((x, k) => {
+    b.part('r_term', x, 0, '', { pole: (['L1', 'L2', 'L3'] as const)[k] });
+    b.cable(COL[k], [x, 0], [x, 2]);
+    b.cable(COL[k], [x, 10], [x, 16]);
+    b.cable(COL[k], [x, 24], [x, 32]);
+    // Δ 접촉기 전원 쪽: 차단기 아래에서 갈라서 MC3 1 · 3 · 5 로
+    b.cable(COL[k], [x, 11 + k], [24 + 2 * k, 11 + k], [24 + 2 * k, 16]);
+    // MC3 아래 → 전동기 W2 · U2 · V2
+    b.cable(COL[k], [24 + 2 * k, 24], [24 + 2 * k, 46 - k], [x, 46 - k], [x, 40]);
+    // Y 접촉기 위 단자로 (세 선에서 갈라서)
+    b.cable(COL[k], [14 + 2 * k, 46 - k], [14 + 2 * k, 50]);
+  });
+  b.part('r_term', 34, 0, '', { pole: 'N' });
+  b.part('r_mcb3', 6, 6, 'MCB1', { name: tr('주 차단기', 'Main breaker'), spec: 'AC/30A' });
+  b.part('r_mc', 7, 20, 'MC1', { name: tr('주 (Main)', 'Main'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  b.part('r_mc', 27, 20, 'MC3', { name: tr('Δ 운전', 'Delta'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  b.part('r_mc', 17, 54, 'MC2', { name: tr('Y 기동', 'Star'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  b.part('r_motor6', 6, 36, 'M1', { name: tr('3상 전동기 (Y-Δ)', '3-phase motor (Y-Δ)') });
+  b.part('r_term', 14, 36, '', { pole: 'PE' });
+  b.cable('gy', [11, 36], [14, 36]);
+  // Y 접촉기 아래 세 단자를 한데 묶는다 (중성점)
+  b.cable('black', [14, 58], [14, 61], [18, 61], [18, 58]);
+  b.cable('black', [16, 58], [16, 61]);
+  // 조작: F1 → 정지 PB0 → 기동 PB1 ∥ MC1 13-14
+  b.part('r_fuse', 0, 16, 'F1', { name: tr('조작 회로', 'Control'), amps: 5 });
+  b.part('r_pb', 41, 20, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('r_pb', 49, 20, 'PB1', { name: tr('기동', 'Start'), color: 'green' });
+  b.part('r_timer8', 44, 34, 'T1', { name: tr('Y → Δ 전환', 'Star to delta'), timerMode: 'on', preset: 3000, sock: 'pf' });
+  b.cable('red', [4, 12], [0, 12], [0, 13]);
+  b.cable('red', [0, 19], [0, 29], [36, 29], [36, 20], [40, 20]);
+  b.cable('red', [42, 20], [45, 20], [45, 22], [48, 22]);
+  b.cable('red', [45, 20], [45, 9], [10, 9], [10, 16]);
+  // 기동 뒤: MC1 코일 A1 · 자기유지 14, T1 전원 2 · 공통 8
+  b.cable('red', [50, 22], [52, 22], [52, 27], [2, 27], [2, 13], [5, 13], [5, 14]);
+  b.cable('red', [10, 27], [10, 24]);
+  b.cable('red', [52, 27], [52, 40], [43, 40], [43, 37]);
+  b.cable('red', [47, 40], [47, 37]);
+  // Y: T1 5 (한시 b) → MC3 21-22 (인터록) → MC2 A1
+  b.cable('yellow', [43, 31], [43, 30], [38, 30], [38, 14], [32, 14], [32, 16]);
+  b.cable('yellow', [32, 24], [32, 47], [15, 47], [15, 48]);
+  // Δ: T1 6 (한시 a) → MC2 21-22 (인터록) → MC3 A1
+  b.cable('orange', [41, 31], [41, 28], [39, 28], [39, 42], [22, 42], [22, 50]);
+  b.cable('orange', [22, 58], [22, 63], [54, 63], [54, 7], [25, 7], [25, 14]);
+  // N: 코일 A2 · 타이머 7
+  b.cable('blue', [34, 0], [34, 65], [19, 65], [19, 60]);
+  b.cable('blue', [9, 26], [9, 28], [34, 28]);
+  b.cable('blue', [29, 28], [29, 26]);
+  b.cable('blue', [41, 37], [41, 39], [34, 39]);
+  b.part('text', -2, -4, '', { text: tr('자동 Y-Δ 기동: Y 결선으로 기동 → 3초 뒤 Δ 결선 운전 (MC2 · MC3 인터록)', 'Automatic star-delta start: star first, delta after 3 s (interlocked)') });
+  b.op(500, 'PB1', 'press', tr('기동 (Y)', 'Start (star)'));
+  b.op(7000, 'PB0', 'press', tr('정지', 'Stop'));
+  return b.done();
+}
+
+/**
+ * 주거 배선: 누전차단기 → 스위치 → 전등, 콘센트. 중성선 바 · 접지 바에서 회로마다 한 가닥씩.
+ */
+function homeOutlet(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 2, 0, '', { pole: 'L' });
+  b.part('r_term', 4, 0, '', { pole: 'N' });
+  b.part('r_term', 8, 0, '', { pole: 'PE' });
+  b.part('r_mcb2', 3, 6, 'ELB1', { name: tr('전등 · 콘센트', 'Lights & outlets'), amps: 20, elb: true });
+  b.part('r_nbar', 12, 14, 'NB1', { n: 4, pole: 'N' });
+  b.part('r_nbar', 12, 18, 'PEB1', { n: 3, pole: 'PE' });
+  b.part('r_sw', 24, 6, 'S1', { name: tr('거실 스위치', 'Living room switch') });
+  b.part('r_light', 32, 6, 'EL1', { name: tr('거실등', 'Living room light') });
+  b.part('r_outlet', 42, 8, 'CON1', { name: tr('거실 콘센트', 'Living room outlet') });
+  b.cable('brown', [2, 0], [2, 2]);
+  b.cable('blue', [4, 0], [4, 2]);
+  // L: 차단기 2 → 스위치 1, 콘센트 L
+  b.cable('brown', [2, 10], [2, 12], [40, 12], [40, 10]);
+  b.cable('brown', [23, 12], [23, 8]);
+  b.cable('red', [25, 8], [25, 10], [31, 10], [31, 8]);
+  // N: 차단기 4 → 중성선 바, 바에서 전등 · 콘센트로 한 가닥씩
+  b.cable('blue', [4, 10], [4, 14], [12, 14]);
+  b.cable('blue', [14, 14], [14, 16], [33, 16], [33, 8]);
+  b.cable('blue', [16, 14], [16, 15], [44, 15], [44, 10]);
+  // PE: 접지 바 → 콘센트
+  b.cable('gy', [8, 0], [8, 18], [12, 18]);
+  b.cable('gy', [14, 18], [14, 20], [42, 20], [42, 10]);
+  b.part('text', 1, -4, '', { text: tr('주거 배선: 누전차단기 → 스위치 → 전등, 콘센트 (중성선 바 · 접지 바)', 'Home wiring: ELB, switch, light and outlet with neutral and earth bars') });
+  b.op(1000, 'S1', 'on', tr('스위치 켬', 'Switch on'));
+  b.op(3000, 'S1', 'off', tr('스위치 끔', 'Switch off'));
+  return b.done();
+}
+
 const H = 3600000;
 
 /**
@@ -553,8 +826,10 @@ function timeSwitchPanel(): Circuit {
 /** 3로 스위치 2개로 계단등: L → S1 0, S1 1-S2 1, S1 3-S2 3, S2 0 → 전등 → N. 어느 쪽에서 눌러도 바뀐다 */
 function stairLight(): Circuit {
   const b = new Builder();
-  b.part('r_term', 3, 5, '', { pole: 'L' });
+  b.part('r_term', 3, -5, '', { pole: 'L' });
   b.part('r_term', 31, 11, '', { pole: 'N' });
+  b.part('r_mcb1', 3, 1, 'MCB1', { name: tr('전등 회로', 'Lighting'), spec: 'AC/16A' });
+  b.cable('brown', [3, -5], [3, -3]);
   b.part('r_sw3', 8, 8, 'S1', { name: tr('아래층', 'Downstairs') });
   b.part('r_sw3', 18, 8, 'S2', { name: tr('위층', 'Upstairs') });
   b.part('r_light', 26, 6, 'EL1', { name: tr('계단등', 'Stair light') });
@@ -563,7 +838,7 @@ function stairLight(): Circuit {
   b.cable('black', [9, 10], [9, 12], [19, 12], [19, 10]);
   b.cable('red', [18, 5], [18, 2], [23, 2], [23, 11], [25, 11], [25, 8]);
   b.cable('blue', [27, 8], [27, 11], [31, 11]);
-  b.part('text', 1, -2, '', { text: tr('3로 스위치 계단등: 아래층 · 위층 어디서나 켜고 끈다', '3-way stair light: switch from either floor') });
+  b.part('text', 1, -9, '', { text: tr('3로 스위치 계단등: 아래층 · 위층 어디서나 켜고 끈다', '3-way stair light: switch from either floor') });
   b.op(1000, 'S1', 'on', tr('아래층에서 끔', 'Off from downstairs'));
   b.op(2000, 'S2', 'on', tr('위층에서 켬', 'On from upstairs'));
   b.op(2000, 'S1', 'off', tr('아래층에서 끔', 'Off from downstairs'));
@@ -792,17 +1067,51 @@ function plcSelfHoldProgram(): PlcConfig {
   return { dialect: 'mitsubishi', source, comments, sim: { ...defaultSimSettings(), watch: ['X0', 'X1', 'Y0', 'T0', 'Y1'] } };
 }
 
+export type ExampleGroup = 'motor' | 'panel' | 'home' | 'power' | 'basic';
+
+/** 예제 메뉴의 묶음 (차례대로) */
+export function exampleGroups(): { key: ExampleGroup; title: string }[] {
+  return [
+    { key: 'motor', title: tr('전동기 제어 (실물 배선)', 'Motor control (real wiring)') },
+    { key: 'panel', title: tr('제어반 · 릴레이 · 센서 (실물 배선)', 'Panels, relays, sensors (real wiring)') },
+    { key: 'home', title: tr('전등 · 주거 (실물 배선)', 'Lighting & home (real wiring)') },
+    { key: 'power', title: tr('분전반 · 계통 해석', 'Panelboards & system analysis') },
+    { key: 'basic', title: tr('기호 회로 (시퀀스 · 공압 · PLC)', 'Schematics (sequence, pneumatics, PLC)') },
+  ];
+}
+
+const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
+  real: 'motor',
+  'motor-jog': 'motor',
+  'motor-lamps': 'motor',
+  'motor-2place': 'motor',
+  'star-delta': 'motor',
+  'pump-float': 'motor',
+  panel: 'panel',
+  'relay-socket': 'panel',
+  'dc-sensor': 'panel',
+  'home-outlet': 'home',
+  stair: 'home',
+  'tsw-light': 'home',
+  'tsw-panel': 'home',
+  busbar: 'power',
+  feeders: 'power',
+  substation: 'power',
+};
+
 export interface CircuitExample {
   id: string;
   name: string;
   desc: string;
+  /** 메뉴에서의 묶음 */
+  group: ExampleGroup;
   build: () => Circuit;
   /** PLC 가 있는 회로: PLC 탭에 넣을 프로그램 */
   plc?: () => PlcConfig;
 }
 
 export function circuitExamples(): CircuitExample[] {
-  return [
+  const list: Omit<CircuitExample, 'group'>[] = [
     { id: 'substation', name: tr('수전 설비: 한전 → 변압기 → 분전반 (계통 해석)', 'Substation: utility → transformer → LV panel'), desc: tr('한전 22.9 kV → VCB → 변압기 500 kVA → 저압 메인 → 부스바 → 분기 4개. 변압기 부하율 · 전압 변동 · 단락 전류 검토. 일부러 넣은 문제 1개 (차단 용량)', 'Utility, VCB, transformer, LV main, busbar and branches; transformer loading and fault currents. One deliberate problem'), build: substation },
     { id: 'busbar', name: tr('분전반: 부스바 · 누전차단기 분기', 'Panelboard: busbar and ELB branches'), desc: tr('메인 4P → 세로 부스바 L1 L2 L3 N → 옆으로 놓은 분기 차단기 (3상 · 단상) → 부하. 탭이 자기 상 막대에만 물리는 것을 확인', 'Main 4P breaker, vertical busbar, sideways branch breakers tapped onto their bars'), build: busPanel },
     { id: 'feeders', name: tr('분전반 급전 해석 (케이블 · 전압강하)', 'Feeder analysis (cables, voltage drop)'), desc: tr('메인 분전반 → 부스바 → 급전선 → 분전반 2개. 케이블 규격으로 허용전류 · 전압강하 · 차단기 정격을 검토', 'Main panel, busbars and feeders to two panels; ampacity, voltage drop and breaker checks'), build: feederAnalysis },
@@ -811,6 +1120,13 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'stair', name: tr('3로 스위치 계단등', '3-way stair light'), desc: tr('3로 스위치 2개로 두 곳에서 전등 하나를 켜고 끕니다', 'Two 3-way switches control one light'), build: stairLight },
     { id: 'panel', name: tr('제어반 실물 배선: 릴레이 · 타이머 · 단자대', 'Control panel: relay, timer, terminal block'), desc: tr('비상정지 · 셀렉터 · 푸시버튼 · 램프 (문) ↔ 단자대 ↔ 8핀 릴레이 · 타이머 (판넬). 결선표를 따라 배선 연습', 'Door devices ↔ terminal block ↔ 8-pin relay and timer; follow the wiring list'), build: controlPanel },
     { id: 'relay-socket', name: tr('릴레이 소켓 배선: 각형 릴레이 자기유지', 'Relay socket wiring: self-holding'), desc: tr('각형 릴레이 (MY2N) 를 소켓 (PYF08A) 에 꽂고 소켓 나사 단자 13-14 · 9-5 · 12-8 · 12-4 에 배선. 기동 · 정지 버튼과 운전 · 정지 램프', 'A blade relay on its socket: wires on the socket screws 13-14, 9-5, 12-8, 12-4'), build: relaySocket },
+    { id: 'motor-jog', name: tr('전동기: 조그 (인칭) 운전', 'Motor: jog'), desc: tr('버튼을 누르고 있는 동안만 운전. 차단기 → 전자접촉기 → 열동 계전기 → 전동기, 조작 회로 퓨즈', 'Runs only while the button is held; breaker, contactor, overload relay, motor'), build: motorJog },
+    { id: 'motor-lamps', name: tr('전동기: 표시등 부착 자기유지', 'Motor: self-holding with lamps'), desc: tr('기동 · 정지 자기유지에 운전등 GL · 정지등 RL (MC 21-22) · 과부하등 YL (THR 97-98)', 'Start/stop with run, stop and overload lamps'), build: motorLamps },
+    { id: 'motor-2place', name: tr('전동기: 2개소 (다점) 제어', 'Motor: two-place control'), desc: tr('조작반과 현장 두 곳에서 기동 · 정지. 정지 버튼은 직렬, 기동 버튼은 병렬', 'Start and stop from two places: stops in series, starts in parallel'), build: motorTwoPlace },
+    { id: 'star-delta', name: tr('전동기: 자동 Y-Δ 기동', 'Motor: automatic star-delta start'), desc: tr('6단자 전동기를 Y 결선으로 기동하고 타이머 3초 뒤 Δ 결선으로 전환. 접촉기 3개 · 타이머 · 인터록', 'A 6-lead motor starts in star and switches to delta after 3 s; three contactors, timer, interlock'), build: starDelta },
+    { id: 'pump-float', name: tr('급수 펌프: 플로트 스위치 자동 / 수동', 'Feed pump: float switch auto / manual'), desc: tr('자동은 저수위에서 운전 · 만수에서 정지, 수동은 바로 운전. 셀렉터 · 플로트 스위치 · 운전등', 'Float switch in auto, direct run in manual'), build: pumpFloat },
+    { id: 'dc-sensor', name: tr('직류 24V: SMPS · 근접 센서 · 릴레이 · 솔레노이드', '24 V DC: SMPS, proximity sensor, relay, solenoid'), desc: tr('퓨즈 → SMPS → 근접 센서 (PNP 3선식) → 각형 릴레이 → 솔레노이드 밸브 · 부저. 덕트 · 전압계', 'Fuse, SMPS, PNP sensor, blade relay, solenoid valve and buzzer; duct and voltmeter'), build: dcSensor },
+    { id: 'home-outlet', name: tr('주거 배선: 누전차단기 · 스위치 · 전등 · 콘센트', 'Home wiring: ELB, switch, light, outlet'), desc: tr('누전차단기에서 스위치 → 전등, 콘센트. 중성선 바와 접지 바에서 회로마다 한 가닥씩', 'ELB to switch, light and outlet; neutral and earth bars'), build: homeOutlet },
     { id: 'real', name: tr('실물 배선도: 전동기 기동·정지', 'Wiring diagram: motor start/stop'), desc: tr('차단기 3P·2P, 전자접촉기, 푸시버튼 유닛, 전동기를 실제 단자 번호와 전선 색으로', 'Real devices with terminal numbers and wire colours'), build: realWiring },
     { id: 'self-hold', name: tr('자기유지 (전동기 기동·정지)', 'Self-holding (motor start/stop)'), desc: tr('기동 PB로 MC1 자기유지, 정지 PB로 해제. 주회로와 표시등 포함', 'Start latches MC1, stop releases it; power circuit and lamps'), build: selfHold },
     { id: 'reversing', name: tr('정역 운전 (인터록)', 'Forward / reverse (interlock)'), desc: tr('MC1·MC2 서로 b접점 인터록, 주회로에서 L1·L3 교체', 'MC1/MC2 interlocked, L1 and L3 swapped'), build: reversing },
@@ -819,4 +1135,5 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'pneumatic', name: tr('전공압 자동 왕복 (밸브 · 근접 센서)', 'Electro-pneumatic auto cycle'), desc: tr('공압원 → FRL → 5/2 양솔 밸브 → 속도 제어 → 실린더, 근접 센서로 왕복', 'Air supply, FRL, 5/2 valve, flow control, cylinder, proximity sensors'), build: electroPneumatic },
     { id: 'plc', name: tr('PLC 자기유지 + 타이머', 'PLC self-hold + timer'), desc: tr('푸시버튼 → PLC 입력, PLC 출력 → 램프. 프로그램은 PLC 탭에서 고칩니다', 'Buttons to PLC inputs, outputs to lamps; edit the program in the PLC tab'), build: plcSelfHold, plc: plcSelfHoldProgram },
   ];
+  return list.map((e) => ({ ...e, group: EXAMPLE_GROUP[e.id] ?? 'basic' }));
 }

@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, LAMP_HEX, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, schedOn, tbSize, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, LAMP_HEX, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, schedOn, stripSize, tbSize, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock, formatTime } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -887,6 +887,433 @@ export function PanelTitle({ p, c }: { p: Part; c: CircuitColors }) {
       <text x={15} y={20} fontSize={14} fontWeight={800} fill={c.ink} stroke="none">
         {text}
       </text>
+    </g>
+  );
+}
+
+// ───────────────────────── 현장 기기 (실물) ─────────────────────────
+
+/** 접점 블록 (검은 몸통, 11-12 b 노랑 링 · 23-24 a 초록 링). 푸시버튼 · 리밋 · 풋 · 플로트 · 압력 스위치가 함께 쓴다 */
+function ContactBlock({ note, lamp, lit }: { note: string; lamp?: boolean; lit?: boolean }) {
+  return (
+    <g>
+      <rect x={-40} y={-36} width={80} height={lamp ? 132 : 92} rx={5} fill="#111827" stroke="#6b7280" />
+      <Label x={0} y={19} text={note} fill="#9ca3af" size={7} weight={500} />
+      <Label x={-20} y={-12} text="11" fill="#f9fafb" size={7.5} />
+      <Label x={20} y={-12} text="12" fill="#f9fafb" size={7.5} />
+      <Label x={-20} y={29} text="23" fill="#f9fafb" size={7.5} />
+      <Label x={20} y={29} text="24" fill="#f9fafb" size={7.5} />
+      <Screw x={-20} y={0} ring="yellow" />
+      <Screw x={20} y={0} ring="yellow" />
+      <Screw x={-20} y={40} ring="green" />
+      <Screw x={20} y={40} ring="green" />
+      {lamp && (
+        <g>
+          <Label x={-20} y={69} text="X1" fill={lit ? '#fde047' : '#f9fafb'} size={7.5} />
+          <Label x={20} y={69} text="X2" fill={lit ? '#fde047' : '#f9fafb'} size={7.5} />
+          <Screw x={-20} y={80} />
+          <Screw x={20} y={80} />
+        </g>
+      )}
+    </g>
+  );
+}
+
+function TagAt({ p, x, y, c }: { p: Part; x: number; y: number; c: CircuitColors }) {
+  return (
+    <g>
+      <Label x={x} y={y} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      {p.name && <Label x={x} y={y + 13} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/** 퓨즈 홀더: 위 1 · 아래 2, 늘 통한다 */
+export function FuseGlyph({ p, st }: { p: Part; st: PartState }) {
+  return (
+    <g>
+      <rect x={-24} y={-78} width={48} height={156} rx={4} fill="#e5e7eb" stroke="#9ca3af" />
+      <rect x={-24} y={-78} width={48} height={36} rx={4} fill="#f3f4f6" stroke="#9ca3af" />
+      <rect x={-24} y={42} width={48} height={36} rx={4} fill="#f3f4f6" stroke="#9ca3af" />
+      <rect x={-16} y={-34} width={32} height={68} rx={3} fill="#ffffff" stroke="#cbd5e1" />
+      <circle cy={-22} r={3.5} fill="#dc2626" />
+      <Label x={0} y={-2} text="Fuse" size={8.5} weight={800} fill="#111827" />
+      <Label x={0} y={12} text={p.amps ? `${p.amps}A` : p.spec?.trim() || '10A'} size={8} fill="#475569" />
+      <Label x={0} y={27} text={p.tag} size={9} weight={800} />
+      {st.amp !== undefined && st.amp > 0.05 && <Label x={30} y={4} text={`${st.amp.toFixed(1)} A`} anchor="start" size={10.5} weight={800} fill={p.amps && st.amp > p.amps ? '#dc2626' : '#2563eb'} />}
+      <Screw x={0} y={-60} />
+      <Screw x={0} y={60} />
+    </g>
+  );
+}
+
+/** SMPS: 아래 단자대 L N FG -V +V, 입력이 들어오면 초록 LED */
+export function RSmpsGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const terms: [number, string, Ring][] = [
+    [-80, 'L', 'orange'],
+    [-40, 'N', 'grey'],
+    [0, 'FG', 'green'],
+    [40, '-V', 'grey'],
+    [80, '+V', 'orange'],
+  ];
+  return (
+    <g>
+      <rect x={-104} y={-80} width={208} height={136} rx={4} fill="#9ca3af" stroke="#4b5563" />
+      {Array.from({ length: 6 }, (_, r) =>
+        Array.from({ length: 16 }, (_, k) => <circle key={`${r}-${k}`} cx={-90 + k * 12} cy={-68 + r * 12} r={3.4} fill="#374151" />),
+      )}
+      <rect x={-70} y={4} width={140} height={34} rx={3} fill="#1f2937" />
+      <Label x={0} y={18} text="Switching Power Supply" fill="#f9fafb" size={8.5} weight={700} />
+      <Label x={0} y={31} text={p.spec?.trim() || 'IN AC 100-240V  OUT DC 24V'} fill="#d1d5db" size={7.5} />
+      <circle cx={-86} cy={21} r={5} fill={st.powered ? '#22c55e' : '#6b7280'} stroke="#111827" />
+      <rect x={-104} y={56} width={208} height={48} rx={3} fill="#374151" stroke="#111827" />
+      {terms.map(([x, t, ring]) => (
+        <g key={t}>
+          <Screw x={x} y={80} ring={ring} />
+          <Label x={x} y={66} text={t} fill={t === '+V' ? '#fca5a5' : t === 'FG' ? '#86efac' : '#f9fafb'} size={8} weight={800} />
+        </g>
+      ))}
+      <TagAt p={p} x={-104} y={-98} c={c} />
+    </g>
+  );
+}
+
+/** 근접 · 광전 센서 3선식: 갈색 (+) · 검정 (출력) · 파랑 (0V) 리드선 */
+export function RProxGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const photo = p.sense === 'photo';
+  const on = st.act && st.powered !== false;
+  const leads: [number, string, string][] = [
+    [-40, '#92400e', tr('갈 +', 'BN +')],
+    [0, '#111827', tr('흑 OUT', 'BK OUT')],
+    [40, '#2563eb', tr('청 0V', 'BU 0V')],
+  ];
+  return (
+    <g>
+      {leads.map(([x, col, t]) => (
+        <g key={x}>
+          <path d={`M0,-8C0,20 ${x},16 ${x},46`} stroke="#00000040" strokeWidth={5.4} fill="none" />
+          <path d={`M0,-8C0,20 ${x},16 ${x},46`} stroke={col} strokeWidth={3.6} fill="none" />
+          <rect x={x - 3} y={44} width={6} height={12} fill="#d1d5db" stroke="#6b7280" strokeWidth={0.8} />
+          <circle cx={x} cy={60} r={5} fill={col} stroke="#ffffff" strokeWidth={1.2} />
+          <Label x={x} y={76} text={t} size={7} weight={700} fill={c.muted} />
+        </g>
+      ))}
+      {photo ? (
+        <g>
+          <rect x={-22} y={-78} width={44} height={70} rx={4} fill="#1f2937" stroke="#111827" />
+          <circle cx={0} cy={-58} r={11} fill="#7dd3fc" stroke="#0369a1" />
+          <circle cx={0} cy={-58} r={5} fill="#0c4a6e" />
+          {on && <path d="M0,-72V-96M-10,-70L-18,-92M10,-70L18,-92" stroke="#ef4444" strokeWidth={1.6} />}
+        </g>
+      ) : (
+        <g>
+          <rect x={-14} y={-78} width={28} height={12} rx={2} fill={p.sense === 'capacitive' ? '#38bdf8' : '#f97316'} stroke="#7c2d12" strokeWidth={0.8} />
+          <rect x={-14} y={-66} width={28} height={46} fill="#9ca3af" stroke="#4b5563" />
+          {[-60, -52, -44, -36, -28].map((y) => (
+            <path key={y} d={`M-14,${y}H14`} stroke="#4b5563" strokeWidth={1} />
+          ))}
+          <rect x={-18} y={-40} width={36} height={8} fill="#d1d5db" stroke="#6b7280" />
+          <rect x={-12} y={-20} width={24} height={12} rx={2} fill="#1f2937" />
+          {on && <path d="M-12,-84Q0,-94 12,-84M-18,-90Q0,-104 18,-90" stroke="#f97316" strokeWidth={1.6} fill="none" />}
+        </g>
+      )}
+      <circle cx={0} cy={-14} r={3.4} fill={on ? '#f59e0b' : st.powered ? '#22c55e' : '#6b7280'} stroke="#111827" strokeWidth={0.8} />
+      <Label x={24} y={-66} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <Label x={24} y={-53} text={`${p.npn ? 'NPN' : 'PNP'} · DC 24V`} anchor="start" size={8.5} weight={600} fill={c.muted} />
+      {p.name && <Label x={24} y={-41} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/** 리밋 스위치: 롤러 레버가 밀리면 접점이 바뀐다 */
+export function LsGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  return (
+    <g>
+      <rect x={-22} y={-56} width={44} height={22} rx={3} fill="#1d4ed8" stroke="#1e3a8a" />
+      <g transform={`rotate(${st.act ? 32 : 0},0,-52)`}>
+        <rect x={-3.5} y={-84} width={7} height={34} rx={3} fill="#d1d5db" stroke="#6b7280" />
+        <circle cx={0} cy={-84} r={8} fill="#e5e7eb" stroke="#6b7280" strokeWidth={1.4} />
+        <circle cx={0} cy={-84} r={2.4} fill="#6b7280" />
+      </g>
+      <circle cx={0} cy={-52} r={4} fill="#9ca3af" stroke="#4b5563" />
+      <ContactBlock note="Limit SW" />
+      <TagAt p={p} x={30} y={-58} c={c} />
+    </g>
+  );
+}
+
+/** 풋 스위치: 밟는 동안 접점이 바뀐다 */
+export function FswGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  return (
+    <g>
+      <path d="M-62,-36H62L54,-46H-54Z" fill="#6b7280" stroke="#374151" />
+      <g transform={`rotate(${st.act ? 0 : -12},56,-46)`}>
+        <path d="M-56,-56H56V-46H-56Z" fill="#d1d5db" stroke="#6b7280" />
+        {[-44, -32, -20, -8, 4, 16, 28, 40].map((x) => (
+          <path key={x} d={`M${x},-55V-47`} stroke="#9ca3af" strokeWidth={1.4} />
+        ))}
+      </g>
+      <ContactBlock note="Foot SW" />
+      <TagAt p={p} x={46} y={-10} c={c} />
+    </g>
+  );
+}
+
+/** 플로트 스위치: 수위가 오르면 뜨개가 올라가 접점이 바뀐다 */
+export function FloatGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const up = st.act;
+  return (
+    <g>
+      <rect x={-34} y={-98} width={68} height={58} rx={3} fill="#e0f2fe" stroke="#7dd3fc" />
+      <rect x={-34} y={up ? -84 : -56} width={68} height={up ? 44 : 16} fill="#38bdf8" opacity={0.55} />
+      <path d={`M0,-40V${up ? -78 : -52}`} stroke="#f59e0b" strokeWidth={3} />
+      <rect x={-11} y={up ? -96 : -70} width={22} height={18} rx={6} fill="#0ea5e9" stroke="#0369a1" />
+      <ContactBlock note="Float SW" />
+      <TagAt p={p} x={40} y={-84} c={c} />
+      <Label x={40} y={-58} text={up ? tr('만수', 'HIGH') : tr('저수', 'LOW')} anchor="start" size={8.5} weight={700} fill={up ? '#0369a1' : c.muted} />
+    </g>
+  );
+}
+
+/** 압력 스위치 (전기 접점식 압력계): 설정 압력에 닿으면 접점이 바뀐다 */
+export function PswGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const a = ((st.act ? 50 : -60) * Math.PI) / 180;
+  return (
+    <g>
+      <rect x={-5} y={-44} width={10} height={10} fill="#b45309" />
+      <circle cx={0} cy={-68} r={28} fill="#f8fafc" stroke="#334155" strokeWidth={2} />
+      {[-120, -80, -40, 0, 40, 80, 120].map((d) => {
+        const r = (d * Math.PI) / 180;
+        return <path key={d} d={`M${Math.sin(r) * 21},${-68 - Math.cos(r) * 21}L${Math.sin(r) * 25},${-68 - Math.cos(r) * 25}`} stroke="#334155" strokeWidth={1.2} />;
+      })}
+      <path d={`M${Math.sin((50 * Math.PI) / 180) * 12},${-68 - Math.cos((50 * Math.PI) / 180) * 12}L${Math.sin((50 * Math.PI) / 180) * 25},${-68 - Math.cos((50 * Math.PI) / 180) * 25}`} stroke="#dc2626" strokeWidth={2} />
+      <path d={`M0,-68L${Math.sin(a) * 20},${-68 - Math.cos(a) * 20}`} stroke="#111827" strokeWidth={2.4} />
+      <circle cx={0} cy={-68} r={3} fill="#111827" />
+      <Label x={0} y={-50} text="MPa" size={6.5} fill="#64748b" />
+      <ContactBlock note="Pressure SW" />
+      <TagAt p={p} x={34} y={-84} c={c} />
+    </g>
+  );
+}
+
+/** 조광형 푸시버튼: 접점 11-12 · 23-24 와 램프 X1-X2 */
+export function PblGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const col = LAMP_HEX[p.color ?? 'green'];
+  const dy = st.act ? 7 : 0;
+  return (
+    <g>
+      {st.on && <ellipse cx={0} cy={-66} rx={40} ry={24} fill={col} opacity={0.35} />}
+      <g transform={`translate(0,${dy})`}>
+        <path d="M-28,-60Q-28,-80 0,-80Q28,-80 28,-60L28,-56H-28Z" fill={col} opacity={st.on ? 1 : 0.55} stroke="#00000055" />
+        <ellipse cx={-8} cy={-70} rx={9} ry={3} fill="#ffffff" opacity={st.on ? 0.8 : 0.35} />
+      </g>
+      <rect x={-17} y={-56} width={34} height={20} rx={3} fill="#d1d5db" stroke="#9ca3af" />
+      <ContactBlock note="Illuminated" lamp lit={st.on} />
+      <TagAt p={p} x={34} y={-66} c={c} />
+    </g>
+  );
+}
+
+/** 부저: X1 · X2, 울리면 소리 물결 */
+export function BuzzerGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  return (
+    <g>
+      <circle cy={-30} r={22} fill="#1f2937" stroke="#6b7280" />
+      <circle cy={-30} r={13} fill="#374151" />
+      {[-8, -3, 2, 7].map((y) => (
+        <path key={y} d={`M-9,${-30 + y}H9`} stroke="#111827" strokeWidth={1.6} />
+      ))}
+      {st.on && <path d="M26,-44Q34,-30 26,-16M34,-50Q46,-30 34,-10M-26,-44Q-34,-30 -26,-16M-34,-50Q-46,-30 -34,-10" stroke="#f59e0b" strokeWidth={2} fill="none" />}
+      <rect x={-32} y={-8} width={64} height={42} rx={4} fill="#111827" stroke="#6b7280" />
+      <Label x={-20} y={8} text="X1" fill="#f9fafb" size={7.5} />
+      <Label x={20} y={8} text="X2" fill="#f9fafb" size={7.5} />
+      <Screw x={-20} y={20} />
+      <Screw x={20} y={20} />
+      <TagAt p={p} x={28} y={-58} c={c} />
+    </g>
+  );
+}
+
+/** 솔레노이드 밸브: 코일 1 · 2 (DIN 커넥터), 여자되면 표시등 */
+export function SolGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  return (
+    <g>
+      <rect x={-48} y={-22} width={96} height={30} rx={4} fill="#d1d5db" stroke="#6b7280" />
+      <path d="M-48,-7H-60M48,-7H60" stroke="#6b7280" strokeWidth={8} />
+      <rect x={-26} y={-60} width={52} height={40} rx={4} fill="#111827" stroke="#374151" />
+      <Label x={0} y={-42} text="Solenoid" fill="#f9fafb" size={8} weight={700} />
+      <Label x={0} y={-31} text={p.spec?.trim() || 'DC 24V'} fill="#d1d5db" size={7.5} />
+      <circle cx={18} cy={-52} r={3.6} fill={st.on ? '#ef4444' : '#6b7280'} />
+      {st.on && <path d="M-40,-7H40" stroke="#0ea5e9" strokeWidth={3} strokeDasharray="6 5" className="cc-flow" />}
+      <rect x={-32} y={14} width={64} height={38} rx={4} fill="#1f2937" stroke="#6b7280" />
+      <Label x={-20} y={28} text="1" fill="#f9fafb" size={7.5} />
+      <Label x={20} y={28} text="2" fill="#f9fafb" size={7.5} />
+      <Screw x={-20} y={40} />
+      <Screw x={20} y={40} />
+      <TagAt p={p} x={32} y={-54} c={c} />
+    </g>
+  );
+}
+
+/** 판넬 팬: L · N, 돌 때 날개가 회전 */
+export function FanGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  return (
+    <g>
+      <rect x={-54} y={-58} width={108} height={100} rx={8} fill="#374151" stroke="#111827" />
+      <circle cx={0} cy={-8} r={42} fill="#111827" stroke="#6b7280" />
+      <g transform="translate(0,-8)">
+        <g className={st.on ? 'cc-spin' : undefined}>
+          {[0, 72, 144, 216, 288].map((d) => (
+            <path key={d} d="M0,0C-10,-22 6,-38 16,-34C14,-20 8,-8 0,0Z" fill="#9ca3af" stroke="#d1d5db" strokeWidth={0.8} transform={`rotate(${d})`} />
+          ))}
+          <circle r={9} fill="#4b5563" stroke="#d1d5db" />
+        </g>
+      </g>
+      {[-44, 44].map((x) => [-48, 32].map((y) => <circle key={`${x}${y}`} cx={x} cy={y} r={3} fill="#9ca3af" />))}
+      <rect x={-32} y={42} width={64} height={32} rx={3} fill="#1f2937" stroke="#6b7280" />
+      <Label x={-20} y={50} text="L" fill="#f9fafb" size={7} />
+      <Label x={20} y={50} text="N" fill="#f9fafb" size={7} />
+      <Screw x={-20} y={60} />
+      <Screw x={20} y={60} ring="grey" />
+      <TagAt p={p} x={60} y={-44} c={c} />
+      <Label x={60} y={-18} text={p.spec?.trim() || 'AC 220V'} anchor="start" size={8.5} fill={c.muted} />
+    </g>
+  );
+}
+
+/** 중성선 · 접지 바: 나사가 모두 한 막대에 물려 있다 */
+export function NbarGlyph({ p, c }: { p: Part; c: CircuitColors }) {
+  const n = tbSize(p);
+  const pe = p.pole === 'PE';
+  return (
+    <g>
+      <rect x={-22} y={-18} width={(n - 1) * 40 + 44} height={36} rx={4} fill={pe ? '#bbf7d0' : '#e5e7eb'} stroke={pe ? '#15803d' : '#6b7280'} />
+      <rect x={-16} y={-7} width={(n - 1) * 40 + 32} height={14} rx={2} fill="#d6b370" stroke="#92400e" strokeWidth={0.8} />
+      {Array.from({ length: n }, (_, k) => (
+        <Screw key={k} x={k * 40} y={0} ring={pe ? 'green' : 'grey'} />
+      ))}
+      <Label x={-22} y={-24} text={[p.tag, pe ? 'PE' : 'N', p.name].filter(Boolean).join(' · ')} anchor="start" size={10} weight={800} fill={c.ink} />
+    </g>
+  );
+}
+
+/** 전압계 · 전류계 (디지털 판넬 미터) */
+export function MeterGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const amp = p.type === 'r_am';
+  const v = amp ? st.amp : st.volt;
+  const text = v === undefined ? '---' : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+  return (
+    <g>
+      <rect x={-50} y={-50} width={100} height={86} rx={6} fill="#1f2937" stroke="#111827" />
+      <rect x={-40} y={-38} width={80} height={38} rx={3} fill="#052e16" stroke="#000000" />
+      <Label x={24} y={-11} text={text} anchor="end" size={20} weight={800} fill={v === undefined ? '#166534' : '#4ade80'} />
+      <Label x={36} y={-11} text={amp ? 'A' : 'V'} anchor="end" size={10} weight={800} fill="#86efac" />
+      <Label x={0} y={18} text={amp ? tr('전류계', 'AMMETER') : tr('전압계', 'VOLTMETER')} size={8} weight={700} fill="#d1d5db" />
+      <Label x={0} y={30} text={p.tag} size={8.5} weight={800} fill="#f9fafb" />
+      <rect x={-34} y={36} width={68} height={38} rx={3} fill="#374151" stroke="#111827" />
+      <Screw x={-20} y={60} />
+      <Screw x={20} y={60} ring={amp ? 'orange' : 'grey'} />
+      <Label x={-20} y={46} text={amp ? '1' : 'V1'} fill="#f9fafb" size={7} />
+      <Label x={20} y={46} text={amp ? '2' : 'V2'} fill="#f9fafb" size={7} />
+      {p.name && <Label x={56} y={-36} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/** 배선 덕트: 선이 덕트 안으로 지나간다 (선 위에 반투명하게 덮는다) */
+export function DuctGlyph({ p }: { p: Part }) {
+  const [w, h] = stripSize(p);
+  const [W, H] = [w * 20, h * 20];
+  const wide = W >= H;
+  const n = Math.floor((wide ? W : H) / 10);
+  return (
+    <g>
+      <rect x={0} y={0} width={W} height={H} rx={2} fill="#cbd5e1" opacity={0.88} stroke="#64748b" strokeWidth={1.2} />
+      {Array.from({ length: n }, (_, k) => {
+        const t = 5 + k * 10;
+        return wide ? <path key={k} d={`M${t},0v5M${t},${H}v-5`} stroke="#64748b" strokeWidth={2.2} /> : <path key={k} d={`M0,${t}h5M${W},${t}h-5`} stroke="#64748b" strokeWidth={2.2} />;
+      })}
+      {wide ? <path d={`M4,${H / 2}H${W - 4}`} stroke="#94a3b8" strokeWidth={1} strokeDasharray="8 6" /> : <path d={`M${W / 2},4V${H - 4}`} stroke="#94a3b8" strokeWidth={1} strokeDasharray="8 6" />}
+    </g>
+  );
+}
+
+/** DIN 레일 (35 mm): 기기를 올려 다는 레일 */
+export function RailGlyph({ p }: { p: Part }) {
+  const W = stripSize(p)[0] * 20;
+  return (
+    <g>
+      <rect x={0} y={-14} width={W} height={28} fill="#d1d5db" stroke="#9ca3af" strokeWidth={1} />
+      <path d={`M0,-8H${W}M0,8H${W}`} stroke="#f3f4f6" strokeWidth={2} />
+      {Array.from({ length: Math.floor(W / 30) }, (_, k) => (
+        <rect key={k} x={10 + k * 30} y={-3} width={14} height={6} rx={3} fill="#9ca3af" />
+      ))}
+    </g>
+  );
+}
+
+/** 콘센트: L · N · PE */
+export function OutletGlyph({ p, c }: { p: Part; c: CircuitColors }) {
+  return (
+    <g>
+      <rect x={-54} y={-56} width={108} height={84} rx={8} fill="#f5e9e2" stroke="#d6b8a8" />
+      <circle cx={0} cy={-16} r={30} fill="#ffffff" stroke="#d6b8a8" />
+      <circle cx={-12} cy={-16} r={4.5} fill="#111827" />
+      <circle cx={12} cy={-16} r={4.5} fill="#111827" />
+      <rect x={-3} y={-46} width={6} height={8} fill="#a3a3a3" />
+      <rect x={-3} y={6} width={6} height={8} fill="#a3a3a3" />
+      <rect x={-54} y={24} width={108} height={30} rx={3} fill="#e7d5cb" stroke="#d6b8a8" />
+      <Screw x={-40} y={40} />
+      <Screw x={0} y={40} ring="green" />
+      <Screw x={40} y={40} ring="grey" />
+      <Label x={-40} y={30} text="L" size={7} weight={800} fill="#7c2d12" />
+      <Label x={0} y={30} text="PE" size={7} weight={800} fill="#15803d" />
+      <Label x={40} y={30} text="N" size={7} weight={800} fill="#1d4ed8" />
+      <TagAt p={p} x={60} y={-44} c={c} />
+    </g>
+  );
+}
+
+/** 3상 전동기 6단자: 위 U1 V1 W1, 아래 W2 U2 V2 (Y-Δ 기동). 돌 때 결선 (Y · Δ) 을 적는다 */
+export function Motor6Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const spin = st.dir !== 0;
+  const rows: [number, string[]][] = [
+    [-80, ['U1', 'V1', 'W1']],
+    [80, ['W2', 'U2', 'V2']],
+  ];
+  return (
+    <g>
+      <rect x={-112} y={-40} width={170} height={80} rx={20} fill="#9ca3af" stroke="#6b7280" />
+      {[-92, -76, -60, -44, 28, 44].map((x) => (
+        <path key={x} d={`M${x},-34V34`} stroke="#6b7280" strokeWidth={2} />
+      ))}
+      <rect x={-34} y={-30} width={52} height={60} rx={3} fill="#111827" />
+      <Label x={-8} y={-8} text={p.tag || 'M'} fill="#f9fafb" size={10} weight={800} />
+      <Label x={-8} y={5} text="3φ Y-Δ" fill="#d1d5db" size={8} />
+      <Label x={-8} y={19} text={st.mode ? (st.mode === 'Y' ? 'Y' : 'Δ') : '—'} fill={st.mode ? '#fde047' : '#6b7280'} size={12} weight={800} />
+      <rect x={-126} y={-4} width={16} height={8} fill="#6b7280" />
+      <g transform="translate(-126,0)">
+        <g className={spin ? `cc-spin ${st.dir < 0 ? 'rev' : ''}` : undefined}>
+          {[0, 120, 240].map((d) => (
+            <path key={d} d="M0,0C-6,-26 10,-34 14,-30C10,-18 6,-8 0,0Z" fill="#facc15" stroke="#ca8a04" transform={`rotate(${d})`} />
+          ))}
+          <circle r={5} fill="#6b7280" />
+        </g>
+      </g>
+      {rows.map(([y, labels]) =>
+        labels.map((l, k) => (
+          <g key={l}>
+            <path d={`M${-40 + 40 * k},${y}V${y < 0 ? -40 : 40}`} stroke="#6b7280" strokeWidth={4} />
+            <Screw x={-40 + 40 * k} y={y} />
+            <Label x={-40 + 40 * k + 11} y={y + (y < 0 ? -6 : 14)} text={l} anchor="start" size={8.5} weight={800} />
+          </g>
+        )),
+      )}
+      <path d="M58,0H92" stroke="#6b7280" strokeWidth={3} />
+      <Screw x={100} y={0} ring="green" />
+      <Label x={100} y={-12} text="PE" size={8} weight={800} fill="#15803d" />
+      {p.name && <Label x={64} y={-30} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+      {spin && <Label x={74} y={30} text={st.dir > 0 ? 'FWD' : 'REV'} fill={c.accent} size={10} weight={800} />}
     </g>
   );
 }

@@ -135,6 +135,106 @@ export function partGuide(type: PartType): PartGuide | null {
         AUTO() + ' ' + tr('덮개의 결선도에서 접점 날이 a 쪽으로 넘어가는 것이 보입니다.', 'The diagram on the cover shows the contacts moving.'),
         'panel',
       );
+    case 'r_fuse':
+      return g(
+        tr('퓨즈 홀더입니다. 선 중간에 직렬로 넣어 과전류 때 회로를 끊습니다. 조작 회로 · SMPS 앞에 많이 씁니다.', 'A fuse holder, in series with the wire; common in front of control circuits and power supplies.'),
+        [['1 – 2', tr('위 (전원 쪽) – 아래 (부하 쪽). 늘 통합니다', 'top (supply) – bottom (load); always conducting')]],
+        [tr('전원 바로 아래, 보호할 회로 앞에 넣습니다', 'Place right after the supply, in front of the circuit to protect'), tr('속성에 정격 전류 (A) 를 적으면 [해석] 탭에서 흐르는 전류와 비교합니다', 'Enter its rating to compare with the current in the Analysis tab')],
+        tr('늘 통합니다 (끊어지는 것은 흉내 내지 않고, 정격을 넘으면 [해석] 에서 알려 줍니다).', 'Always conducts; the Analysis tab reports overload.'),
+        'dc-sensor',
+      );
+    case 'r_smps':
+      return g(
+        tr('SMPS (직류 전원 장치) 입니다. 교류 L · N 을 받아 직류 24V 를 만듭니다. 센서 · PLC · 직류 릴레이 · 솔레노이드의 전원입니다.', 'A switching power supply: AC in, 24 V DC out, for sensors, PLCs, DC relays and solenoids.'),
+        [
+          ['L · N', tr('교류 입력 (차단기 · 퓨즈 뒤에서)', 'AC input, after a breaker or fuse')],
+          ['FG', tr('접지 (녹황 전선으로 PE 에)', 'frame ground, to PE')],
+          ['+V · -V', tr('직류 24V 출력. +V 가 +24V, -V 가 0V', 'DC output: +V is +24 V, -V is 0 V')],
+        ],
+        [tr('L · N 을 퓨즈나 차단기 뒤에 잇고 FG 를 접지합니다', 'Wire L and N after a fuse or breaker and earth FG'), tr('+V 에서 직류 부하의 + 쪽 (스위치 · 센서 갈색선) 으로, -V 는 0V 모선으로 잇습니다', 'Feed the + side of DC loads from +V and return to -V')],
+        AUTO() + ' ' + tr('입력이 들어오면 초록 LED 가 켜지고 출력이 나옵니다.', 'The green LED lights and the output is live when the input is powered.'),
+        'dc-sensor',
+      );
+    case 'r_prox':
+      return g(
+        tr('3선식 근접 · 광전 센서입니다. 물체를 감지하면 검정 (출력) 선이 살아납니다. PNP 는 출력이 + 로, NPN 은 0V 로 이어집니다.', 'A 3-wire proximity or photo sensor. When it detects, the black output switches: PNP to +, NPN to 0 V.'),
+        [
+          [tr('갈색', 'brown'), tr('+24V (전원 +)', '+24 V')],
+          [tr('파랑', 'blue'), tr('0V (전원 –)', '0 V')],
+          [tr('검정', 'black'), tr('출력. PNP: 감지하면 +24V 가 나옴 → 부하의 반대쪽은 0V 에. NPN: 감지하면 0V 로 당김 → 부하의 반대쪽은 +24V 에', 'output. PNP sources +24 V (load to 0 V); NPN sinks to 0 V (load to +24 V)')],
+        ],
+        [tr('갈색 → +24V, 파랑 → 0V', 'Brown to +24 V, blue to 0 V'), tr('검정 → 릴레이 코일이나 PLC 입력. 코일의 반대쪽은 PNP 면 0V, NPN 이면 +24V', 'Black to a relay coil or PLC input; the other side of the coil goes to 0 V (PNP) or +24 V (NPN)'), tr('극성을 바꿔 이으면 [검사] 탭이 알려 줍니다', 'The Check tab reports reversed polarity')],
+        tr('시뮬레이션에서 센서를 누르면 감지 (다시 누르면 해제) 됩니다. 속성에서 실린더 끝에 연결하면 실린더가 닿을 때 스스로 감지합니다.', 'Click to detect or release; link it to a cylinder end in the properties to make it automatic.'),
+        'dc-sensor',
+      );
+    case 'r_ls':
+    case 'r_fsw':
+    case 'r_float':
+    case 'r_psw':
+      return g(
+        type === 'r_ls'
+          ? tr('리밋 스위치입니다. 기계가 롤러 레버를 밀면 접점이 바뀝니다. 끝 위치에서 멈추거나 되돌릴 때 씁니다.', 'A limit switch: the machine pushes the roller lever and the contacts change.')
+          : type === 'r_fsw'
+            ? tr('풋 스위치입니다. 밟는 동안 접점이 바뀝니다 (손이 바쁠 때 발로 운전).', 'A foot switch: contacts change while it is pressed.')
+            : type === 'r_float'
+              ? tr('플로트 스위치입니다. 수위가 오르면 뜨개가 올라가 접점이 바뀝니다. 급수 · 배수 펌프 자동 운전에 씁니다.', 'A float switch: contacts change when the level rises; for pump control.')
+              : tr('압력 스위치 (전기 접점식 압력계) 입니다. 설정 압력에 닿으면 접점이 바뀝니다. 컴프레서 · 펌프 자동 운전에 씁니다.', 'A pressure switch: contacts change at the set pressure; for compressor and pump control.'),
+        [
+          ['11 – 12', tr('b접점: 평소 닫힘, 동작하면 열림 → 멈추게 할 때', 'NC: opens when operated, to stop')],
+          ['23 – 24', tr('a접점: 평소 열림, 동작하면 닫힘 → 켜거나 알릴 때', 'NO: closes when operated, to start or signal')],
+        ],
+        [tr('멈춤: 코일로 가는 선 중간에 11-12 (b) 를 직렬로 넣습니다', 'To stop: put 11-12 (NC) in series with the coil'), tr('기동 · 표시: 23-24 (a) 로 코일이나 램프를 켭니다', 'To start or signal: use 23-24 (NO)')],
+        type === 'r_ls' || type === 'r_fsw' ? tr('시뮬레이션에서 누르고 있는 동안 동작합니다. 리밋 스위치는 속성에서 실린더 끝에 연결할 수 있습니다.', 'Hold the mouse button to operate it; a limit switch can be linked to a cylinder end.') : tr('시뮬레이션에서 누를 때마다 동작 · 복귀가 바뀝니다 (수위 · 압력이 올랐다 내렸다).', 'Click to toggle (level or pressure up and down).'),
+        'pump-float',
+      );
+    case 'r_pbl':
+      return g(
+        tr('조광형 푸시버튼입니다. 버튼 접점과 램프가 한 몸에 있습니다. 누르는 동안 접점이 바뀌고, 램프는 X1-X2 에 전압이 걸리면 따로 켜집니다.', 'An illuminated push button: momentary contacts and a lamp in one body; the lamp is wired separately on X1-X2.'),
+        [
+          ['11 – 12', tr('b접점 (정지용)', 'NC (stop)')],
+          ['23 – 24', tr('a접점 (기동용)', 'NO (start)')],
+          ['X1 – X2', tr('램프. 운전 중 표시하려면 X1 을 코일과 같은 선 (또는 a접점 뒤) 에, X2 를 N · 0V 에', 'lamp: X1 to the coil wire, X2 to N or 0 V')],
+        ],
+        [tr('접점은 일반 푸시버튼처럼 잇습니다', 'Wire the contacts like an ordinary push button'), tr('램프 X1 을 릴레이 a접점 뒤에 이으면 운전 중에 버튼이 켜집니다', 'Feed X1 from a relay NO contact to light the button while running')],
+        tr('시뮬레이션에서 누르는 동안 눌립니다. 램프는 회로대로 켜집니다.', 'Hold to press; the lamp follows the circuit.'),
+        'dc-sensor',
+      );
+    case 'r_buzzer':
+      return g(tr('부저입니다. X1-X2 에 전압이 걸리면 울립니다. 경보 · 고장 알림에 씁니다.', 'A buzzer: sounds while X1-X2 is powered.'), [['X1 – X2', tr('두 단자 사이에 전압 (극성 없음으로 봅니다)', 'supply across the two terminals')]], [tr('X1 을 경보 접점 (a) 뒤에, X2 를 N · 0V 에 잇습니다', 'X1 after the alarm contact, X2 to N or 0 V')], AUTO(), 'dc-sensor');
+    case 'r_sol':
+      return g(
+        tr('솔레노이드 밸브의 코일입니다. 1-2 에 전압이 걸리면 밸브가 열립니다 (실린더 전진, 물 · 공기 통과). 실린더 · 공압 밸브의 솔레노이드 기호로 고르면 함께 움직입니다.', 'A solenoid valve coil: powered 1-2 opens the valve. Pick its tag as the solenoid of a cylinder or valve to link them.'),
+        [['1 – 2', tr('코일. 직류면 1 이 +, 2 가 0V', 'coil; for DC 1 is +, 2 is 0 V')]],
+        [tr('1 을 릴레이 a접점 (또는 PLC 출력) 뒤에, 2 를 0V · N 에 잇습니다', '1 after a relay NO contact or PLC output, 2 to 0 V or N'), tr('코일 전압 (DC 24V · AC 220V) 은 속성의 사양에 적습니다. 다른 전압에 이으면 [검사] 탭이 알려 줍니다', 'Enter the coil voltage in the spec; the Check tab reports a wrong supply')],
+        AUTO() + ' ' + tr('여자되면 표시등이 켜지고 유체가 흐릅니다.', 'The indicator lights and flow is shown while energised.'),
+        'dc-sensor',
+      );
+    case 'r_fan':
+      return g(tr('판넬 팬 (단상) 입니다. L-N 에 전압이 걸리면 돕니다. 제어반 냉각에 씁니다.', 'A single-phase panel fan: runs while L-N is powered.'), [['L · N', tr('단상 전원', 'single-phase supply')]], [tr('차단기 뒤 L 과 N 에 바로, 또는 온도 스위치 접점을 거쳐 잇습니다', 'After a breaker, directly or through a thermostat contact')], AUTO() + ' ' + tr('돌 때 날개가 회전합니다.', 'The blades spin while it runs.'), 'pump-float');
+    case 'r_outlet':
+      return g(tr('콘센트입니다. L · N · PE 를 잇습니다. 전등 회로와 따로 차단기를 두는 것이 보통입니다.', 'A socket outlet with L, N and PE.'), [['L', tr('상 (갈색)', 'line (brown)')], ['N', tr('중성선 (파랑)', 'neutral (blue)')], ['PE', tr('접지 (녹황)', 'earth (green-yellow)')]], [tr('누전차단기 뒤에서 L · N 을, 접지 바에서 PE 를 잇습니다', 'L and N after an ELB, PE from the earth bar')], tr('그림만 있고 동작은 없습니다. PE 가 빠지면 [검사] 탭이 알려 줍니다.', 'No behaviour; the Check tab reports a missing PE.'), 'home-outlet');
+    case 'r_motor6':
+      return g(
+        tr('6단자 3상 전동기입니다 (Y-Δ 기동용). 권선 세 개의 양 끝이 모두 나와 있습니다: U1-U2 · V1-V2 · W1-W2. 기동은 Y 결선으로 전류를 줄이고, 몇 초 뒤 Δ 결선으로 바꿉니다.', 'A 6-lead 3-phase motor for star-delta starting: windings U1-U2, V1-V2, W1-W2.'),
+        [
+          ['U1 · V1 · W1', tr('전원 쪽 (주 접촉기 아래 L1 L2 L3)', 'supply side, from the main contactor')],
+          ['W2 · U2 · V2', tr('반대쪽 끝. Y: 셋을 한데 묶음 (Y 접촉기). Δ: U2→L2, V2→L3, W2→L1 (Δ 접촉기)', 'far ends. Star: tie the three together. Delta: U2→L2, V2→L3, W2→L1')],
+          ['PE', tr('접지', 'earth')],
+        ],
+        [tr('주 접촉기 MC1 → U1 V1 W1', 'Main contactor to U1 V1 W1'), tr('Y 접촉기 MC2: W2 U2 V2 를 한데 묶습니다 (아래 세 단자를 점퍼)', 'Star contactor: ties W2 U2 V2 together'), tr('Δ 접촉기 MC3: U2 를 L2 에, V2 를 L3 에, W2 를 L1 에. MC2 와 MC3 은 서로 b접점 인터록', 'Delta contactor: U2 to L2, V2 to L3, W2 to L1; interlock star and delta')],
+        AUTO() + ' ' + tr('돌 때 몸통에 결선 (Y · Δ) 이 적힙니다. Y 와 Δ 가 함께 붙으면 단락입니다.', 'The body shows Y or Δ while running; star and delta together is a short.'),
+        'star-delta',
+      );
+    case 'r_nbar':
+      return g(tr('중성선 바 · 접지 바입니다. 나사가 모두 한 구리 막대에 물려 있어서, 여러 회로의 N (또는 PE) 을 한곳에 모읍니다.', 'A neutral or earth bar: every screw is on one copper bar.'), [[tr('나사 1 … n', 'screws 1…n'), tr('모두 서로 이어져 있습니다', 'all connected together')]], [tr('전원의 N (또는 PE) 을 한 나사에, 각 회로의 N (PE) 을 나머지 나사에 한 가닥씩 물립니다', 'Supply N (or PE) on one screw, one circuit per remaining screw'), tr('오른쪽 끝 손잡이를 끌어 나사 수를 바꿉니다', 'Drag the right handle to change the number of screws')], tr('늘 통합니다.', 'Always conducts.'), 'home-outlet');
+    case 'r_vm':
+      return g(tr('전압계입니다. 두 단자 사이 전압을 보여 줍니다 (선 사이에 나란히 = 병렬).', 'A voltmeter: shows the voltage between its terminals (in parallel).'), [['V1 · V2', tr('재려는 두 선 (L-N, L1-L2, +24V-0V)', 'the two wires to measure')]], [tr('재려는 두 선에 한 가닥씩 잇습니다. 회로 동작에는 영향을 주지 않습니다', 'One wire to each; it does not affect the circuit')], tr('시뮬레이션 중에 값이 나옵니다 (부하가 하나라도 있어야 계산합니다).', 'Shows a value during simulation.'), 'dc-sensor');
+    case 'r_am':
+      return g(tr('전류계입니다. 선 중간에 직렬로 넣으면 그 선에 흐르는 전류를 보여 줍니다.', 'An ammeter: in series with a wire, shows its current.'), [['1 – 2', tr('늘 통합니다. 재려는 선을 끊고 그 사이에 넣습니다', 'always conducting; insert into the wire')]], [tr('부하로 가는 선 중간에 넣습니다', 'Insert into the wire to the load')], tr('시뮬레이션 중에 값이 나옵니다.', 'Shows a value during simulation.'), 'dc-sensor');
+    case 'r_duct':
+      return g(tr('배선 덕트입니다. 실제 판넬처럼 선을 덕트 안으로 지나가게 정리해 보이는 그림입니다 (전기적으로는 아무것도 하지 않음).', 'A wire duct: a drawing aid that covers the wires running inside it.'), [[tr('단자', 'terminals'), tr('없음 (그림만 있는 부품)', 'none (drawing only)')]], [tr('기기 줄 사이에 놓고, 오른쪽 아래 손잡이를 끌어 길이 · 폭을 맞춥니다. R 로 세웁니다', 'Place between device rows; drag the handle to size it; R rotates'), tr('덕트 안의 선은 흐리게 보입니다. 선을 고치려면 덕트 밖에서 누르거나 덕트를 잠시 옮깁니다', 'Wires inside are dimmed')], tr('동작은 없습니다.', 'No behaviour.'), 'dc-sensor');
+    case 'r_rail':
+      return g(tr('DIN 레일입니다. 차단기 · 릴레이 소켓 · 단자대를 올려 다는 레일을 그림으로 보여 줍니다 (전기적으로는 아무것도 하지 않음).', 'A DIN rail: a drawing aid behind the devices.'), [[tr('단자', 'terminals'), tr('없음 (그림만 있는 부품)', 'none (drawing only)')]], [tr('기기 줄 뒤에 놓고, 오른쪽 끝 손잡이를 끌어 길이를 맞춥니다', 'Place behind a row of devices and drag the handle to length')], tr('동작은 없습니다.', 'No behaviour.'), 'dc-sensor');
     case 'r_my2':
     case 'r_my4': {
       const four = type === 'r_my4';
