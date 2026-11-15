@@ -49,6 +49,8 @@ function defaultName(p: Part): string {
     case 'r_motor3':
       return t_('전동기', 'Motor');
     case 'r_relay8':
+    case 'r_my2':
+    case 'r_my4':
       return t_('릴레이', 'Relay');
     case 'r_timer8':
       return t_('타이머', 'Timer');

@@ -119,3 +119,13 @@ export function buildNetlist(c: Pick<Circuit, 'parts' | 'wires'>): Netlist {
   }
   return { pinNet, wireNet, count, junctions, pinCount, hasWire };
 }
+
+/** 두 그림에서 단자끼리 이어진 모양이 같은가 (부품 · 단자 번호 기준, 선의 자리는 달라도 됨) */
+export function sameConnections(a: Pick<Circuit, 'parts' | 'wires'>, b: Pick<Circuit, 'parts' | 'wires'>): boolean {
+  const groups = (c: Pick<Circuit, 'parts' | 'wires'>) => {
+    const m = new Map<number, string[]>();
+    for (const [pin, net] of buildNetlist(c).pinNet) m.set(net, [...(m.get(net) ?? []), pin]);
+    return [...m.values()].map((g) => g.sort().join(' ')).sort().join('|');
+  };
+  return groups(a) === groups(b);
+}

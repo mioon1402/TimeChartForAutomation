@@ -6,7 +6,8 @@ import { defaultVolt, poleLive, POWER_SYSTEMS, systemLabel, systemName, systemOf
 import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, trImpedance, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
-import { busSize, circuitWires, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type PaletteItem } from '../circuit/parts';
+import { changeSocketLayout } from '../circuit/socket';
+import { busSize, circuitWires, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, palette, PARTS, partBox, partKindName, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -946,7 +947,37 @@ function PropsPane({
               <p className="small muted">{tr('2-7 전원 · 8-6 한시 a · 8-5 한시 b · 1-3 a · 1-4 b (모델마다 다르니 기기 옆면 결선도를 확인)', 'Power 2-7 · 8-6 timed NO · 8-5 timed NC · 1-3 NO · 1-4 NC (check the label on your model)')}</p>
             </>
           )}
-          {p.type === 'r_relay8' && <p className="small muted">{tr('2-7 코일 · 1-3 a · 1-4 b · 8-6 a · 8-5 b (MK2P · 소켓 PTF08A 꼴)', 'Coil 2-7 · 1-3 NO · 1-4 NC · 8-6 NO · 8-5 NC (MK2P-style, PTF08A socket)')}</p>}
+          {p.type === 'r_relay8' && <p className="small muted">{tr('2-7 코일 · 1-3 a · 1-4 b · 8-6 a · 8-5 b (MK2P 꼴)', 'Coil 2-7 · 1-3 NO · 1-4 NC · 8-6 NO · 8-5 NC (MK2P-style)')}</p>}
+          {(p.type === 'r_relay8' || p.type === 'r_timer8') && (
+            <Field
+              label={tr('소켓 단자 배열 (위에서 본 그림)', 'Socket terminal layout (top view)')}
+              wide
+              hint={tr('전선은 소켓의 나사 단자에 물립니다. 가진 소켓에 적힌 번호 줄과 같은 것을 고르세요. 바꾸면 물려 있던 선은 같은 번호 단자를 따라갑니다 (비스듬해진 선은 다시 정리)', 'Wires land on the socket screws. Pick the rows printed on your socket; attached wires follow their terminal numbers')}
+            >
+              <Select
+                value={octalLayout(p)}
+                onChange={(v: OctalLayout) => {
+                  const res = changeSocketLayout(circuit, p.id, v);
+                  const { toast } = useStore.getState();
+                  setCircuit(res.circuit);
+                  if (!res.same) toast(tr('옮겨진 선이 다른 단자 위를 지나가서 연결이 달라졌습니다. 비스듬한 선을 다시 그리거나 Ctrl+Z 로 되돌리세요', 'A moved wire now touches another terminal. Redraw the slanted wires or press Ctrl+Z'), 'warn');
+                  else if (res.moved) toast(tr(`물려 있던 선 ${res.moved}가닥이 같은 번호 단자를 따라갔습니다. 비스듬해진 선은 다시 정리하세요`, `${res.moved} wires followed their terminal numbers; tidy up any slanted ones`), 'ok');
+                }}
+                options={[
+                  { value: 'pf', label: tr('위 6 5 4 3 · 아래 7 8 1 2 (PF083A · 8PFA 꼴)', 'Top 6 5 4 3 · bottom 7 8 1 2 (PF083A type)') },
+                  { value: 'pfr', label: tr('위 2 1 8 7 · 아래 3 4 5 6 (같은 소켓을 돌려 단 것)', 'Top 2 1 8 7 · bottom 3 4 5 6 (same socket turned round)') },
+                  { value: 'seq', label: tr('번호순: 위 1 2 3 4 · 아래 8 7 6 5 (예전 그림)', 'In order: top 1 2 3 4 · bottom 8 7 6 5 (old drawing)') },
+                ]}
+              />
+            </Field>
+          )}
+          {(p.type === 'r_my2' || p.type === 'r_my4') && (
+            <p className="small muted">
+              {p.type === 'r_my2'
+                ? tr('13-14 코일 · 9-5 a · 9-1 b · 12-8 a · 12-4 b (MY2N · 소켓 PYF08A 꼴). 소켓 위 바깥 단이 b (4 1), 안쪽 단이 a (8 5), 아래 안쪽 단이 공통 (12 9), 바깥 단이 코일 (14 13)', 'Coil 13-14 · 9-5 NO · 9-1 NC · 12-8 NO · 12-4 NC (MY2N-style, PYF08A socket)')
+                : tr('13-14 코일 · 공통 9 10 11 12 · a 5 6 7 8 · b 1 2 3 4 (MY4N · 소켓 PYF14A 꼴). 같은 줄의 세 단자가 한 벌: 9-5 a · 9-1 b, 10-6 · 10-2, 11-7 · 11-3, 12-8 · 12-4', 'Coil 13-14 · commons 9-12 · NO 5-8 · NC 1-4 (MY4N-style, PYF14A socket). Each column is one changeover')}
+            </p>
+          )}
           {p.type === 'r_tsw' && <SchedEditor p={p} set={set} />}
           <RatingFields p={p} set={set} circuit={circuit} />
           {p.type === 'r_tb' && (

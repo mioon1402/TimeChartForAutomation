@@ -78,6 +78,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (q.elb === true) p.elb = true;
     if (q.bars === 3 || q.bars === 4) p.bars = q.bars;
     if (typeof q.mm2 === 'number' && q.mm2 > 0 && q.mm2 < 1e5) p.mm2 = q.mm2;
+    if (q.sock === 'pf' || q.sock === 'pfr') p.sock = q.sock;
     if (typeof q.kva === 'number' && q.kva > 0 && q.kva < 1e6) p.kva = q.kva;
     if (typeof q.z === 'number' && q.z > 0 && q.z < 100) p.z = q.z;
     if (typeof q.xr === 'number' && q.xr > 0 && q.xr < 1000) p.xr = q.xr;

@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, LAMP_HEX, panelSize, schedOn, tbSize, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, LAMP_HEX, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, schedOn, tbSize, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock, formatTime } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -397,25 +397,62 @@ export function RMotorGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitCo
 }
 
 /** 8핀 소켓: 위 1 2 3 4, 아래 8 7 6 5 (번호마다 나사) */
-const OCT_TOP = ['1', '2', '3', '4'];
-const OCT_BOT = ['8', '7', '6', '5'];
 const OCT_X = [-60, -20, 20, 60];
 
-function OctalSocket({ children }: { children: React.ReactNode }) {
+/** 단자의 쓰임: 코일 (전원) · 공통 · a접점 · b접점. 나사 링 색과 번호 색을 맞춘다 */
+type TermUse = 'coil' | 'com' | 'a' | 'b';
+const USE_RING: Record<TermUse, Ring> = { coil: 'orange', com: 'yellow', a: 'green', b: 'grey' };
+const USE_INK: Record<TermUse, string> = { coil: '#fdba74', com: '#fde047', a: '#86efac', b: '#e5e7eb' };
+const OCT_USE: Record<number, TermUse> = { 1: 'com', 2: 'coil', 3: 'a', 4: 'b', 5: 'b', 6: 'a', 7: 'coil', 8: 'com' };
+
+/** 기기 위에 붙이는 기호 스티커 (오른쪽 끝 x, 가운데 y). 소켓 옆은 점퍼선이 지나가는 자리라 기호는 기기 안에 적는다 */
+function TagSticker({ tag, right, y }: { tag: string; right: number; y: number }) {
+  if (!tag) return null;
+  const w = Math.max(30, tag.length * 7 + 12);
   return (
     <g>
-      <rect x={-86} y={-90} width={172} height={180} rx={6} fill="#4b5563" stroke="#1f2937" />
-      <rect x={-80} y={-84} width={160} height={30} rx={3} fill="#6b7280" />
-      <rect x={-80} y={54} width={160} height={30} rx={3} fill="#6b7280" />
-      {children}
-      {OCT_X.map((x, i) => (
-        <g key={x}>
-          <Screw x={x} y={-60} ring="grey" />
-          <Label x={x + 11} y={-66} text={OCT_TOP[i]} anchor="start" fill="#fde047" size={11} weight={800} />
-          <Screw x={x} y={60} ring="grey" />
-          <Label x={x + 11} y={74} text={OCT_BOT[i]} anchor="start" fill="#fde047" size={11} weight={800} />
-        </g>
+      <rect x={right - w} y={y - 7} width={w} height={14} rx={2} fill="#ffffff" stroke="#111827" strokeWidth={1} />
+      <Label x={right - w / 2} y={y + 3.6} text={tag} fill="#111827" size={10} weight={800} />
+    </g>
+  );
+}
+
+/** 소켓 옆 (점퍼선 한 줄 바깥) 에 적는 설명 · 사양 */
+function SideNotes({ x, lines, c }: { x: number; lines: (string | undefined | null | false)[]; c: CircuitColors }) {
+  const shown = lines.filter((l): l is string => !!l);
+  return (
+    <g>
+      {shown.map((l, i) => (
+        <Label key={i} x={x} y={-2 + i * 12} text={l} anchor="start" size={i === 0 ? 9 : 8.5} weight={500} fill={c.muted} />
       ))}
+    </g>
+  );
+}
+
+/**
+ * 8핀 원형 소켓 (DIN 레일용, PF083A · 8PFA 꼴): 전선은 릴레이 · 타이머가 아니라 이 소켓의 나사 단자에 물린다.
+ * 위 · 아래 줄의 단자 번호는 소켓 배열 (Part.sock) 을 따르고, 번호 옆에 쓰임 (코일 · C · a · b) 을 적는다.
+ */
+function OctalSocket({ p, coil, children }: { p: Part; coil: string; children: React.ReactNode }) {
+  const rows = OCTAL_ROWS[octalLayout(p)];
+  const cap = (n: number) => (OCT_USE[n] === 'coil' ? coil : OCT_USE[n] === 'com' ? 'C' : OCT_USE[n]);
+  const term = (n: number, x: number, top: boolean) => (
+    <g key={n}>
+      <Screw x={x} y={top ? -62 : 62} ring={USE_RING[OCT_USE[n]]} />
+      <Label x={x + 11} y={top ? -66 : 62} text={String(n)} anchor="start" fill={USE_INK[OCT_USE[n]]} size={11} weight={800} />
+      <Label x={x + 11} y={top ? -56 : 72} text={cap(n)} anchor="start" fill="#f3f4f6" size={7} weight={700} />
+    </g>
+  );
+  return (
+    <g>
+      {/* DIN 레일 */}
+      <rect x={-96} y={-13} width={192} height={26} fill="#d1d5db" stroke="#9ca3af" strokeWidth={0.8} />
+      <rect x={-86} y={-90} width={172} height={180} rx={6} fill="#4b5563" stroke="#1f2937" />
+      <rect x={-80} y={-84} width={160} height={34} rx={3} fill="#6b7280" />
+      <rect x={-80} y={50} width={160} height={34} rx={3} fill="#6b7280" />
+      {children}
+      {rows.top.map((n, i) => term(n, OCT_X[i], true))}
+      {rows.bottom.map((n, i) => term(n, OCT_X[i], false))}
     </g>
   );
 }
@@ -442,20 +479,83 @@ function Changeover({ y, com, no, nc, on, timed, inst }: { y: number; com: strin
 export function Relay8Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
   const on = st.act;
   return (
-    <OctalSocket>
+    <OctalSocket p={p} coil={tr('코일', 'coil')}>
       <rect x={-70} y={-46} width={140} height={92} rx={8} fill="#e0f2fe" stroke="#7dd3fc" strokeWidth={1.4} opacity={0.97} />
       <rect x={-62} y={-14} width={26} height={28} rx={2} fill={st.on ? '#f59e0b' : '#f8fafc'} stroke="#111827" strokeWidth={1.6} />
       <path d="M-49,-14V-30M-49,14V30" stroke="#111827" strokeWidth={1.4} />
       <Label x={-49} y={-33} text="2" fill="#111827" size={9} weight={800} />
       <Label x={-49} y={40} text="7" fill="#111827" size={9} weight={800} />
       <Label x={-26} y={-34} text={tr('코일', 'coil')} anchor="start" fill="#475569" size={7.5} weight={600} />
-      <Changeover y={-18} com="1" no="3" nc="4" on={on} />
-      <Changeover y={22} com="8" no="6" nc="5" on={on} />
-      {st.on && <circle cx={60} cy={-36} r={3.5} fill="#ef4444" />}
-      <Label x={94} y={-66} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
-      {p.name && <Label x={94} y={-53} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
-      <Label x={94} y={-40} text={p.spec?.trim() || 'AC 220V'} anchor="start" size={8.5} weight={500} fill={c.muted} />
+      <Changeover y={-14} com="1" no="3" nc="4" on={on} />
+      <Changeover y={24} com="8" no="6" nc="5" on={on} />
+      {st.on && <circle cx={-2} cy={-37} r={3.5} fill="#ef4444" />}
+      <TagSticker tag={p.tag} right={66} y={-36} />
+      <SideNotes x={106} lines={[p.name, p.spec?.trim() || 'AC 220V']} c={c} />
     </OctalSocket>
+  );
+}
+
+/**
+ * 각형 릴레이 + 소켓 (MY2N · PYF08A / MY4N · PYF14A 꼴): 소켓의 나사 단자가 위 두 단 (바깥 b · 안쪽 a), 아래 두 단 (안쪽 공통 · 바깥 코일).
+ * 투명 덮개 안에 극마다 전환 접점을 그 줄의 단자 바로 위에 그린다.
+ */
+export function MyRelayGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const cols = MY_COLS[p.type === 'r_my4' ? 'r_my4' : 'r_my2'];
+  const n = cols.length;
+  const x0 = -(n - 1) * 20;
+  const left = x0 - 46;
+  const right = x0 + 40 * (n - 1) + 26;
+  const on = st.act;
+  const ink = '#111827';
+  const term = (num: number, x: number, y: number, use: TermUse) => (
+    <g key={num}>
+      <Screw x={x} y={y} ring={USE_RING[use]} />
+      <Label x={x + 10} y={y - 4} text={String(num)} anchor="start" fill={USE_INK[use]} size={10} weight={800} />
+    </g>
+  );
+  return (
+    <g>
+      {/* DIN 레일 */}
+      <rect x={left - 10} y={-13} width={right - left + 20} height={26} fill="#d1d5db" stroke="#9ca3af" strokeWidth={0.8} />
+      <rect x={left} y={-126} width={right - left} height={252} rx={6} fill="#4b5563" stroke="#1f2937" />
+      {/* 계단처럼 두 단: 바깥 단이 한 층 높다 */}
+      <rect x={left + 5} y={-121} width={right - left - 10} height={38} rx={3} fill="#6b7280" />
+      <rect x={left + 5} y={-81} width={right - left - 10} height={38} rx={3} fill="#5f6875" />
+      <rect x={left + 5} y={43} width={right - left - 10} height={38} rx={3} fill="#5f6875" />
+      <rect x={left + 5} y={83} width={right - left - 10} height={38} rx={3} fill="#6b7280" />
+      {/* 릴레이 (투명 덮개) */}
+      <rect x={left + 8} y={-40} width={right - left - 16} height={80} rx={6} fill={st.on ? '#fef9c3' : '#e0f2fe'} stroke="#7dd3fc" strokeWidth={1.4} opacity={0.97} />
+      {cols.map((num, k) => {
+        const xb = x0 + 40 * k; // b (바깥 단) · 그 왼쪽 한 칸이 a 와 공통 (안쪽 단)
+        const xa = xb - 20;
+        const xc = xa;
+        return (
+          <g key={num}>
+            <path d={`M${xb},-40V-22M${xa},-40V-22M${xc},40V20`} stroke={ink} strokeWidth={1.5} />
+            <circle cx={xc} cy={20} r={2.4} fill={ink} />
+            <path d={`M${xc},20L${on ? xa : xb},-21`} stroke={on ? '#2563eb' : ink} strokeWidth={2.2} />
+            {term(num, xb, -102, 'b')}
+            {term(num + 4, xa, -62, 'a')}
+            {term(num + 8, xc, 62, 'com')}
+          </g>
+        );
+      })}
+      {term(14, x0, 102, 'coil')}
+      {term(13, x0 + 40 * (n - 1), 102, 'coil')}
+      <circle cx={right - 18} cy={30} r={4} fill={st.on ? '#ef4444' : '#cbd5e1'} stroke="#64748b" strokeWidth={0.8} />
+      {/* 단마다 쓰임 */}
+      <Label x={left + 8} y={-98} text="b" anchor="start" fill="#f3f4f6" size={8} weight={800} />
+      <Label x={right - 7} y={-58} text="a" anchor="end" fill="#f3f4f6" size={8} weight={800} />
+      <Label x={right - 7} y={66} text="C" anchor="end" fill="#f3f4f6" size={8} weight={800} />
+      <Label x={left + 8} y={106} text={tr('코일', 'coil')} anchor="start" fill="#f3f4f6" size={7.5} weight={800} />
+      {/* 기호는 덮개 위에 (접점 그림 위에 겹쳐도 읽히게 흰 테두리) */}
+      <text x={(left + right) / 2} y={6} textAnchor="middle" fontSize={12} fontWeight={800} fill="#111827" stroke="#ffffff" strokeWidth={3.5} paintOrder="stroke" strokeLinejoin="round">
+        {p.tag}
+      </text>
+      <g transform={`translate(${right + 26},0)`}>
+        <SideNotes x={0} lines={[p.name, p.spec?.trim() || 'AC 220V']} c={c} />
+      </g>
+    </g>
   );
 }
 
@@ -477,7 +577,7 @@ export function Timer8Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitCo
   const [sx, sy] = ang(0);
   const mode = p.timerMode === 'off' ? 'OFF DLY' : p.timerMode === 'flicker' ? 'FLICKER' : 'ON DLY';
   return (
-    <OctalSocket>
+    <OctalSocket p={p} coil={tr('전원', 'power')}>
       <rect x={-70} y={-46} width={140} height={92} rx={8} fill="#f1f5f9" stroke="#94a3b8" strokeWidth={1.4} />
       <circle cx={-40} cy={-2} r={19} fill="#ffffff" stroke="#334155" strokeWidth={1.4} />
       {frac > 0 && <path d={`M${sx},${sy}A15,15 0 ${frac > 2 / 3 ? 1 : 0} 1 ${ex},${ey}`} stroke="#f59e0b" strokeWidth={4} fill="none" />}
@@ -491,12 +591,10 @@ export function Timer8Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitCo
       <Label x={-54} y={-33} text="PW" anchor="start" fill="#475569" size={7} weight={700} />
       <circle cx={-30} cy={-36} r={3.5} fill={out ? '#ef4444' : '#cbd5e1'} />
       <Label x={-24} y={-33} text="UP" anchor="start" fill="#475569" size={7} weight={700} />
-      <Label x={20} y={-33} text={tr('전원 2-7', 'power 2-7')} anchor="middle" fill="#475569" size={7.5} weight={700} />
-      <Changeover y={-12} com="1" no="3" nc="4" on={p.inst13 ? coil : out} timed={!p.inst13} inst={p.inst13} />
-      <Changeover y={24} com="8" no="6" nc="5" on={out} timed />
-      <Label x={94} y={-66} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
-      {p.name && <Label x={94} y={-53} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
-      {t && t.elapsed !== null && <Label x={94} y={-40} text={`${(t.elapsed / 1000).toFixed(1)} / ${(preset / 1000).toFixed(1)}s`} anchor="start" size={10} weight={800} fill={c.accent} />}
+      <Changeover y={-10} com="1" no="3" nc="4" on={p.inst13 ? coil : out} timed={!p.inst13} inst={p.inst13} />
+      <Changeover y={26} com="8" no="6" nc="5" on={out} timed />
+      <TagSticker tag={p.tag} right={66} y={-36} />
+      <SideNotes x={106} lines={[p.name, t && t.elapsed !== null && `${(t.elapsed / 1000).toFixed(1)} / ${(preset / 1000).toFixed(1)}s`]} c={c} />
     </OctalSocket>
   );
 }

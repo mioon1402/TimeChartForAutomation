@@ -63,6 +63,8 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_lamp: 8,
   r_motor3: 9,
   r_relay8: 3,
+  r_my2: 3,
+  r_my4: 3,
   r_timer8: 4,
   r_ss: 6,
   r_estop: 6,
@@ -94,10 +96,25 @@ const VALVE_KIND: Partial<Record<PartType, [string, string]>> = {
   v53: ['5/3 솔레노이드 밸브 (올포트 블록)', '5/3 solenoid valve (closed centre)'],
 };
 
+/** 소켓에 꽂아 쓰는 기기의 소켓 (부품 리스트에 함께 적는다) */
+export function socketText(p: Part): string {
+  switch (p.type) {
+    case 'r_relay8':
+    case 'r_timer8':
+      return tr('소켓 8핀 원형 (PF083A 꼴)', '8-pin round socket (PF083A type)');
+    case 'r_my2':
+      return tr('소켓 8핀 각형 (PYF08A 꼴)', '8-blade socket (PYF08A type)');
+    case 'r_my4':
+      return tr('소켓 14핀 각형 (PYF14A 꼴)', '14-blade socket (PYF14A type)');
+    default:
+      return '';
+  }
+}
+
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
 function mainOf(parts: Part[]): Part {
   const rank = (p: Part) =>
-    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_tsw'
+    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw'
       ? 0
       : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'r_vcb'
         ? 1
@@ -193,6 +210,10 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('3상 유도 전동기', '3-phase induction motor'), spec: '' };
     case 'r_relay8':
       return { kind: tr('릴레이 (8핀) + 소켓', 'Relay (8-pin) + socket'), spec: `${tr('코일 AC 220V', 'coil AC 220V')}, ${ab}` };
+    case 'r_my2':
+      return { kind: tr('릴레이 (각형 2c) + 소켓', 'Relay (blade, 2-pole) + socket'), spec: `${tr('코일 AC 220V', 'coil AC 220V')}, ${ab}` };
+    case 'r_my4':
+      return { kind: tr('릴레이 (각형 4c) + 소켓', 'Relay (blade, 4-pole) + socket'), spec: `${tr('코일 AC 220V', 'coil AC 220V')}, ${ab}` };
     case 'r_timer8': {
       const mode = p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : p.timerMode === 'flicker' ? tr('플리커', 'flicker') : tr('ON 딜레이', 'on-delay');
       const cts = p.inst13 ? tr('한시 1a1b · 순시 1a1b', 'timed 1NO1NC · inst. 1NO1NC') : tr('한시 2a2b', 'timed 2NO2NC');
@@ -266,13 +287,14 @@ export function partsList(c: Circuit): BomRow[] {
   for (const [k, parts] of groups) {
     const main = mainOf(parts);
     // 실물 기기는 몸 안의 보조 접점(1a1b)도 센다
-    const inside = parts.reduce((n, p) => n + (p.type === 'r_relay8' || p.type === 'r_timer8' ? 2 : p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' ? 1 : 0), 0);
+    const inside = parts.reduce((n, p) => n + (p.type === 'r_my4' ? 4 : p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_my2' ? 2 : p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' ? 1 : 0), 0);
     const a = parts.filter((p) => CONTACT_A.has(p.type)).length + inside;
     const b = parts.filter((p) => CONTACT_B.has(p.type)).length + inside;
     const poles = (parts.filter((p) => p.type === 'km3').length + parts.filter((p) => p.type === 'r_mc').length) * 3;
     const ks = kindAndSpec(c, k, main, a, b, poles);
     const named = parts.find((p) => p.name?.trim());
-    const spec = parts.find((p) => p.spec?.trim())?.spec?.trim() ?? ks.spec;
+    // 소켓에 꽂는 기기는 사양을 따로 적어도 소켓이 빠지지 않게 (함께 사야 한다)
+    const spec = [parts.find((p) => p.spec?.trim())?.spec?.trim() ?? ks.spec, socketText(main)].filter(Boolean).join(', ');
     rows.push({ tag: main.tag.trim(), kind: ks.kind, name: named?.name?.trim() ?? '', spec, a, b, main: poles, count: parts.length, cat: CAT_ORDER[main.type] ?? 20 });
   }
   return rows.sort((x, y) => x.cat - y.cat || compareTags(x.tag, y.tag));

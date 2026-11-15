@@ -118,8 +118,9 @@ export function partGuide(type: PartType): PartGuide | null {
       );
     case 'r_relay8':
       return g(
-        tr('8핀 릴레이(소켓에 꽂아 씀)입니다. 코일에 전압이 걸리면 접점 두 벌이 넘어갑니다. 버튼 신호를 기억(자기유지)하거나 접점 수를 늘릴 때 씁니다.', 'An 8-pin plug-in relay: powering the coil switches two changeover contacts.'),
+        tr('8핀 릴레이와 소켓입니다. 릴레이는 소켓에 꽂고, 전선은 소켓의 나사 단자에 물립니다 (위 줄 6 5 4 3 · 아래 줄 7 8 1 2). 코일에 전압이 걸리면 접점 두 벌이 넘어갑니다. 버튼 신호를 기억(자기유지)하거나 접점 수를 늘릴 때 씁니다.', 'An 8-pin relay on its socket. Wires land on the socket screws (top 6 5 4 3, bottom 7 8 1 2). Powering the coil switches two changeover contacts.'),
         [
+          [tr('소켓 단자', 'socket'), tr('아래 줄 바깥쪽 7 · 2 가 코일, 안쪽 8 · 1 이 공통, 위 줄 6 · 3 이 a, 5 · 4 가 b. 소켓이 다르면 속성의 [소켓 단자 배열] 에서 고릅니다', 'bottom outer 7 · 2 coil, inner 8 · 1 commons; top 6 · 3 NO, 5 · 4 NC. Pick your socket layout in the properties')],
           ['2 – 7', tr('코일', 'coil')],
           ['1', tr('첫째 접점의 공통', 'common of contact 1')],
           ['1 – 3 / 1 – 4', tr('a접점 (붙으면 닫힘) / b접점 (붙으면 열림)', 'NO / NC')],
@@ -134,10 +135,35 @@ export function partGuide(type: PartType): PartGuide | null {
         AUTO() + ' ' + tr('덮개의 결선도에서 접점 날이 a 쪽으로 넘어가는 것이 보입니다.', 'The diagram on the cover shows the contacts moving.'),
         'panel',
       );
+    case 'r_my2':
+    case 'r_my4': {
+      const four = type === 'r_my4';
+      return g(
+        four
+          ? tr('각형 릴레이 4c (MY4N 꼴) 와 소켓 (PYF14A 꼴) 입니다. 릴레이는 소켓에 꽂고, 전선은 소켓의 나사 단자에 물립니다. 코일에 전압이 걸리면 접점 네 벌이 함께 넘어갑니다.', 'A 4-pole blade relay (MY4N type) on its socket (PYF14A type). The relay plugs in; wires land on the socket screws.')
+          : tr('각형 릴레이 2c (MY2N 꼴) 와 소켓 (PYF08A 꼴) 입니다. 릴레이는 소켓에 꽂고, 전선은 소켓의 나사 단자에 물립니다. 코일에 전압이 걸리면 접점 두 벌이 함께 넘어갑니다.', 'A 2-pole blade relay (MY2N type) on its socket (PYF08A type). The relay plugs in; wires land on the socket screws.'),
+        [
+          ['13 – 14', tr('코일 (소켓 맨 아래 단). 직류 코일이면 13 이 –, 14 가 +', 'coil (bottom tier); for DC 13 is –, 14 is +')],
+          [four ? '9 · 10 · 11 · 12' : '9 · 12', tr('공통 (아래 안쪽 단)', 'commons (lower inner tier)')],
+          [four ? '5 · 6 · 7 · 8' : '5 · 8', tr('a접점 (위 안쪽 단): 코일이 붙으면 공통과 닫힘', 'NO (upper inner tier)')],
+          [four ? '1 · 2 · 3 · 4' : '1 · 4', tr('b접점 (위 바깥 단): 평소 공통과 닫혀 있음', 'NC (upper outer tier)')],
+          [four ? '9-5-1 · 10-6-2 · 11-7-3 · 12-8-4' : '9-5-1 · 12-8-4', tr('한 벌 (같은 세로줄의 세 단자)', 'one changeover (same column)')],
+        ],
+        [
+          tr('코일: 13 은 N 에, 14 는 정지(b) → 기동(a) 버튼을 거쳐 L 에', 'Coil: 13 to N, 14 through stop and start to L'),
+          tr('자기유지: 9 를 기동 버튼 앞에, 5 를 기동 버튼 뒤 (14 와 같은 선) 에 잇습니다', 'Self-holding: 9 before the start button, 5 after it (same wire as 14)'),
+          tr('남은 벌의 공통 (12 …) 에 L 을 주고 a (8 …) 로 운전 램프, b (4 …) 로 정지 램프를 켭니다', 'Feed L to another common and use NO / NC for lamps'),
+          tr('그림에서 안쪽 단 나사는 선이 바깥 단 사이로 지나가도록 반 칸 옆에 그렸습니다. 실물은 위아래 단이 같은 줄에 있고 번호는 같습니다', 'Inner-tier screws are drawn half a step aside so wires can pass; the numbers match the real socket'),
+        ],
+        AUTO() + ' ' + tr('덮개 안의 접점 날이 a 쪽으로 넘어가고 동작 표시등이 켜집니다.', 'The blades move to the NO side and the indicator lights.'),
+        'relay-socket',
+      );
+    }
     case 'r_timer8':
       return g(
-        tr('8핀 타이머입니다. 전원(2-7)이 들어오고 설정 시간이 지나면 한시 접점이 넘어갑니다 (ON 딜레이). "기동하고 3초 뒤에" 같은 동작에 씁니다.', 'An 8-pin timer: after power is applied for the preset time its timed contacts switch (on-delay).'),
+        tr('8핀 타이머와 소켓입니다. 타이머는 소켓에 꽂고, 전선은 소켓의 나사 단자에 물립니다 (위 줄 6 5 4 3 · 아래 줄 7 8 1 2). 전원(2-7)이 들어오고 설정 시간이 지나면 한시 접점이 넘어갑니다 (ON 딜레이). "기동하고 3초 뒤에" 같은 동작에 씁니다.', 'An 8-pin timer on its socket; wires land on the socket screws (top 6 5 4 3, bottom 7 8 1 2). After power is applied for the preset time its timed contacts switch (on-delay).'),
         [
+          [tr('소켓 단자', 'socket'), tr('아래 줄 바깥쪽 7 · 2 가 전원, 안쪽 8 · 1 이 공통, 위 줄 6 · 3 이 a, 5 · 4 가 b', 'bottom outer 7 · 2 power, inner 8 · 1 commons; top 6 · 3 NO, 5 · 4 NC')],
           ['2 – 7', tr('전원 (이 사이에 전압이 걸려 있는 동안 시간을 잽니다)', 'power: times while energised')],
           ['8 – 6 / 8 – 5', tr('한시 a접점 (시간이 지나면 닫힘) / 한시 b접점 (시간이 지나면 열림)', 'timed NO / timed NC')],
           ['1 – 3 / 1 – 4', tr('한시 접점 한 벌 더. 속성에서 순시(전원이 들어오면 바로)로 바꿀 수 있습니다', 'second timed pair, or instantaneous if chosen')],
