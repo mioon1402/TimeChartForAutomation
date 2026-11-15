@@ -65,6 +65,62 @@ const BOX3: [number, number, number, number] = [-3, -2, 3, 2];
 const pin = (x: number, y: number, label: string): PinDef => ({ x, y, label });
 /** 8핀 소켓 단자: 번호 순서대로 (2-7 코일, 1 공통 → 3 a · 4 b, 8 공통 → 6 a · 5 b) */
 const OCTAL: PinDef[] = [pin(-3, -3, '1'), pin(-1, -3, '2'), pin(1, -3, '3'), pin(3, -3, '4'), pin(3, 3, '5'), pin(1, 3, '6'), pin(-1, 3, '7'), pin(-3, 3, '8')];
+
+/**
+ * 8핀 원형 소켓 (PF083A · 8PFA 꼴) 의 나사 단자 자리. 소켓을 위에서 보면 핀 번호가 릴레이 밑면 그림의 거울상이라
+ * 홈 (키) 을 아래로 두면 위 줄 6 5 4 3, 아래 줄 7 8 1 2 가 된다. 같은 소켓을 돌려 달면 위 2 1 8 7, 아래 3 4 5 6.
+ * seq 는 예전 그림 (번호순) 으로, 소켓 배열이 저장되지 않은 옛 파일이 그대로 읽히게 남겨 둔다.
+ */
+export type OctalLayout = 'seq' | 'pf' | 'pfr';
+export const OCTAL_ROWS: Record<OctalLayout, { top: number[]; bottom: number[] }> = {
+  seq: { top: [1, 2, 3, 4], bottom: [8, 7, 6, 5] },
+  pf: { top: [6, 5, 4, 3], bottom: [7, 8, 1, 2] },
+  pfr: { top: [2, 1, 8, 7], bottom: [3, 4, 5, 6] },
+};
+export function octalLayout(p: Pick<Part, 'sock'>): OctalLayout {
+  return p.sock === 'pf' || p.sock === 'pfr' ? p.sock : 'seq';
+}
+/** 단자 번호 1~8 순서로 단자 자리 (칸) */
+function octalPins(layout: OctalLayout): PinDef[] {
+  const rows = OCTAL_ROWS[layout];
+  const out: PinDef[] = [];
+  for (let n = 1; n <= 8; n++) {
+    const t = rows.top.indexOf(n);
+    const k = t >= 0 ? t : rows.bottom.indexOf(n);
+    out.push(pin(-3 + 2 * k, t >= 0 ? -3 : 3, String(n)));
+  }
+  return out;
+}
+const OCTAL_PINS: Record<OctalLayout, PinDef[]> = { seq: OCTAL, pf: octalPins('pf'), pfr: octalPins('pfr') };
+
+/**
+ * 각형 릴레이 소켓 (PYF08A · PYF14A 꼴, 위에서 본 그림): 위쪽 바깥 단 b 접점 (4 3 2 1), 안쪽 단 a 접점 (8 7 6 5),
+ * 아래쪽 안쪽 단 공통 (12 11 10 9), 바깥 단 코일 (14 · 13). 2극은 가운데 두 줄이 빠진다 (4 1 / 8 5 / 12 9 / 14 13).
+ * 실물은 위아래 단이 같은 줄에 있지만, 그림에서는 안쪽 단의 선이 바깥 단 나사 사이로 지나가도록 한 칸 옆에 둔다.
+ */
+export const MY_COLS: Record<'r_my2' | 'r_my4', number[]> = { r_my2: [4, 1], r_my4: [4, 3, 2, 1] };
+function myPins(type: 'r_my2' | 'r_my4'): PinDef[] {
+  const cols = MY_COLS[type];
+  const x0 = -(cols.length - 1);
+  const at = new Map<number, [number, number]>();
+  cols.forEach((n, k) => {
+    at.set(n, [x0 + 2 * k, -5]);
+    at.set(n + 4, [x0 + 2 * k - 1, -3]);
+    at.set(n + 8, [x0 + 2 * k - 1, 3]);
+  });
+  at.set(14, [x0, 5]);
+  at.set(13, [x0 + 2 * (cols.length - 1), 5]);
+  return [...at.keys()].sort((a, b) => a - b).map((n) => pin(at.get(n)![0], at.get(n)![1], String(n)));
+}
+/** 단자 번호 → 단자 목록에서의 차례 */
+function myPoles(type: 'r_my2' | 'r_my4'): [number, number][] {
+  const nums = myPins(type).map((q) => Number(q.label));
+  const i = (n: number) => nums.indexOf(n);
+  // 극마다 공통 → a (5~8), 공통 → b (1~4). 1번 극부터
+  return [...MY_COLS[type]].sort((a, b) => a - b).flatMap((n) => [[i(n + 8), i(n + 4)], [i(n + 8), i(n)]] as [number, number][]);
+}
+const MY2 = myPins('r_my2');
+const MY4 = myPins('r_my4');
 const OCTAL_POLES: [number, number][] = [
   [0, 2],
   [0, 3],
@@ -299,6 +355,8 @@ export const PARTS: Record<PartType, PartDef> = {
   // 8핀 소켓 (PTF08A 꼴): 위 1 2 3 4, 아래 8 7 6 5
   r_relay8: { type: 'r_relay8', cat: 'relay', pins: OCTAL, poles: OCTAL_POLES, polesNc: [false, true, false, true], selfCoil: [1, 6], load: true, box: [-4.3, -4.5, 4.3, 4.5], prefix: 'X' },
   r_timer8: { type: 'r_timer8', cat: 'relay', pins: OCTAL, poles: OCTAL_POLES, polesNc: [false, true, false, true], selfCoil: [1, 6], load: true, box: [-4.3, -4.5, 4.3, 4.5], prefix: 'T' },
+  r_my2: { type: 'r_my2', cat: 'relay', pins: MY2, poles: myPoles('r_my2'), polesNc: [false, true, false, true], selfCoil: [MY2.length - 2, MY2.length - 1], load: true, box: [-3.4, -6.4, 2.4, 6.4], prefix: 'X' },
+  r_my4: { type: 'r_my4', cat: 'relay', pins: MY4, poles: myPoles('r_my4'), polesNc: [false, true, false, true, false, true, false, true], selfCoil: [MY4.length - 2, MY4.length - 1], load: true, box: [-5.4, -6.4, 4.4, 6.4], prefix: 'X' },
   r_ss: { type: 'r_ss', cat: 'switch', pins: [pin(-1, 0, '11'), pin(1, 0, '12'), pin(-1, 2, '23'), pin(1, 2, '24')], poles: PB_POLES, polesNc: [true, false], operate: 'toggle', box: [-2.2, -4, 2.2, 3], prefix: 'SS' },
   r_estop: { type: 'r_estop', cat: 'switch', pins: [pin(-1, 0, '11'), pin(1, 0, '12'), pin(-1, 2, '23'), pin(1, 2, '24')], poles: PB_POLES, polesNc: [true, false], operate: 'toggle', box: [-2.6, -4.4, 2.6, 3], prefix: 'EMS' },
   // 단자대: 극마다 위·아래 나사 (극수는 부품마다, partPins 참고)
@@ -375,7 +433,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -445,10 +503,31 @@ export function tbSize(p: Part): number {
 /** 부품의 단자 (단자대는 극수만큼) */
 export function partPins(p: Part): PinDef[] {
   if (p.type === 'r_bus') return BUS_PHASES.slice(0, busSize(p).bars).map((ph, k) => pin(2 * k, 0, ph));
+  // 8핀 소켓은 단자 배열에 따라 자리가 다르다 (차례는 늘 단자 번호 1~8)
+  if (p.type === 'r_relay8' || p.type === 'r_timer8') return OCTAL_PINS[octalLayout(p)];
   if (p.type !== 'r_tb') return PARTS[p.type].pins;
   const out: PinDef[] = [];
   for (let k = 0; k < tbSize(p); k++) out.push(pin(2 * k, -2, String(k + 1)), pin(2 * k, 2, String(k + 1)));
   return out;
+}
+
+/**
+ * 8핀 소켓의 단자 배열을 바꾼다. 단자에 물려 있던 선 끝은 그 단자 번호를 따라 새 자리로 옮긴다
+ * (자리를 그대로 두면 다른 번호 단자에 물린 것이 되어 회로가 바뀐다). 옮겨진 선은 비스듬해질 수 있다.
+ */
+export function setSocketLayout(c: Circuit, partId: string, layout: OctalLayout): Circuit {
+  const part = c.parts.find((p) => p.id === partId);
+  if (!part || (part.type !== 'r_relay8' && part.type !== 'r_timer8') || octalLayout(part) === layout) return c;
+  const next: Part = { ...part };
+  if (layout === 'seq') delete next.sock;
+  else next.sock = layout;
+  const from = pinPositions(part);
+  const to = pinPositions(next);
+  const move = (q: [number, number]): [number, number] => {
+    const i = from.findIndex((f) => f[0] === q[0] && f[1] === q[1]);
+    return i < 0 ? q : to[i];
+  };
+  return { ...c, parts: c.parts.map((p) => (p.id === partId ? next : p)), wires: c.wires.map((w) => ({ ...w, a: move(w.a), b: move(w.b) })).filter((w) => w.a[0] !== w.b[0] || w.a[1] !== w.b[1]) };
 }
 
 /** 서로 이어지는 단자 쌍 */
@@ -608,6 +687,10 @@ export function partKindName(type: PartType): string {
       return tr('8핀 릴레이 (소켓)', '8-pin relay (socket)');
     case 'r_timer8':
       return tr('8핀 타이머 (소켓)', '8-pin timer (socket)');
+    case 'r_my2':
+      return tr('각형 릴레이 2c (소켓)', 'Blade relay 2-pole (socket)');
+    case 'r_my4':
+      return tr('각형 릴레이 4c (소켓)', 'Blade relay 4-pole (socket)');
     case 'r_ss':
       return tr('셀렉터 스위치 (1a1b)', 'Selector switch (1 NO 1 NC)');
     case 'r_estop':
@@ -683,9 +766,14 @@ export function palette(): PaletteGroup[] {
       ],
     },
     {
-      title: tr('릴레이 · 타이머 (8핀)', '8-pin relay & timer'),
+      title: tr('릴레이 · 타이머 (소켓)', 'Relays & timers (socket)'),
       mode: 'real',
-      items: [it('r_relay8', tr('8핀 릴레이 + 소켓', '8-pin relay + socket')), it('r_timer8', tr('8핀 타이머 + 소켓', '8-pin timer + socket'), { timerMode: 'on', preset: 3000 })],
+      items: [
+        it('r_relay8', tr('8핀 릴레이 + 소켓', '8-pin relay + socket'), { sock: 'pf' }),
+        it('r_timer8', tr('8핀 타이머 + 소켓', '8-pin timer + socket'), { sock: 'pf', timerMode: 'on', preset: 3000 }),
+        it('r_my2', tr('각형 릴레이 2c + 소켓', 'Blade relay 2-pole + socket')),
+        it('r_my4', tr('각형 릴레이 4c + 소켓', 'Blade relay 4-pole + socket')),
+      ],
     },
     {
       title: tr('전등 · 타임 스위치', 'Lighting & time switch'),

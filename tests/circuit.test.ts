@@ -824,3 +824,131 @@ describe('substation example (utility, VCB, transformer)', () => {
     expect(live(cut)).toBe(false);
   });
 });
+
+describe('relay and timer sockets (wires land on the socket screws)', () => {
+  it('8-pin socket rows: real layout 6 5 4 3 / 7 8 1 2, turned 2 1 8 7 / 3 4 5 6, old drawings keep 1 2 3 4 / 8 7 6 5', async () => {
+    const { partPins } = await import('../src/circuit/parts');
+    const rows = (sock?: 'pf' | 'pfr') => {
+      const pins = partPins(part('r_relay8', 0, 0, 'X1', sock ? { sock } : {}));
+      const row = (y: number) => pins.filter((q) => q.y === y).sort((a, b) => a.x - b.x).map((q) => q.label).join(' ');
+      // 단자 목록은 배열과 상관없이 늘 번호순 (접점 · 코일을 번호로 찾는다)
+      expect(pins.map((q) => q.label)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
+      return [row(-3), row(3)];
+    };
+    expect(rows('pf')).toEqual(['6 5 4 3', '7 8 1 2']);
+    expect(rows('pfr')).toEqual(['2 1 8 7', '3 4 5 6']);
+    expect(rows()).toEqual(['1 2 3 4', '8 7 6 5']);
+    // 돌려 단 소켓은 같은 소켓을 180° 돌린 것
+    const a = partPins(part('r_relay8', 0, 0, 'X1', { sock: 'pf' }));
+    const b = partPins(part('r_relay8', 0, 0, 'X1', { sock: 'pfr' }));
+    a.forEach((q, i) => expect([b[i].x, b[i].y]).toEqual([-q.x, -q.y]));
+  });
+
+  /** 단자 번호 n 의 자리에 다른 부품의 단자를 겹쳐 놓는다 (선 없이 그 단자에 물린 것이 된다) */
+  function onPin(x: Part, num: number, type: PartType, tag: string, extra: Partial<Part> = {}): Part {
+    const [px, py] = pinPositions(x)[num - 1];
+    const probe = part(type, 0, 0, tag, extra);
+    // 소켓 바깥쪽으로 뻗도록: 위 줄 단자에는 부품의 아래 단자를, 아래 줄 단자에는 위 단자를 댄다
+    const pins = pinPositions(probe);
+    const i = pins.length > 1 && py < 0 ? pins.length - 1 : 0;
+    return { ...probe, x: px - pins[i][0], y: py - pins[i][1] };
+  }
+
+  it('the relay works the same by terminal number on every socket layout', () => {
+    for (const sock of [undefined, 'pf', 'pfr'] as const) {
+      const x = part('r_relay8', 0, 0, 'X1', sock ? { sock } : {});
+      // 코일 2-7 에 L · N, 공통 1 에 L, 3 (a) 과 4 (b) 에 램프
+      const la = onPin(x, 3, 'lamp', 'LA');
+      const lb = onPin(x, 4, 'lamp', 'LB');
+      const far = (lamp: Part) => pinPositions(lamp).find(([px, py]) => !pinPositions(x).some((q) => q[0] === px && q[1] === py))!;
+      const c: Circuit = {
+        parts: [x, onPin(x, 2, 'src', '', { pole: 'L' }), onPin(x, 7, 'src', '', { pole: 'N' }), onPin(x, 1, 'src', '', { pole: 'L' }), la, lb, part('src', ...far(la), '', { pole: 'N' }), part('src', ...far(lb), '', { pole: 'N' })],
+        wires: [],
+        ops: [],
+      };
+      const res = runScenario(c);
+      expect(res.warnings, String(sock)).toEqual([]);
+      expect(edges(res, 'coil:X1').map((e) => e.v), String(sock)).toEqual([1]);
+      expect(edges(res, 'load:LA').map((e) => e.v), String(sock)).toEqual([1]);
+      expect(edges(res, 'load:LB').map((e) => e.v), String(sock)).toEqual([0]);
+    }
+  });
+
+  it('changing the socket layout moves the wire ends with their terminal numbers', async () => {
+    const { changeSocketLayout } = await import('../src/circuit/socket');
+    const { sameConnections } = await import('../src/circuit/netlist');
+    // 단자마다 바깥으로 뻗은 선 한 가닥과 그 끝의 단자
+    const x = part('r_relay8', 0, 0, 'X1');
+    const stubs = pinPositions(x).map(([px, py], i) => ({ w: wire([px, py], [px, py < 0 ? -7 : 7]), t: part('src', px, py < 0 ? -7 : 7, `S${i + 1}`, { pole: 'L' }) }));
+    const old: Circuit = { parts: [x, ...stubs.map((s) => s.t)], wires: stubs.map((s) => s.w), ops: [] };
+    for (const layout of ['pf', 'pfr'] as const) {
+      const res = changeSocketLayout(old, x.id, layout);
+      expect(res.circuit.parts[0].sock).toBe(layout);
+      expect(res.moved).toBe(8);
+      // 자리를 그대로 두었다면 다른 번호 단자에 물린 것이 된다. 옮긴 뒤에는 단자 번호마다 같은 선
+      expect(res.same).toBe(true);
+      const pins = pinPositions(res.circuit.parts[0]);
+      res.circuit.wires.forEach((w, i) => expect(w.a).toEqual(pins[i]));
+      expect(sameConnections(old, { ...old, parts: res.circuit.parts })).toBe(false);
+      // 다시 예전 그림으로
+      const back = changeSocketLayout(res.circuit, x.id, 'seq');
+      expect(back.circuit.parts[0].sock).toBeUndefined();
+      expect(back.circuit.wires.map((w) => [w.a, w.b])).toEqual(old.wires.map((w) => [w.a, w.b]));
+    }
+  });
+
+  it('keeps the socket layout through saving', () => {
+    const c: Circuit = { parts: [part('r_relay8', 0, 0, 'X1', { sock: 'pf' }), part('r_timer8', 10, 0, 'T1', { sock: 'pfr' }), part('r_relay8', 20, 0, 'X2')], wires: [], ops: [] };
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify(c)))!;
+    expect(back.parts.map((p) => p.sock)).toEqual(['pf', 'pfr', undefined]);
+  });
+
+  it('blade relay sockets: PYF08A rows 4 1 / 8 5 / 12 9 / 14 13 and PYF14A rows 4 3 2 1 / 8 7 6 5 / 12 11 10 9 / 14 13', async () => {
+    const { partPins, PARTS } = await import('../src/circuit/parts');
+    const tiers = (type: PartType) => {
+      const pins = partPins(part(type, 0, 0, 'X1'));
+      return [-5, -3, 3, 5].map((y) => pins.filter((q) => q.y === y).sort((a, b) => a.x - b.x).map((q) => q.label).join(' '));
+    };
+    expect(tiers('r_my2')).toEqual(['4 1', '8 5', '12 9', '14 13']);
+    expect(tiers('r_my4')).toEqual(['4 3 2 1', '8 7 6 5', '12 11 10 9', '14 13']);
+    // 접점: 공통 9+k → a 5+k, b 1+k. 코일 13-14
+    for (const type of ['r_my2', 'r_my4'] as PartType[]) {
+      const def = PARTS[type];
+      const label = (i: number) => Number(def.pins[i].label);
+      def.poles!.forEach(([c, t], k) => {
+        expect(label(c)).toBeGreaterThanOrEqual(9);
+        expect(label(c) - label(t)).toBe(def.polesNc![k] ? 8 : 4);
+      });
+      expect(def.selfCoil!.map(label)).toEqual([13, 14]);
+      // 안쪽 단 나사 위로 바깥 단 나사가 겹치지 않는다 (선이 사이로 지나간다)
+      const xs = (y: number) => def.pins.filter((q) => q.y === y).map((q) => q.x);
+      expect(xs(-3).some((x) => xs(-5).includes(x))).toBe(false);
+      expect(xs(3).some((x) => xs(5).includes(x))).toBe(false);
+    }
+    expect(PARTS.r_my4.poles).toHaveLength(8);
+  });
+
+  it('runs the relay socket example: self-holding on a blade relay, run and stop lamps', () => {
+    const c = example('relay-socket');
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    expect(res.warnings).toEqual([]);
+    // 0.5 s 기동 → 자기유지, 3.5 s 정지
+    expect(edges(res, 'coil:X1').map((e) => [e.t, e.v])).toEqual([[0, 0], [500, 1], [3500, 0]]);
+    expect(edges(res, 'load:GL').map((e) => [e.t, e.v])).toEqual([[0, 0], [500, 1], [3500, 0]]);
+    expect(edges(res, 'load:RL').map((e) => [e.t, e.v])).toEqual([[0, 1], [500, 0], [3500, 1]]);
+    const row = partsList(c).find((r) => r.tag === 'X1')!;
+    expect(row).toMatchObject({ kind: '릴레이 (각형 2c) + 소켓', a: 2, b: 2 });
+    expect(row.spec).toContain('PYF08A');
+  });
+
+  it('the control panel example is wired to the real socket rows', async () => {
+    const c = example('panel');
+    expect(c.parts.filter((p) => p.type === 'r_relay8' || p.type === 'r_timer8').map((p) => p.sock)).toEqual(['pf', 'pf']);
+    const { wiringList, termText } = await import('../src/circuit/wiring');
+    const rows = wiringList(c, new CircuitModel(c)).map((r) => [termText(r.from), termText(r.to)].sort().join(' ~ '));
+    // 소켓 단자 3 → 2 점퍼 (자기유지), 타이머 2 → 1 점퍼
+    expect(rows).toContain('X1 2 ~ X1 3');
+    expect(rows).toContain('T1 1 ~ T1 2');
+  });
+});

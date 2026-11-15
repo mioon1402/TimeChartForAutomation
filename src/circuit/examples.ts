@@ -397,29 +397,30 @@ function controlPanel(): Circuit {
   b.cable('blue', [43, 5], [46, 5]);
   // ── 판넬 안: 차단기 1P, 8핀 릴레이 X1, 8핀 타이머 T1
   b.part('r_term', 6, 14, '', { pole: 'L' });
-  b.part('r_term', 39, 13, '', { pole: 'N' });
+  b.part('r_term', 42, 13, '', { pole: 'N' });
   b.part('r_mcb1', 6, 22, 'MCB1', { name: tr('조작 전원', 'Control supply'), spec: 'AC/10A' });
-  b.part('r_relay8', 16, 23, 'X1', { name: tr('운전 기억', 'Run memory'), spec: 'AC 220V' });
-  b.part('r_timer8', 30, 23, 'T1', { name: tr('기동 지연', 'Start delay'), timerMode: 'on', preset: 3000 });
+  // 릴레이 · 타이머는 소켓에 꽂는다: 전선은 소켓의 나사 단자에 (위 줄 6 5 4 3 · 아래 줄 7 8 1 2)
+  b.part('r_relay8', 18, 25, 'X1', { name: tr('운전 기억', 'Run memory'), spec: 'AC 220V', sock: 'pf' });
+  b.part('r_timer8', 32, 25, 'T1', { name: tr('기동 지연', 'Start delay'), timerMode: 'on', preset: 3000, sock: 'pf' });
   b.cable('brown', [6, 14], [6, 18]);
   // L: 차단기 2 → 아래 모선 → X1 8 (공통), TB1-1 (문으로)
-  b.cable('red', [6, 26], [6, 29], [13, 29], [13, 26]);
-  b.cable('red', [11, 16], [11, 29]);
-  // 단자대 아래 나사 → X1: 2 = 1(기동 앞), 3 = 2(코일, 3 과 점퍼), 5 = 4(b → RL)
-  b.cable('red', [13, 16], [13, 20]);
-  b.cable('red', [15, 16], [15, 20]);
-  b.cable('red', [17, 20], [17, 19], [15, 19]);
-  b.cable('red', [19, 16], [19, 20]);
+  b.cable('red', [6, 26], [6, 32], [17, 32], [17, 28]);
+  b.cable('red', [11, 16], [11, 32]);
+  // 단자대 아래 나사 → X1 소켓: 2 = 1 (공통, 기동 앞), 3 = 3 (a) 에 물리고 3 → 2 (코일) 점퍼, 5 = 4 (b → RL)
+  b.cable('red', [13, 16], [13, 30], [19, 30], [19, 28]);
+  b.cable('red', [15, 16], [15, 18], [21, 18], [21, 22]);
+  b.cable('red', [21, 22], [23, 22], [23, 28], [21, 28]);
+  b.cable('red', [19, 16], [19, 22]);
   // TB1 6 · 7 → T1 3 (한시 a, GL), T1 4 (한시 b, YL)
-  b.cable('red', [21, 16], [21, 18], [31, 18], [31, 20]);
-  b.cable('red', [23, 16], [23, 17], [33, 17], [33, 20]);
-  // X1 8-6 (a) → T1 전원 2 와 공통 1
-  b.cable('red', [17, 26], [17, 28], [25, 28], [25, 19], [29, 19], [29, 20]);
-  b.cable('red', [27, 19], [27, 20]);
+  b.cable('red', [21, 16], [21, 17], [35, 17], [35, 22]);
+  b.cable('red', [23, 16], [23, 19], [33, 19], [33, 22]);
+  // X1 8-6 (a) → T1 전원 2, 2 → 1 (공통) 점퍼
+  b.cable('red', [15, 22], [15, 20], [26, 20], [26, 31], [35, 31], [35, 28]);
+  b.cable('red', [33, 31], [33, 28]);
   // N: 오른쪽 단자 → TB1-8, 아래 모선 → X1 7, T1 7
-  b.cable('blue', [39, 13], [39, 16], [25, 16]);
-  b.cable('blue', [39, 16], [39, 30], [15, 30], [15, 26]);
-  b.cable('blue', [29, 26], [29, 30]);
+  b.cable('blue', [42, 13], [42, 16], [25, 16]);
+  b.cable('blue', [42, 16], [42, 33], [15, 33], [15, 28]);
+  b.cable('blue', [29, 28], [29, 33]);
   b.part('text', 1, -3, '', { text: tr('제어반 실물 배선: 비상정지 · 셀렉터 · 8핀 릴레이 · 타이머 · 단자대', 'Control panel wiring: E-stop, selector, 8-pin relay & timer, terminal block') });
   b.op(500, 'SS', 'on', tr('운전 선택', 'Select run'));
   b.op(500, 'PB1', 'press', tr('기동', 'Start'));
@@ -427,6 +428,46 @@ function controlPanel(): Circuit {
   b.op(1000, 'PB1', 'press', tr('다시 기동', 'Restart'));
   b.op(1500, 'EMS', 'on', tr('비상정지', 'E-stop'));
   b.op(1000, 'EMS', 'off', tr('비상정지 해제', 'Release E-stop'));
+  return b.done();
+}
+
+/**
+ * 릴레이 소켓 배선 (각형 릴레이 MY2N + 소켓 PYF08A 꼴): 자기유지와 운전 · 정지 램프.
+ * 전선은 릴레이가 아니라 소켓의 나사 단자에 물린다: 위 바깥 단 4 1 (b), 안쪽 단 8 5 (a), 아래 안쪽 단 12 9 (공통), 바깥 단 14 13 (코일).
+ *  - L → 정지 PB0 11-12 → 기동 PB1 23-24 → 코일 14, 코일 13 → N
+ *  - 자기유지: 9 (기동 앞) → 5 (기동 뒤, 코일 14 와 같은 선)
+ *  - 12 (L) → 8 (a) → GL 운전 램프, 12 → 4 (b) → RL 정지 램프
+ */
+function relaySocket(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 2, 0, '', { pole: 'L' });
+  b.part('r_term', 30, 0, '', { pole: 'N' });
+  b.part('r_mcb1', 2, 7, 'MCB1', { name: tr('조작 전원', 'Control supply'), spec: 'AC/10A' });
+  b.part('r_pb', 8, 6, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('r_pb', 14, 6, 'PB1', { name: tr('기동', 'Start'), color: 'green' });
+  b.part('r_lamp', 22, 6, 'GL', { name: tr('운전', 'Running'), color: 'green' });
+  b.part('r_lamp', 27, 6, 'RL', { name: tr('정지', 'Stopped'), color: 'red' });
+  b.part('r_my2', 12, 20, 'X1', { name: tr('운전 기억', 'Run memory'), spec: 'AC 220V' });
+  b.cable('brown', [2, 0], [2, 3]);
+  // L: 차단기 2 → 소켓 12 (둘째 접점 공통), 정지 버튼 11
+  b.cable('red', [2, 11], [2, 27], [10, 27], [10, 23]);
+  b.cable('red', [2, 12], [5, 12], [5, 6], [7, 6]);
+  // 정지 12 → 기동 23, 소켓 9 (첫째 접점 공통 = 기동 버튼 앞)
+  b.cable('red', [9, 6], [11, 6], [11, 8], [13, 8]);
+  b.cable('red', [11, 8], [11, 10], [7, 10], [7, 28], [12, 28], [12, 23]);
+  // 기동 24 → 소켓 14 (코일), 소켓 5 (a: 자기유지)
+  b.cable('red', [15, 8], [15, 29], [11, 29], [11, 25]);
+  b.cable('red', [15, 13], [12, 13], [12, 17]);
+  // 소켓 8 (a) → GL, 소켓 4 (b) → RL
+  b.cable('red', [10, 17], [10, 11], [21, 11], [21, 7]);
+  b.cable('red', [11, 15], [11, 14], [26, 14], [26, 7]);
+  // N: 코일 13, 램프
+  b.cable('blue', [13, 25], [13, 31], [30, 31], [30, 0]);
+  b.cable('blue', [23, 7], [23, 9], [30, 9]);
+  b.cable('blue', [28, 7], [28, 9]);
+  b.part('text', 1, -4, '', { text: tr('릴레이 소켓 배선: 각형 릴레이 (MY2N) 는 소켓 (PYF08A) 에 꽂고, 전선은 소켓 나사 단자에', 'Relay socket wiring: the relay plugs into the socket, wires land on the socket screws') });
+  b.op(500, 'PB1', 'press', tr('기동', 'Start'));
+  b.op(3000, 'PB0', 'press', tr('정지', 'Stop'));
   return b.done();
 }
 
@@ -769,6 +810,7 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'tsw-panel', name: tr('타임 스위치 + 자동/수동 + 전자접촉기', 'Time switch + auto/manual + contactor'), desc: tr('전등이 많을 때: 타임 스위치는 MC 코일만 움직이고, 셀렉터로 수동 점등', 'Many lights: the time switch drives a contactor coil, selector for manual on'), build: timeSwitchPanel },
     { id: 'stair', name: tr('3로 스위치 계단등', '3-way stair light'), desc: tr('3로 스위치 2개로 두 곳에서 전등 하나를 켜고 끕니다', 'Two 3-way switches control one light'), build: stairLight },
     { id: 'panel', name: tr('제어반 실물 배선: 릴레이 · 타이머 · 단자대', 'Control panel: relay, timer, terminal block'), desc: tr('비상정지 · 셀렉터 · 푸시버튼 · 램프 (문) ↔ 단자대 ↔ 8핀 릴레이 · 타이머 (판넬). 결선표를 따라 배선 연습', 'Door devices ↔ terminal block ↔ 8-pin relay and timer; follow the wiring list'), build: controlPanel },
+    { id: 'relay-socket', name: tr('릴레이 소켓 배선: 각형 릴레이 자기유지', 'Relay socket wiring: self-holding'), desc: tr('각형 릴레이 (MY2N) 를 소켓 (PYF08A) 에 꽂고 소켓 나사 단자 13-14 · 9-5 · 12-8 · 12-4 에 배선. 기동 · 정지 버튼과 운전 · 정지 램프', 'A blade relay on its socket: wires on the socket screws 13-14, 9-5, 12-8, 12-4'), build: relaySocket },
     { id: 'real', name: tr('실물 배선도: 전동기 기동·정지', 'Wiring diagram: motor start/stop'), desc: tr('차단기 3P·2P, 전자접촉기, 푸시버튼 유닛, 전동기를 실제 단자 번호와 전선 색으로', 'Real devices with terminal numbers and wire colours'), build: realWiring },
     { id: 'self-hold', name: tr('자기유지 (전동기 기동·정지)', 'Self-holding (motor start/stop)'), desc: tr('기동 PB로 MC1 자기유지, 정지 PB로 해제. 주회로와 표시등 포함', 'Start latches MC1, stop releases it; power circuit and lamps'), build: selfHold },
     { id: 'reversing', name: tr('정역 운전 (인터록)', 'Forward / reverse (interlock)'), desc: tr('MC1·MC2 서로 b접점 인터록, 주회로에서 L1·L3 교체', 'MC1/MC2 interlocked, L1 and L3 swapped'), build: reversing },
