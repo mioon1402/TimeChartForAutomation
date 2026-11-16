@@ -89,6 +89,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (q.sel === -1 || q.sel === 1) p.sel = q.sel;
     if (q.ac === true) p.ac = true;
     if (q.ncOut === true) p.ncOut = true;
+    if (q.conn === 'din') p.conn = 'din';
     if (optStr(q.term)) p.term = str(q.term).slice(0, 24);
     if (typeof q.w === 'number' && q.w >= 2) p.w = Math.min(400, Math.round(q.w));
     if (typeof q.h === 'number' && q.h >= 2) p.h = Math.min(400, Math.round(q.h));

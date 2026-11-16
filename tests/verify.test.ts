@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Circuit, Part, PartType, Wire, WireColor } from '../src/circuit/types';
 import { CircuitModel, CircuitSim, runScenario } from '../src/circuit/engine';
-import { PARTS, palette, pinPositions } from '../src/circuit/parts';
+import { PARTS, palette, partPins, pinPositions } from '../src/circuit/parts';
 import { ratedVoltage, verifyWiring } from '../src/circuit/verify';
 import { checkCircuit } from '../src/circuit/bom';
 import { PowerModel } from '../src/circuit/power';
@@ -407,5 +407,34 @@ describe('2-wire proximity sensor', () => {
     const c = dc({ ac: true, ncOut: true });
     const back = sanitizeCircuit(JSON.parse(JSON.stringify(c)))!;
     expect(back.parts.find((p) => p.type === 'r_prox2')).toMatchObject({ ac: true, ncOut: true });
+  });
+});
+
+describe('solenoid valve coil: lead wires or DIN connector', () => {
+  const sol = (extra: Partial<Part> = {}) => part('r_sol', 0, 0, 'SOL1', extra);
+  it('terminal names follow the coil: DC leads + / -, AC 1 / 2, DIN 1 / 2 / PE', () => {
+    expect(partPins(sol()).map((d) => d.label)).toEqual(['+', '-']);
+    expect(partPins(sol({ spec: 'AC 220V' })).map((d) => d.label)).toEqual(['1', '2']);
+    expect(partPins(sol({ conn: 'din' })).map((d) => d.label)).toEqual(['1', '2', 'PE']);
+    expect(sanitizeCircuit(JSON.parse(JSON.stringify({ parts: [sol({ conn: 'din' })], wires: [], ops: [] })))!.parts[0].conn).toBe('din');
+  });
+
+  it('a DC coil is DC 24 V unless the spec says otherwise; reversed leads are reported', () => {
+    const s = sol();
+    expect(msgs({ parts: [s, at(s, 0, '+24V'), at(s, 1, '0V')], wires: [], ops: [] })).toEqual([]);
+    const rev = sol();
+    expect(has({ parts: [rev, at(rev, 0, '0V'), at(rev, 1, '+24V')], wires: [], ops: [] }, 'SOL1: 리드선 극성이 반대입니다')).toBe(true);
+    const onAc = sol();
+    expect(has({ parts: [onAc, part('r_mcb1', 0, -10, 'MCB1'), at(onAc, 0, 'L'), at(onAc, 1, 'N')], wires: [], ops: [] }, 'SOL1: 정격은 DC 24V')).toBe(true);
+  });
+
+  it('an AC valve on a DIN connector must be earthed; a DC one need not be', () => {
+    const ac = sol({ conn: 'din', spec: 'AC 220V' });
+    const mcb = part('r_mcb1', -6, -10, 'MCB1');
+    const [m1, m2] = pinPositions(mcb);
+    const acC: Circuit = { parts: [ac, mcb, term('L', ...m1), at(ac, 1, 'N')], wires: [wire(m2, pinPositions(ac)[0])], ops: [] };
+    expect(has(acC, 'SOL1: 접지 (PE)')).toBe(true);
+    const dc = sol({ conn: 'din' });
+    expect(msgs({ parts: [dc, at(dc, 0, '+24V'), at(dc, 1, '0V')], wires: [], ops: [] })).toEqual([]);
   });
 });

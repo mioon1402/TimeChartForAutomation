@@ -1062,6 +1062,16 @@ function PropsPane({
               </Field>
             </div>
           )}
+          {p.type === 'r_sol' && (
+            <div className="grid2">
+              <Field label={tr('코일 전압', 'Coil voltage')}>
+                <Select value={p.spec?.trim() || 'DC 24V'} onChange={(v) => set({ spec: v === 'DC 24V' ? undefined : v })} options={[...new Set(['DC 24V', 'DC 12V', 'AC 220V', 'AC 110V', p.spec?.trim() || 'DC 24V'])].map((v) => ({ value: v, label: v }))} />
+              </Field>
+              <Field label={tr('코일 결선', 'Coil connection')} hint={p.conn === 'din' ? tr('1 · 2 와 접지 PE', '1, 2 and earth (PE)') : tr('직류: 빨강 + · 검정 -', 'DC: red +, black -')}>
+                <Select value={p.conn ?? 'lead'} onChange={(v) => set({ conn: v === 'din' ? 'din' : undefined })} options={[{ value: 'lead', label: tr('리드선 2가닥', 'Two lead wires') }, { value: 'din', label: tr('DIN 커넥터', 'DIN connector') }]} />
+              </Field>
+            </div>
+          )}
           {p.type === 'r_prox2' && (
             <>
               <div className="grid2">

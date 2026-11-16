@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, counterPreset, LAMP_HEX, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, counterPreset, LAMP_HEX, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock, formatTime } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -1136,21 +1136,72 @@ export function BuzzerGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitCo
 
 /** 솔레노이드 밸브: 코일 1 · 2 (DIN 커넥터), 여자되면 표시등 */
 export function SolGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const ac = solAc(p);
+  const din = p.conn === 'din';
+  const on = st.on;
+  /** 코일에서 나온 선 한 가닥: 슬리브 · 압착 단자까지 */
+  const lead = (x0: number, y0: number, x: number, col: string, label: string, key: string) => (
+    <g key={key}>
+      <path d={`M${x0},${y0}C${x0},${y0 + 14} ${x},${y0 + 8} ${x},22`} stroke="#00000040" strokeWidth={5.4} fill="none" />
+      <path d={`M${x0},${y0}C${x0},${y0 + 14} ${x},${y0 + 8} ${x},22`} stroke={col} strokeWidth={3.6} fill="none" />
+      <rect x={x - 3} y={22} width={6} height={11} fill="#d1d5db" stroke="#6b7280" strokeWidth={0.8} />
+      <circle cx={x} cy={40} r={5} fill={col} stroke="#ffffff" strokeWidth={1.2} />
+      <Label x={x} y={55} text={label} size={7.5} weight={800} fill={c.muted} />
+    </g>
+  );
   return (
     <g>
-      <rect x={-48} y={-22} width={96} height={30} rx={4} fill="#d1d5db" stroke="#6b7280" />
-      <path d="M-48,-7H-60M48,-7H60" stroke="#6b7280" strokeWidth={8} />
-      <rect x={-26} y={-60} width={52} height={40} rx={4} fill="#111827" stroke="#374151" />
-      <Label x={0} y={-42} text="Solenoid" fill="#f9fafb" size={8} weight={700} />
-      <Label x={0} y={-31} text={p.spec?.trim() || 'DC 24V'} fill="#d1d5db" size={7.5} />
-      <circle cx={18} cy={-52} r={3.6} fill={st.on ? '#ef4444' : '#6b7280'} />
-      {st.on && <path d="M-40,-7H40" stroke="#0ea5e9" strokeWidth={3} strokeDasharray="6 5" className="cc-flow" />}
-      <rect x={-32} y={14} width={64} height={38} rx={4} fill="#1f2937" stroke="#6b7280" />
-      <Label x={-20} y={28} text="1" fill="#f9fafb" size={7.5} />
-      <Label x={20} y={28} text="2" fill="#f9fafb" size={7.5} />
-      <Screw x={-20} y={40} />
-      <Screw x={20} y={40} />
-      <TagAt p={p} x={32} y={-54} c={c} />
+      {/* 밸브 몸통 (5포트): 위 4 (A) · 2 (B), 아래 5 · 1 · 3 */}
+      <rect x={-16} y={-50} width={72} height={36} rx={3} fill="#cbd5e1" stroke="#64748b" />
+      <path d="M-16,-32H56" stroke="#94a3b8" strokeWidth={0.8} />
+      {[
+        [8, '4'],
+        [36, '2'],
+      ].map(([x, t]) => (
+        <g key={t as string}>
+          <rect x={(x as number) - 6} y={-62} width={12} height={12} rx={2} fill="#e2e8f0" stroke="#64748b" />
+          <circle cx={x as number} cy={-62} r={4.5} fill="#2563eb" stroke="#1e3a8a" strokeWidth={0.8} />
+          <Label x={(x as number) + 10} y={-54} text={t as string} anchor="start" size={7.5} weight={800} fill="#334155" />
+        </g>
+      ))}
+      {[
+        [4, '5'],
+        [20, '1'],
+        [36, '3'],
+      ].map(([x, t]) => (
+        <g key={t as string}>
+          <circle cx={x as number} cy={-20} r={3.2} fill="#475569" />
+          <Label x={x as number} y={-24} text={t as string} size={6.5} weight={700} fill="#334155" />
+        </g>
+      ))}
+      {on && <path d="M20,-22V-36L8,-46" stroke="#0ea5e9" strokeWidth={2.4} fill="none" strokeDasharray="5 4" className="cc-flow" />}
+      {/* 수동 조작 버튼 */}
+      <circle cx={-8} cy={-41} r={4} fill="#facc15" stroke="#a16207" />
+      {/* 코일 */}
+      <rect x={-56} y={-58} width={40} height={50} rx={3} fill="#111827" stroke="#374151" />
+      {/* 기호는 코일에, 설명은 몸통 아래에 (옆 기기와 겹치지 않게) */}
+      <Label x={-36} y={-36} text={p.tag || 'SOL'} fill="#f9fafb" size={9} weight={800} />
+      <Label x={-36} y={-24} text={p.spec?.trim() || 'DC 24V'} fill="#d1d5db" size={6.5} />
+      <circle cx={-26} cy={-51} r={3.2} fill={on ? '#ef4444' : '#4b5563'} stroke="#000" strokeWidth={0.6} />
+      {din ? (
+        <g>
+          {/* DIN 커넥터 + 케이블 그랜드 → 3심 (1 · 2 · 접지) */}
+          <rect x={-54} y={-10} width={32} height={16} rx={2} fill="#4b5563" stroke="#1f2937" />
+          <Label x={-38} y={1} text="DIN" fill="#e5e7eb" size={6.5} weight={800} />
+          <rect x={-44} y={6} width={12} height={6} fill="#374151" />
+          {lead(-40, 12, -20, '#92400e', '1', 'a')}
+          {lead(-38, 12, 0, '#65a30d', 'PE', 'pe')}
+          {lead(-36, 12, 20, '#2563eb', '2', 'b')}
+        </g>
+      ) : (
+        <g>
+          {/* 플러그 커넥터 → 리드선 2가닥 */}
+          <rect x={-50} y={-10} width={24} height={12} rx={2} fill="#374151" stroke="#1f2937" />
+          {lead(-42, 2, -20, ac ? '#111827' : '#dc2626', ac ? '1' : '+', 'a')}
+          {lead(-34, 2, 20, '#111827', ac ? '2' : '−', 'b')}
+        </g>
+      )}
+      {p.name && <Label x={-12} y={0} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
     </g>
   );
 }

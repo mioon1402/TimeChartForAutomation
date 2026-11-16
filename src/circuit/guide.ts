@@ -218,9 +218,16 @@ export function partGuide(type: PartType): PartGuide | null {
       return g(tr('부저입니다. X1-X2 에 전압이 걸리면 울립니다. 경보 · 고장 알림에 씁니다.', 'A buzzer: sounds while X1-X2 is powered.'), [['X1 – X2', tr('두 단자 사이에 전압 (극성 없음으로 봅니다)', 'supply across the two terminals')]], [tr('X1 을 경보 접점 (a) 뒤에, X2 를 N · 0V 에 잇습니다', 'X1 after the alarm contact, X2 to N or 0 V')], AUTO(), 'dc-sensor');
     case 'r_sol':
       return g(
-        tr('솔레노이드 밸브의 코일입니다. 1-2 에 전압이 걸리면 밸브가 열립니다 (실린더 전진, 물 · 공기 통과). 실린더 · 공압 밸브의 솔레노이드 기호로 고르면 함께 움직입니다.', 'A solenoid valve coil: powered 1-2 opens the valve. Pick its tag as the solenoid of a cylinder or valve to link them.'),
-        [['1 – 2', tr('코일. 직류면 1 이 +, 2 가 0V', 'coil; for DC 1 is +, 2 is 0 V')]],
-        [tr('1 을 릴레이 a접점 (또는 PLC 출력) 뒤에, 2 를 0V · N 에 잇습니다', '1 after a relay NO contact or PLC output, 2 to 0 V or N'), tr('코일 전압 (DC 24V · AC 220V) 은 속성의 사양에 적습니다. 다른 전압에 이으면 [검사] 탭이 알려 줍니다', 'Enter the coil voltage in the spec; the Check tab reports a wrong supply')],
+        tr('공압 솔레노이드 밸브 (5포트) 입니다. 코일에서 리드선 2가닥이 나옵니다 (직류: 빨강 + · 검정 -). 전압이 걸리면 밸브가 넘어가 1 → 4 (A) 로 공기가 나가 실린더가 전진합니다. 실린더 · 공압 밸브의 솔레노이드 기호로 고르면 함께 움직입니다. 속성에서 DIN 커넥터 (1 · 2 · 접지) 로 바꿀 수 있습니다.', 'A 5-port pneumatic solenoid valve with two lead wires from the coil (DC: red +, black -). Powered, it shifts and sends air 1 → 4 (A). Pick its tag as the solenoid of a cylinder or valve to link them. Switch to a DIN connector (1, 2, earth) in the properties.'),
+        [
+          [tr('빨강 (+)', 'red (+)'), tr('직류 코일의 + : 릴레이 a접점 · PLC 출력 · 센서 뒤 (+24V 쪽)', '+ of a DC coil: after the relay NO contact, PLC output or sensor')],
+          [tr('검정 (-)', 'black (-)'), tr('0V 로', 'to 0 V')],
+          [tr('DIN 커넥터', 'DIN connector'), tr('1 · 2 가 코일 (교류는 극성 없음), PE 는 접지 (교류 밸브는 PE 에 잇기)', '1 and 2 are the coil; PE is earth (connect it on AC valves)')],
+        ],
+        [
+          tr('빨강을 접점 (출력) 뒤에, 검정을 0V 에 잇습니다. 거꾸로 이으면 [검사] 탭이 알려 줍니다 (LED · 서지 흡수 다이오드가 든 코일은 극성이 있음)', 'Red after the contact or output, black to 0 V; the Check tab reports reversed leads'),
+          tr('코일 전압은 속성에서 고릅니다 (비우면 DC 24V). 다른 전압에 이으면 [검사] 탭이 알려 줍니다', 'Pick the coil voltage in the properties (DC 24 V when empty); the Check tab reports a wrong supply'),
+        ],
         AUTO() + ' ' + tr('여자되면 표시등이 켜지고 유체가 흐릅니다.', 'The indicator lights and flow is shown while energised.'),
         'dc-sensor',
       );
