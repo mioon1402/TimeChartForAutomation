@@ -1020,6 +1020,35 @@ describe('example projects: motor control, DC sensor, home wiring', () => {
     expect(net.get(`${pe.id}:0`)).toBe(net.get(`${bar.id}:0`));
   });
 
+  it('jog and run with an auxiliary relay: jog never latches, run does', () => {
+    const { at } = run('motor-jog-run');
+    expect(at('coil:MC1')).toEqual([[0, 0], [500, 1], [1500, 0], [3000, 1], [6000, 0]]);
+    // 조그 동안에는 보조 릴레이가 붙지 않는다 (그래서 손을 떼면 멈춘다)
+    expect(at('coil:X1')).toEqual([[0, 0], [3000, 1], [6000, 0]]);
+  });
+
+  it('limit switch stop: the NC contact drops the self-hold at the end position', () => {
+    const { at } = run('motor-ls-stop');
+    expect(at('coil:MC1')).toEqual([[0, 0], [500, 1], [3000, 0], [4500, 1], [6500, 0]]);
+  });
+
+  it('forward / reverse with double interlock: reversing directly never closes both contactors', () => {
+    const { at, res } = run('motor-fwd-rev');
+    expect(at('coil:MC1')).toEqual([[0, 0], [500, 1], [2500, 0]]);
+    expect(at('coil:MC2')).toEqual([[0, 0], [2500, 1], [5500, 0]]);
+    expect(at('mot:M1')).toEqual([[0, '0'], [500, 'FWD'], [2500, 'REV'], [5500, '0']]);
+    // 두 접촉기가 함께 붙는 순간이 있으면 상간 단락 경고가 난다
+    expect(res.warnings).toEqual([]);
+  });
+
+  it('delayed lamp and alternating solenoid valves on 8-pin timers', () => {
+    const lamp = run('lamp-delay');
+    expect(lamp.at('load:PL1')).toEqual([[0, 0], [4000, 1], [5000, 0]]);
+    const sol = run('sol-alternate');
+    expect(sol.at('load:SOL1')).toEqual([[0, 0], [1000, 1], [2000, 0], [3000, 1], [4000, 0], [5000, 1], [5500, 0]]);
+    expect(sol.at('load:SOL2')).toEqual([[0, 0], [2000, 1], [3000, 0], [4000, 1], [5000, 0]]);
+  });
+
   it('examples are listed in groups', async () => {
     const { exampleGroups } = await import('../src/circuit/examples');
     const groups = exampleGroups().map((g) => g.key);

@@ -575,6 +575,171 @@ function motorTwoPlace(): Circuit {
 }
 
 /**
+ * 조그 + 연속 운전 (보조 릴레이 X1): 기동 PB1 은 X1 을 자기유지시키고 X1 12-8 이 MC1 을 붙인다.
+ * 조그 PB2 는 X1 을 거치지 않고 MC1 코일만 직접 붙여서, 손을 떼면 바로 멈춘다 (자기유지가 걸리지 않는다).
+ *  - F1 → THR 95-96 → 정지 PB0 → [기동 PB1 ∥ X1 9-5] → X1 코일 14
+ *  - 정지 뒤 같은 선 → X1 12-8 → MC1 A1, 조그 PB2 23-24 → MC1 A1
+ */
+function motorJogRun(): Circuit {
+  const b = new Builder();
+  b.part('r_pb', 21, 20, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('r_pb', 29, 20, 'PB1', { name: tr('연속 운전', 'Run'), color: 'green' });
+  b.part('r_pb', 37, 20, 'PB2', { name: tr('조그', 'Jog'), color: 'yellow' });
+  b.part('r_my2', 46, 22, 'X1', { name: tr('운전 기억', 'Run memory'), spec: 'AC 220V' });
+  motorKit(b, { ctlTo: [20, 20], coilFrom: [38, 22] });
+  // 정지 12 → 기동 23 · 조그 23 · X1 공통 9 · 12
+  b.cable('red', [22, 20], [25, 20], [25, 22], [28, 22]);
+  b.cable('red', [25, 22], [25, 24], [33, 24], [33, 22], [36, 22]);
+  b.cable('red', [33, 24], [33, 31], [46, 31], [46, 25]);
+  b.cable('red', [44, 31], [44, 25]);
+  // 기동 24 → X1 5 (a: 자기유지) → X1 코일 14
+  b.cable('yellow', [30, 22], [32, 22], [32, 13], [46, 13], [46, 19]);
+  b.cable('yellow', [46, 13], [49, 13], [49, 29], [45, 29], [45, 27]);
+  // X1 8 (a) → MC1 코일 (조그 버튼 뒤와 같은 선)
+  b.cable('red', [44, 19], [44, 15], [42, 15], [42, 26], [40, 26]);
+  // X1 코일 13 → N
+  b.cable('blue', [47, 27], [47, 33], [14, 33], [14, 27]);
+  b.part('text', -2, -4, '', { text: tr('조그 + 연속 운전: 기동은 보조 릴레이 X1 이 기억하고, 조그는 누르는 동안만', 'Jog and run: an auxiliary relay holds the run, jog works only while pressed') });
+  b.op(500, 'PB2', 'press', tr('조그 (1초)', 'Jog for 1 s'), 1000);
+  b.op(2500, 'PB1', 'press', tr('연속 운전', 'Run'));
+  b.op(3000, 'PB0', 'press', tr('정지', 'Stop'));
+  return b.done();
+}
+
+/** 리밋 스위치 자동 정지: 기동하면 자기유지로 돌다가, 끝에서 리밋 스위치 LS1 (11-12 b) 이 밀리면 스스로 멈춘다 */
+function motorLimitStop(): Circuit {
+  const b = new Builder();
+  b.part('r_pb', 21, 20, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('r_ls', 29, 20, 'LS1', { name: tr('끝 위치', 'End position') });
+  b.part('r_pb', 37, 20, 'PB1', { name: tr('기동', 'Start'), color: 'green' });
+  motorKit(b, { ctlTo: [20, 20], coilFrom: [38, 22], hold: true });
+  b.cable('red', [22, 20], [28, 20]);
+  b.cable('red', [30, 20], [33, 20], [33, 22], [36, 22]);
+  b.cable('red', [33, 20], [33, 11], [10, 11], [10, 16]);
+  b.part('text', -2, -4, '', { text: tr('리밋 스위치 자동 정지: 끝 위치에서 LS1 (b접점) 이 열려 스스로 멈춘다', 'Limit switch stop: LS1 (NC) opens at the end position') });
+  b.op(500, 'PB1', 'press', tr('기동', 'Start'));
+  b.op(2500, 'LS1', 'press', tr('끝에 닿음 → 정지', 'End reached: stop'), 500);
+  b.op(1500, 'PB1', 'press', tr('다시 기동', 'Start again'));
+  b.op(2000, 'PB0', 'press', tr('정지', 'Stop'));
+  return b.done();
+}
+
+/**
+ * 정 · 역 운전 이중 인터록 (실물 배선): MC1 정회전, MC2 는 L1 · L3 을 바꿔 역회전.
+ *  - 버튼 인터록: 정회전 버튼의 b접점이 역회전 회로에, 역회전 버튼의 b접점이 정회전 회로에 직렬
+ *  - 접촉기 인터록: MC1 21-22 가 MC2 코일 앞에, MC2 21-22 가 MC1 코일 앞에 직렬
+ * 돌고 있을 때 반대 버튼을 누르면 먼저 떨어지고 나서 반대로 붙는다 (두 접촉기가 함께 붙으면 상간 단락).
+ */
+function motorReversing(): Circuit {
+  const b = new Builder();
+  const COL: WireColor[] = ['brown', 'black', 'grey'];
+  [4, 6, 8].forEach((x, k) => {
+    b.part('r_term', x, 0, '', { pole: (['L1', 'L2', 'L3'] as const)[k] });
+    b.cable(COL[k], [x, 0], [x, 2]);
+    b.cable(COL[k], [x, 10], [x, 16]);
+    b.cable(COL[k], [x, 24], [x, 32]);
+    b.cable(COL[k], [x, 38], [x, 42]);
+    // MC2 전원 쪽: 같은 상 순서로
+    b.cable(COL[k], [x, 11 + k], [24 + 2 * k, 11 + k], [24 + 2 * k, 16]);
+    // MC2 부하 쪽: L1 은 W 줄로, L3 은 U 줄로 (두 상을 바꾼다)
+    b.cable(COL[k], [24 + 2 * k, 24], [24 + 2 * k, 30 - k], [8 - 2 * k, 30 - k]);
+  });
+  b.part('r_term', 14, 0, '', { pole: 'N' });
+  b.part('r_mcb3', 6, 6, 'MCB1', { name: tr('주 차단기', 'Main breaker'), spec: 'AC/20A' });
+  b.part('r_mc', 7, 20, 'MC1', { name: tr('정회전', 'Forward'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  b.part('r_mc', 27, 20, 'MC2', { name: tr('역회전', 'Reverse'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  b.part('r_thr', 6, 35, 'THR1', { name: tr('과부하', 'Overload') });
+  b.part('r_motor3', 6, 45, 'M1', { name: tr('3상 전동기', '3-phase motor'), spec: 'AC 380V' });
+  b.part('r_term', 14, 46, '', { pole: 'PE' });
+  b.cable('gy', [10, 46], [14, 46]);
+  b.part('r_fuse', 0, 16, 'F1', { name: tr('조작 회로', 'Control'), amps: 5 });
+  b.part('r_pb', 41, 20, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('r_pb', 49, 20, 'PB1', { name: tr('정회전', 'Forward'), color: 'green' });
+  b.part('r_pb', 57, 20, 'PB2', { name: tr('역회전', 'Reverse'), color: 'yellow' });
+  // 조작 전원: L1 → F1 → THR 95-96 → 정지 PB0
+  b.cable('red', [4, 12], [0, 12], [0, 13]);
+  b.cable('red', [0, 19], [0, 31], [10, 31], [10, 32]);
+  b.cable('red', [10, 38], [10, 40], [36, 40], [36, 20], [40, 20]);
+  // 정지 12 → 정회전 버튼 11 (b) · 역회전 버튼 11 (b)
+  b.cable('red', [42, 20], [48, 20]);
+  b.cable('red', [45, 20], [45, 13], [54, 13], [54, 20], [56, 20]);
+  // 정회전: 역회전 버튼 12 → 정회전 버튼 23 · MC1 13
+  b.cable('yellow', [58, 20], [60, 20], [60, 25], [46, 25], [46, 22], [48, 22]);
+  b.cable('yellow', [10, 16], [10, 7], [62, 7], [62, 20], [60, 20]);
+  //          정회전 버튼 24 · MC1 14 → MC2 21 (b) → MC2 22 → MC1 A1
+  b.cable('yellow', [32, 16], [32, 9], [52, 9], [52, 22], [50, 22]);
+  b.cable('yellow', [10, 24], [10, 26], [16, 26], [16, 9], [32, 9]);
+  b.cable('yellow', [32, 24], [32, 27], [38, 27], [38, -2], [2, -2], [2, 13], [5, 13], [5, 14]);
+  // 역회전: 정회전 버튼 12 → 역회전 버튼 23 · MC2 13
+  b.cable('orange', [50, 20], [53, 20], [53, 22], [56, 22]);
+  b.cable('orange', [30, 16], [30, 10], [53, 10], [53, 20]);
+  //          역회전 버튼 24 · MC2 14 → MC1 21 (b) → MC1 22 → MC2 A1
+  b.cable('orange', [12, 16], [12, 6], [64, 6], [64, 22], [58, 22]);
+  b.cable('orange', [30, 24], [30, 25], [35, 25], [35, 34], [64, 34], [64, 22]);
+  b.cable('orange', [12, 24], [12, 25], [20, 25], [20, 8], [25, 8], [25, 14]);
+  // N: 코일 A2
+  b.cable('blue', [9, 26], [9, 27], [14, 27], [14, 0]);
+  b.cable('blue', [29, 26], [34, 26], [34, 5], [14, 5]);
+  b.part('text', -2, -6, '', { text: tr('정 · 역 운전 이중 인터록: 버튼 b접점 + 접촉기 b접점 (MC2 는 L1 · L3 을 바꿔 역회전)', 'Forward / reverse with double interlock (MC2 swaps L1 and L3)') });
+  b.op(500, 'PB1', 'press', tr('정회전', 'Forward'));
+  b.op(2000, 'PB2', 'press', tr('바로 역회전 (정회전이 먼저 떨어진다)', 'Reverse directly: forward drops first'));
+  b.op(3000, 'PB0', 'press', tr('정지', 'Stop'));
+  return b.done();
+}
+
+/** 타이머 지연 점등: 스위치를 켜면 타이머 T1 이 돌기 시작하고 3초 뒤 한시 a접점 (8-6) 으로 램프가 켜진다 */
+function lampDelay(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 2, 0, '', { pole: 'L' });
+  b.part('r_term', 32, 0, '', { pole: 'N' });
+  b.part('r_mcb1', 2, 6, 'MCB1', { name: tr('조작 전원', 'Control supply'), spec: 'AC/10A' });
+  b.part('r_sw', 9, 10, 'S1', { name: tr('운전 스위치', 'Run switch') });
+  b.part('r_timer8', 18, 20, 'T1', { name: tr('점등 지연', 'On delay'), timerMode: 'on', preset: 3000, sock: 'pf' });
+  b.part('r_lamp', 28, 12, 'PL1', { name: tr('표시등', 'Indicator'), color: 'green' });
+  b.cable('brown', [2, 0], [2, 2]);
+  b.cable('brown', [2, 10], [2, 14], [8, 14], [8, 12]);
+  // 스위치 2 → 타이머 전원 2 · 공통 8
+  b.cable('red', [10, 12], [10, 26], [21, 26], [21, 23]);
+  b.cable('red', [17, 26], [17, 23]);
+  // 한시 a (8-6) → 램프
+  b.cable('red', [15, 17], [15, 15], [27, 15], [27, 13]);
+  // N: 타이머 7, 램프 X2
+  b.cable('blue', [32, 0], [32, 28], [15, 28], [15, 23]);
+  b.cable('blue', [29, 13], [29, 16], [32, 16]);
+  b.part('text', 1, -4, '', { text: tr('타이머 지연 점등: 스위치를 켜고 3초 뒤에 표시등이 켜진다 (8핀 타이머 한시 a접점)', 'Delayed lamp: on 3 s after the switch (timed NO contact)') });
+  b.op(1000, 'S1', 'on', tr('스위치 켬', 'Switch on'));
+  b.op(4000, 'S1', 'off', tr('스위치 끔', 'Switch off'));
+  return b.done();
+}
+
+/** 솔레노이드 밸브 2개 교번 동작: 플리커 타이머 T1 의 8-6 (a) 과 8-5 (b) 가 번갈아 SOL1 · SOL2 를 여자한다 */
+function solAlternate(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 2, 0, '', { pole: 'L' });
+  b.part('r_term', 34, 0, '', { pole: 'N' });
+  b.part('r_mcb1', 2, 6, 'MCB1', { name: tr('조작 전원', 'Control supply'), spec: 'AC/10A' });
+  b.part('r_sw', 9, 10, 'S1', { name: tr('운전 스위치', 'Run switch') });
+  b.part('r_timer8', 18, 20, 'T1', { name: tr('교번 (1초)', 'Alternate (1 s)'), timerMode: 'flicker', preset: 1000, sock: 'pf' });
+  b.part('r_sol', 28, 10, 'SOL1', { name: tr('밸브 A', 'Valve A'), spec: 'AC 220V' });
+  b.part('r_sol', 28, 22, 'SOL2', { name: tr('밸브 B', 'Valve B'), spec: 'AC 220V' });
+  b.cable('brown', [2, 0], [2, 2]);
+  b.cable('brown', [2, 10], [2, 14], [8, 14], [8, 12]);
+  b.cable('red', [10, 12], [10, 28], [21, 28], [21, 23]);
+  b.cable('red', [17, 28], [17, 23]);
+  // 8-6 (a) → SOL1, 8-5 (b) → SOL2
+  b.cable('yellow', [15, 17], [15, 14], [27, 14], [27, 12]);
+  b.cable('orange', [17, 17], [17, 13], [24, 13], [24, 26], [27, 26], [27, 24]);
+  // N
+  b.cable('blue', [34, 0], [34, 30], [15, 30], [15, 23]);
+  b.cable('blue', [29, 12], [29, 15], [34, 15]);
+  b.cable('blue', [29, 24], [29, 27], [34, 27]);
+  b.part('text', 1, -4, '', { text: tr('솔레노이드 밸브 2개 교번: 플리커 타이머의 a · b 접점이 1초마다 번갈아 여자', 'Two solenoid valves alternating on a flicker timer') });
+  b.op(1000, 'S1', 'on', tr('운전', 'Run'));
+  b.op(4500, 'S1', 'off', tr('정지', 'Stop'));
+  return b.done();
+}
+
+/**
  * 급수 펌프 자동 운전: 셀렉터 SS (자동 11-12 / 수동 23-24) 와 플로트 스위치 FLS1.
  *  - 자동: 저수위면 FLS1 11-12 (b) 가 닫혀 펌프 운전, 만수가 되면 열려 정지
  *  - 수동: 수위와 상관없이 운전
@@ -1086,6 +1251,11 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'motor-lamps': 'motor',
   'motor-2place': 'motor',
   'star-delta': 'motor',
+  'motor-jog-run': 'motor',
+  'motor-ls-stop': 'motor',
+  'motor-fwd-rev': 'motor',
+  'sol-alternate': 'panel',
+  'lamp-delay': 'home',
   'pump-float': 'motor',
   panel: 'panel',
   'relay-socket': 'panel',
@@ -1123,9 +1293,14 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'motor-jog', name: tr('전동기: 조그 (인칭) 운전', 'Motor: jog'), desc: tr('버튼을 누르고 있는 동안만 운전. 차단기 → 전자접촉기 → 열동 계전기 → 전동기, 조작 회로 퓨즈', 'Runs only while the button is held; breaker, contactor, overload relay, motor'), build: motorJog },
     { id: 'motor-lamps', name: tr('전동기: 표시등 부착 자기유지', 'Motor: self-holding with lamps'), desc: tr('기동 · 정지 자기유지에 운전등 GL · 정지등 RL (MC 21-22) · 과부하등 YL (THR 97-98)', 'Start/stop with run, stop and overload lamps'), build: motorLamps },
     { id: 'motor-2place', name: tr('전동기: 2개소 (다점) 제어', 'Motor: two-place control'), desc: tr('조작반과 현장 두 곳에서 기동 · 정지. 정지 버튼은 직렬, 기동 버튼은 병렬', 'Start and stop from two places: stops in series, starts in parallel'), build: motorTwoPlace },
+    { id: 'motor-jog-run', name: tr('전동기: 조그 + 연속 운전 (보조 릴레이)', 'Motor: jog and run (auxiliary relay)'), desc: tr('기동은 보조 릴레이가 기억해 연속 운전, 조그 버튼은 누르는 동안만. 각형 릴레이 소켓 배선', 'Run is held by an auxiliary relay; jog works only while pressed'), build: motorJogRun },
+    { id: 'motor-ls-stop', name: tr('전동기: 리밋 스위치 자동 정지', 'Motor: limit switch stop'), desc: tr('자기유지로 돌다가 끝 위치의 리밋 스위치 (b접점) 가 열리면 스스로 정지', 'Self-holding run that stops when the limit switch (NC) opens'), build: motorLimitStop },
+    { id: 'motor-fwd-rev', name: tr('전동기: 정 · 역 운전 이중 인터록', 'Motor: forward / reverse, double interlock'), desc: tr('접촉기 2개로 두 상을 바꿔 역회전. 버튼 b접점과 접촉기 b접점으로 이중 인터록, 돌던 중에 반대 버튼을 눌러도 안전', 'Two contactors swap two phases; button and contactor interlocks'), build: motorReversing },
     { id: 'star-delta', name: tr('전동기: 자동 Y-Δ 기동', 'Motor: automatic star-delta start'), desc: tr('6단자 전동기를 Y 결선으로 기동하고 타이머 3초 뒤 Δ 결선으로 전환. 접촉기 3개 · 타이머 · 인터록', 'A 6-lead motor starts in star and switches to delta after 3 s; three contactors, timer, interlock'), build: starDelta },
     { id: 'pump-float', name: tr('급수 펌프: 플로트 스위치 자동 / 수동', 'Feed pump: float switch auto / manual'), desc: tr('자동은 저수위에서 운전 · 만수에서 정지, 수동은 바로 운전. 셀렉터 · 플로트 스위치 · 운전등', 'Float switch in auto, direct run in manual'), build: pumpFloat },
     { id: 'dc-sensor', name: tr('직류 24V: SMPS · 근접 센서 · 릴레이 · 솔레노이드', '24 V DC: SMPS, proximity sensor, relay, solenoid'), desc: tr('퓨즈 → SMPS → 근접 센서 (PNP 3선식) → 각형 릴레이 → 솔레노이드 밸브 · 부저. 덕트 · 전압계', 'Fuse, SMPS, PNP sensor, blade relay, solenoid valve and buzzer; duct and voltmeter'), build: dcSensor },
+    { id: 'sol-alternate', name: tr('솔레노이드 밸브 2개 교번 (플리커 타이머)', 'Two solenoid valves alternating (flicker timer)'), desc: tr('플리커 타이머의 a접점과 b접점이 1초마다 번갈아 밸브 A · B 를 여자', 'A flicker timer energises valve A and valve B in turn'), build: solAlternate },
+    { id: 'lamp-delay', name: tr('타이머 지연 점등 (표시등)', 'Delayed lamp on a timer'), desc: tr('스위치를 켜고 3초 뒤에 표시등이 켜진다. 8핀 타이머의 전원 2-7 과 한시 a접점 8-6', 'The lamp lights 3 s after the switch; 8-pin timer power 2-7 and timed NO 8-6'), build: lampDelay },
     { id: 'home-outlet', name: tr('주거 배선: 누전차단기 · 스위치 · 전등 · 콘센트', 'Home wiring: ELB, switch, light, outlet'), desc: tr('누전차단기에서 스위치 → 전등, 콘센트. 중성선 바와 접지 바에서 회로마다 한 가닥씩', 'ELB to switch, light and outlet; neutral and earth bars'), build: homeOutlet },
     { id: 'real', name: tr('실물 배선도: 전동기 기동·정지', 'Wiring diagram: motor start/stop'), desc: tr('차단기 3P·2P, 전자접촉기, 푸시버튼 유닛, 전동기를 실제 단자 번호와 전선 색으로', 'Real devices with terminal numbers and wire colours'), build: realWiring },
     { id: 'self-hold', name: tr('자기유지 (전동기 기동·정지)', 'Self-holding (motor start/stop)'), desc: tr('기동 PB로 MC1 자기유지, 정지 PB로 해제. 주회로와 표시등 포함', 'Start latches MC1, stop releases it; power circuit and lamps'), build: selfHold },
