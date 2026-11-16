@@ -1086,3 +1086,70 @@ describe('example projects: motor control, DC sensor, home wiring', () => {
     expect(new Set(all.map((e) => e.id)).size).toBe(all.length);
   });
 });
+
+describe('relay operate time and 0-second pulses', () => {
+  /** 렁 1: T1 한시 b → PX1 → X1, 렁 2: X1 a → T1 (OFF 딜레이 3초), 렁 3: T1 한시 a → SOL1 */
+  const loop = (relayMs?: number) => {
+    let n = 0;
+    const parts: Part[] = [];
+    const wires: Wire[] = [];
+    const P = (type: PartType, x: number, y: number, tag = '', extra: Partial<Part> = {}) => parts.push({ id: `p${n++}`, type, x, y, rot: 0, tag, ...extra });
+    const W = (a: [number, number], b: [number, number]) => wires.push({ id: `w${n++}`, a, b });
+    P('src', 0, 0, '', { pole: 'L' });
+    P('src', 0, 30, '', { pole: 'N' });
+    W([0, 0], [20, 0]);
+    W([0, 30], [20, 30]);
+    P('nc', 4, 4, 'T1');
+    P('ls_no', 4, 12, 'PX1', { sense: 'inductive' });
+    P('coil', 4, 24, 'X1');
+    W([4, 0], [4, 2]);
+    W([4, 6], [4, 10]);
+    W([4, 14], [4, 22]);
+    W([4, 26], [4, 30]);
+    P('no', 10, 4, 'X1');
+    P('timer', 10, 24, 'T1', { timerMode: 'off', preset: 3000 });
+    W([10, 0], [10, 2]);
+    W([10, 6], [10, 22]);
+    W([10, 26], [10, 30]);
+    P('no', 16, 4, 'T1');
+    P('sol', 16, 24, 'SOL1');
+    W([16, 0], [16, 2]);
+    W([16, 6], [16, 22]);
+    W([16, 26], [16, 30]);
+    const c: Circuit = { parts, wires, ops: [{ id: 'o', wait: 1000, tag: 'PX1', action: 'on', hold: 0 }], duration: 8000, ...(relayMs ? { relayMs } : {}) };
+    const res = runScenario(c);
+    return { res, at: (key: string) => edges(res, key).map((e) => [e.t, e.v]) };
+  };
+
+  it('instant relays: the loop restarts the timer in zero time and the simulation says so', () => {
+    const { res, at } = loop();
+    expect(at('load:SOL1')).toEqual([[0, 0], [1000, 1]]);
+    expect(at('coil:X1')).toEqual([[0, 0]]);
+    const pulse = res.warnings.filter((w) => w.includes('0초 펄스'));
+    expect(pulse.length).toBe(1);
+    expect(pulse[0]).toMatch(/^1 s: (X1 · T1|T1 · X1) 이\(가\) 같은 순간에 붙었다 떨어집니다/);
+  });
+
+  it('with a 20 ms relay time the solenoid drops for 40 ms every 3 s, as in a real panel', () => {
+    const { res, at } = loop(20);
+    expect(at('coil:X1')).toEqual([[0, 0], [1020, 1], [1060, 0], [4100, 1], [4140, 0], [7180, 1], [7220, 0]]);
+    expect(at('load:SOL1')).toEqual([[0, 0], [1040, 1], [4080, 0], [4120, 1], [7160, 0], [7200, 1]]);
+    expect(res.warnings).toEqual([]);
+  });
+
+  it('interval (one-shot) timer: on at once, off after the preset even while powered; off early when power drops', () => {
+    const c = circuitExamples().find((e) => e.id === 'sensor-oneshot')!.build();
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    expect(res.warnings).toEqual([]);
+    expect(edges(res, 'load:SOL1').map((e) => [e.t, e.v])).toEqual([[0, 0], [1000, 1], [4000, 0], [8000, 1], [9000, 0]]);
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify(c)))!;
+    expect(back.parts.find((p) => p.type === 'timer')!.timerMode).toBe('interval');
+  });
+
+  it('relay time is saved and every built-in example still runs without 0-second pulses', () => {
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify({ parts: [], wires: [], ops: [], relayMs: 20 })))!;
+    expect(back.relayMs).toBe(20);
+    for (const ex of circuitExamples()) expect(runScenario(ex.build()).warnings.filter((w) => w.includes('0초 펄스')), ex.id).toEqual([]);
+  });
+});

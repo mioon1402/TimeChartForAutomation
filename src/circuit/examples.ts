@@ -54,6 +54,36 @@ function powerCircuit(b: Builder): void {
   }
 }
 
+/**
+ * 센서 감지 → 솔밸브 3초만 (인터벌 타이머): 감지하면 T1 이 바로 켜지고 3초 뒤 꺼진다 (계속 감지하고 있어도).
+ * 감지가 3초보다 짧으면 그때 꺼진다. 다시 감지하면 처음부터.
+ */
+function sensorOneShot(): Circuit {
+  const b = new Builder();
+  b.part('src', 1, 2, '', { pole: '+24V' });
+  b.part('src', 1, 27, '', { pole: '0V' });
+  b.wire([1, 2], [12, 2]);
+  b.wire([1, 27], [12, 27]);
+  // 렁 1: PX1 (2선식 근접) → T1 (인터벌 3초)
+  b.part('ls_no', 4, 8, 'PX1', { name: tr('제품 감지', 'Part present'), sense: 'inductive' });
+  b.part('timer', 4, 23, 'T1', { name: tr('분사 시간', 'Blow time'), timerMode: 'interval', preset: 3000 });
+  b.wire([4, 2], [4, 6]);
+  b.wire([4, 10], [4, 21]);
+  b.wire([4, 25], [4, 27]);
+  // 렁 2: T1 a → SOL1
+  b.part('no', 12, 8, 'T1');
+  b.part('sol', 12, 23, 'SOL1', { name: tr('에어 블로', 'Air blow') });
+  b.wire([12, 2], [12, 6]);
+  b.wire([12, 10], [12, 21]);
+  b.wire([12, 25], [12, 27]);
+  b.part('text', 1, -1, '', { text: tr('센서 감지 → 솔밸브 3초만: 인터벌 (원샷) 타이머. 계속 감지해도 3초 뒤 꺼지고, 다시 감지하면 처음부터', 'Sensor → solenoid for 3 s with an interval (one-shot) timer') });
+  b.op(1000, 'PX1', 'on', tr('감지 (계속)', 'Detects (held)'));
+  b.op(5000, 'PX1', 'off', tr('해제', 'Clear'));
+  b.op(2000, 'PX1', 'on', tr('짧게 감지', 'Short detection'));
+  b.op(1000, 'PX1', 'off', tr('해제', 'Clear'));
+  return b.done();
+}
+
 /** 자기유지: 기동 PB → MC1 자기유지 → 전동기 운전, 운전·정지 표시등 */
 function selfHold(): Circuit {
   const b = new Builder();
@@ -1399,6 +1429,7 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'counter': 'panel',
   'ssr-heater': 'panel',
   prox2: 'panel',
+  'sensor-oneshot': 'basic',
   'pump-float': 'motor',
   panel: 'panel',
   'relay-socket': 'panel',
@@ -1452,6 +1483,7 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'real', name: tr('실물 배선도: 전동기 기동·정지', 'Wiring diagram: motor start/stop'), desc: tr('차단기 3P·2P, 전자접촉기, 푸시버튼 유닛, 전동기를 실제 단자 번호와 전선 색으로', 'Real devices with terminal numbers and wire colours'), build: realWiring },
     { id: 'self-hold', name: tr('자기유지 (전동기 기동·정지)', 'Self-holding (motor start/stop)'), desc: tr('기동 PB로 MC1 자기유지, 정지 PB로 해제. 주회로와 표시등 포함', 'Start latches MC1, stop releases it; power circuit and lamps'), build: selfHold },
     { id: 'reversing', name: tr('정역 운전 (인터록)', 'Forward / reverse (interlock)'), desc: tr('MC1·MC2 서로 b접점 인터록, 주회로에서 L1·L3 교체', 'MC1/MC2 interlocked, L1 and L3 swapped'), build: reversing },
+    { id: 'sensor-oneshot', name: tr('센서 감지 → 솔밸브 3초만 (인터벌 타이머)', 'Sensor → solenoid for 3 s (interval timer)'), desc: tr('감지하면 바로 켜지고 3초 뒤 꺼짐 (계속 감지해도). 감지가 짧으면 그때 꺼짐', 'On at once, off after 3 s even if still detecting'), build: sensorOneShot },
     { id: 'timer', name: tr('타이머 지연 동작', 'Timer delay'), desc: tr('기동 3초 뒤 운전, 기다리는 동안 대기 표시', 'Run 3 s after start, waiting lamp meanwhile'), build: timerDelay },
     { id: 'cylinder', name: tr('공압 실린더 1사이클', 'Cylinder one cycle'), desc: tr('기동 → 전진 → 전진단 → 후진 → 후진단', 'Start → advance → end → return'), build: cylinderCycle },
     { id: 'pneumatic', name: tr('전공압 자동 왕복 (밸브 · 근접 센서)', 'Electro-pneumatic auto cycle'), desc: tr('공압원 → FRL → 5/2 양솔 밸브 → 속도 제어 → 실린더, 근접 센서로 왕복', 'Air supply, FRL, 5/2 valve, flow control, cylinder, proximity sensors'), build: electroPneumatic },

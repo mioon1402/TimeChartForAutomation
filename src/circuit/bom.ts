@@ -165,7 +165,7 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     }
     case 'timer':
       if (p.timerMode === 'flicker') return { kind: tr('플리커 릴레이', 'Flicker relay'), spec: `${formatTime(p.preset ?? 500, 's')} ${tr('간격', 'interval')}${ab ? `, ${ab}` : ''}` };
-      return { kind: tr('타이머', 'Timer'), spec: `${p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : tr('ON 딜레이', 'on-delay')} ${formatTime(p.preset ?? 3000, 's')}${ab ? `, ${ab}` : ''}` };
+      return { kind: tr('타이머', 'Timer'), spec: `${p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : p.timerMode === 'interval' ? tr('인터벌', 'interval') : tr('ON 딜레이', 'on-delay')} ${formatTime(p.preset ?? 3000, 's')}${ab ? `, ${ab}` : ''}` };
     case 'pb_no':
     case 'pb_nc':
       return { kind: tr('푸시버튼', 'Push button'), spec: [p.color ? lampColorName(p.color) : '', ab].filter(Boolean).join(' ') };
@@ -279,7 +279,7 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'r_my4':
       return { kind: tr('릴레이 (각형 4c) + 소켓', 'Relay (blade, 4-pole) + socket'), spec: `${tr('코일 AC 220V', 'coil AC 220V')}, ${ab}` };
     case 'r_timer8': {
-      const mode = p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : p.timerMode === 'flicker' ? tr('플리커', 'flicker') : tr('ON 딜레이', 'on-delay');
+      const mode = p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : p.timerMode === 'flicker' ? tr('플리커', 'flicker') : p.timerMode === 'interval' ? tr('인터벌', 'interval') : tr('ON 딜레이', 'on-delay');
       const cts = p.inst13 ? tr('한시 1a1b · 순시 1a1b', 'timed 1NO1NC · inst. 1NO1NC') : tr('한시 2a2b', 'timed 2NO2NC');
       return { kind: tr('타이머 (8핀) + 소켓', 'Timer (8-pin) + socket'), spec: `${mode} ${formatTime(p.preset ?? 3000, 's')}, ${cts}` };
     }

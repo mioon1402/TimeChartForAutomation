@@ -50,7 +50,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (optStr(q.name)) p.name = str(q.name);
     if (optStr(q.spec)) p.spec = str(q.spec);
     if (POLES.includes(q.pole as Pole)) p.pole = q.pole as Pole;
-    if (q.timerMode === 'on' || q.timerMode === 'off' || q.timerMode === 'flicker') p.timerMode = q.timerMode;
+    if (q.timerMode === 'on' || q.timerMode === 'off' || q.timerMode === 'flicker' || q.timerMode === 'interval') p.timerMode = q.timerMode;
     if (typeof q.preset === 'number' && q.preset >= 0) p.preset = q.preset;
     if (COLORS.includes(q.color as LampColor)) p.color = q.color as LampColor;
     if (typeof q.stroke === 'number' && q.stroke >= 0) p.stroke = q.stroke;
@@ -131,6 +131,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   if (typeof o.applied === 'string') c.applied = o.applied;
   if (typeof o.clock === 'number' && o.clock > 0 && o.clock < 86400000) c.clock = o.clock;
   if (o.supply === 'hv') c.supply = 'hv';
+  if (typeof o.relayMs === 'number' && o.relayMs > 0 && o.relayMs <= 1000) c.relayMs = o.relayMs;
   if (typeof o.vll === 'number' && o.vll > 0 && o.vll < 1e5) c.vll = o.vll;
   if (o.system === '3p3w' || o.system === '1p3w' || o.system === '1p2w') c.system = o.system;
   if (Array.isArray(o.wired)) {

@@ -664,6 +664,7 @@ export function toSchematic(c: Circuit): SchematicResult {
   if (c.system) out.system = c.system;
   if (c.vll) out.vll = c.vll;
   if (c.supply) out.supply = c.supply;
+  if (c.relayMs) out.relayMs = c.relayMs;
   return { circuit: out, notes: [...new Set(notes)] };
 }
 

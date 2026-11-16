@@ -103,13 +103,15 @@ export class CircuitModel {
   readonly tagLabel = new Map<string, string>();
   readonly coilParts = new Map<string, string[]>();
   readonly timerParts = new Map<string, string[]>();
-  readonly timerDef = new Map<string, { mode: 'on' | 'off' | 'flicker'; preset: number }>();
+  readonly timerDef = new Map<string, { mode: 'on' | 'off' | 'flicker' | 'interval'; preset: number }>();
   /** 24시간 타임 스위치: 시계 전원 넷 (L · N) 과 켜지는 구간 */
   readonly tswDef = new Map<string, { part: Part; l: number; n: number; sched: [number, number][] }>();
   /** 프리셋 카운터: 입력 CP · RST · COM 넷 (무전압 접점 입력: COM 과 이어지면 들어온 것) */
   readonly counterDef = new Map<string, { part: Part; cp: number; rst: number; com: number; preset: number }>();
   /** 3단 셀렉터 기호 */
   readonly sel3 = new Set<string>();
+  /** 릴레이 · 타이머 코일이 붙고 떨어지는 데 걸리는 시간 (ms, 0 = 바로) */
+  readonly relayMs: number;
   readonly cylDef = new Map<string, Part>();
   readonly sensorDef = new Map<string, { cyl: string; end: '+' | '-' }>();
   readonly operatorDefault = new Map<string, boolean>();
@@ -143,6 +145,7 @@ export class CircuitModel {
     plc?: PlcConfig,
   ) {
     this.net = buildNetlist(circuit);
+    this.relayMs = Math.min(1000, Math.max(0, circuit.relayMs ?? 0));
     const rank: Record<TagKind, number> = { coil: 5, timer: 5, tsw: 5, counter: 5, thr: 4, sensor: 3, operator: 2 };
     const setKind = (tag: string, k: TagKind, p: Part) => {
       const cur = this.tagKind.get(tag);
@@ -317,6 +320,8 @@ export class CircuitSim {
   readonly counters = new Map<string, { n: number; out: boolean; cp: boolean; rst: boolean }>();
   /** 넷마다 이어진 묶음 (닫힌 접점까지 따라간 것) */
   private root: Int32Array = new Int32Array(0);
+  /** 릴레이 동작 시간이 있을 때: 코일 · 타이머가 바뀔 예정 (c:태그 · t:태그) */
+  private readonly pending = new Map<string, { want: boolean; at: number }>();
   readonly cyl = new Map<string, CylState>();
   /** 넷마다 닿은 극 ('short' = 단락, null = 전압 없음) */
   netPole: (string | null)[] = [];
@@ -458,7 +463,7 @@ export class CircuitSim {
     const st = this.timers.get(tag);
     const def = this.m.timerDef.get(tag);
     if (!st || !def) return null;
-    const pending = def.mode === 'on' ? st.coil && !st.out : def.mode === 'flicker' ? st.coil : !st.coil && st.out;
+    const pending = def.mode === 'on' ? st.coil && !st.out : def.mode === 'flicker' ? st.coil : def.mode === 'interval' ? st.coil && st.out : !st.coil && st.out;
     return { coil: st.coil, out: st.out, elapsed: pending ? this.t - st.since : null, preset: def.preset };
   }
 
@@ -637,10 +642,36 @@ export class CircuitSim {
   }
 
   /** 코일·타이머·실린더 하나를 바꾸면 true */
+  /** 릴레이 동작 시간이 있으면 바로 바꾸지 않고 예약한다. 바꿨으면 true */
+  private delayed(key: string, want: boolean, cur: boolean): boolean {
+    if (this.m.relayMs <= 0) return false;
+    const pd = this.pending.get(key);
+    if (want === cur) this.pending.delete(key);
+    else if (!pd || pd.want !== want) this.pending.set(key, { want, at: this.t + this.m.relayMs });
+    return true;
+  }
+
+  private setTimerCoil(tag: string, want: boolean): void {
+    const st = this.timers.get(tag)!;
+    const def = this.m.timerDef.get(tag)!;
+    st.coil = want;
+    st.since = this.t;
+    if (def.mode === 'on') {
+      if (!want) st.out = false;
+      else if (def.preset <= 0) st.out = true;
+    } else if (def.mode === 'flicker') st.out = want;
+    // 인터벌 (원샷): 코일이 들어오면 바로 ON, 설정 시간 뒤 OFF (코일이 들어와 있어도). 코일이 빠지면 OFF
+    else if (def.mode === 'interval') st.out = want && def.preset > 0;
+    else if (want) st.out = true;
+    else if (def.preset <= 0) st.out = false;
+  }
+
   private stepOnce(): boolean {
     for (const [tag, ids] of this.m.coilParts) {
       const want = ids.some((id) => this.energized.has(id));
-      if (want !== this.coilOn.get(tag)) {
+      const cur = this.coilOn.get(tag) ?? false;
+      if (this.delayed(`c:${tag}`, want, cur)) continue;
+      if (want !== cur) {
         this.coilOn.set(tag, want);
         return true;
       }
@@ -648,16 +679,9 @@ export class CircuitSim {
     for (const [tag, ids] of this.m.timerParts) {
       const want = ids.some((id) => this.energized.has(id));
       const st = this.timers.get(tag)!;
+      if (this.delayed(`t:${tag}`, want, st.coil)) continue;
       if (want === st.coil) continue;
-      const def = this.m.timerDef.get(tag)!;
-      st.coil = want;
-      st.since = this.t;
-      if (def.mode === 'on') {
-        if (!want) st.out = false;
-        else if (def.preset <= 0) st.out = true;
-      } else if (def.mode === 'flicker') st.out = want;
-      else if (want) st.out = true;
-      else if (def.preset <= 0) st.out = false;
+      this.setTimerCoil(tag, want);
       return true;
     }
     // 타임 스위치: 시계 전원, 다이얼 위치에 따른 접점
@@ -838,9 +862,27 @@ export class CircuitSim {
   }
 
   settle(): void {
+    // 같은 순간에 붙었다 떨어지는 코일 (0초 펄스) 을 찾으려고 바뀐 횟수를 센다
+    const snap = () => new Map<string, boolean>([...[...this.coilOn].map(([t, v]) => [`c:${t}`, v] as [string, boolean]), ...[...this.timers].map(([t, v]) => [`t:${t}`, v.coil] as [string, boolean])]);
+    let last = snap();
+    const flips = new Map<string, number>();
     for (let i = 0; i < 400; i++) {
       this.evaluate();
-      if (!this.stepOnce()) return;
+      if (!this.stepOnce()) {
+        // 한 번에 한 줄로: 아직 알리지 않은 코일만 모아서
+        const keys = [...flips].filter(([key, k]) => k >= 2 && !this.warned.has(`pulse:${key}`)).map(([key]) => key);
+        if (keys.length) {
+          for (const key of keys) this.warned.add(`pulse:${key}`);
+          const tags = [...new Set(keys.map((key) => this.m.label(key.slice(2))))].join(' · ');
+          this.warnings.push(
+            `${formatTime(this.t, 's')}: ${tags} 이(가) 같은 순간에 붙었다 떨어집니다 (0초 펄스). 자기 접점 (또는 그 뒤의 접점) 이 자기 회로를 끊는 구성이라, 실제로는 릴레이가 붙는 수십 ms 동안만 동작해서 그 사이 다른 출력이 잠깐 끊기거나 타이머가 다시 시작합니다. 조작 순서 탭의 [릴레이 동작 시간] 을 넣으면 실제처럼 볼 수 있습니다`,
+          );
+        }
+        return;
+      }
+      const now = snap();
+      for (const [key, v] of now) if (last.get(key) !== v) flips.set(key, (flips.get(key) ?? 0) + 1);
+      last = now;
     }
     this.warn(`${formatTime(this.t, 's')}: 릴레이가 계속 켜졌다 꺼졌다 합니다 (발진)`, 'osc');
   }
@@ -848,9 +890,10 @@ export class CircuitSim {
   /** 다음 사건 시각 (타이머 만료, 실린더 도착·끝 센서 벗어남, PLC 스캔) */
   nextEvent(withScan = true): number | null {
     let best = withScan && this.nextScan !== null ? this.nextScan : Infinity;
+    for (const pd of this.pending.values()) best = Math.min(best, pd.at);
     for (const [tag, st] of this.timers) {
       const def = this.m.timerDef.get(tag)!;
-      if ((def.mode === 'on' && st.coil && !st.out) || (def.mode === 'off' && !st.coil && st.out) || (def.mode === 'flicker' && st.coil && def.preset > 0)) best = Math.min(best, st.since + def.preset);
+      if ((def.mode === 'on' && st.coil && !st.out) || (def.mode === 'off' && !st.coil && st.out) || (def.mode === 'flicker' && st.coil && def.preset > 0) || (def.mode === 'interval' && st.coil && st.out)) best = Math.min(best, st.since + def.preset);
     }
     for (const [tag, st] of this.cyl) {
       if (st.pos === st.target || st.hold) continue;
@@ -905,11 +948,20 @@ export class CircuitSim {
         return;
       }
       this.moveTo(next);
+      // 릴레이 동작 시간이 지난 코일 · 타이머
+      for (const [key, pd] of [...this.pending]) {
+        if (pd.at > this.t + EPS) continue;
+        this.pending.delete(key);
+        const tag = key.slice(2);
+        if (key[0] === 'c') this.coilOn.set(tag, pd.want);
+        else if (this.timers.get(tag)!.coil !== pd.want) this.setTimerCoil(tag, pd.want);
+      }
       for (const [tag, st] of this.timers) {
         const def = this.m.timerDef.get(tag)!;
         if (st.since + def.preset > this.t + EPS) continue;
         if (def.mode === 'on' && st.coil && !st.out) st.out = true;
         else if (def.mode === 'off' && !st.coil && st.out) st.out = false;
+        else if (def.mode === 'interval' && st.coil && st.out) st.out = false;
         else if (def.mode === 'flicker' && st.coil && def.preset > 0) {
           st.out = !st.out;
           st.since += def.preset;
