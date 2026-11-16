@@ -1,7 +1,7 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, counterPreset, LAMP_HEX, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, counterPreset, LAMP_HEX, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, timerText, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
-import { formatClock, formatTime } from '../model/format';
+import { formatClock } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
 import type { CircuitColors, PartState } from './CircuitSvg';
 import { tr } from '../i18n';
@@ -585,7 +585,7 @@ export function Timer8Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitCo
       <Label x={-56} y={20} text="0" fill="#64748b" size={6.5} />
       <Label x={-24} y={20} text={`${range}s`} fill="#64748b" size={6.5} />
       <circle cx={-40} cy={-2} r={3} fill="#334155" />
-      <Label x={-40} y={30} text={formatTime(preset, 's')} fill="#111827" size={9} weight={800} />
+      <Label x={-40} y={30} text={timerText(p).replace(/(ON|OFF) /g, '').replace(/ (?=m?s|min|h)/g, '').replace(' · ', '/')} fill="#111827" size={9} weight={800} />
       <Label x={-40} y={40} text={mode} fill="#64748b" size={7} weight={700} />
       <circle cx={-60} cy={-36} r={3.5} fill={coil ? '#22c55e' : '#cbd5e1'} />
       <Label x={-54} y={-33} text="PW" anchor="start" fill="#475569" size={7} weight={700} />
@@ -594,7 +594,7 @@ export function Timer8Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitCo
       <Changeover y={-10} com="1" no="3" nc="4" on={p.inst13 ? coil : out} timed={!p.inst13} inst={p.inst13} />
       <Changeover y={26} com="8" no="6" nc="5" on={out} timed />
       <TagSticker tag={p.tag} right={66} y={-36} />
-      <SideNotes x={106} lines={[p.name, t && t.elapsed !== null && `${(t.elapsed / 1000).toFixed(1)} / ${(preset / 1000).toFixed(1)}s`]} c={c} />
+      <SideNotes x={106} lines={[p.name, t && t.elapsed !== null && `${(t.elapsed / 1000).toFixed(1)} / ${(t.preset / 1000).toFixed(1)}s`]} c={c} />
     </OctalSocket>
   );
 }

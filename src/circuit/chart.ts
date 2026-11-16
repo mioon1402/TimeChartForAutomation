@@ -5,7 +5,7 @@ import { formatTime, HOUR, MINUTE } from '../model/format';
 import { niceCeil, niceGrid } from '../plc/simulator';
 import type { Circuit, Part } from './types';
 import { CircuitModel, normTag, runScenario, type ScenarioResult, type Track } from './engine';
-import { compareTags, counterPreset, partKindName, pos3Labels } from './parts';
+import { compareTags, counterPreset, partKindName, pos3Labels, timerText } from './parts';
 import { tr as t_ } from '../i18n';
 
 /** 대표 부품이 전자접촉기인가 (MC/KM 기호이거나 주접점이 있음) */
@@ -188,7 +188,7 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
   // 타이머: 코일과 한시 접점 (+ 처음 한 번의 지연 치수선)
   for (const tr of res.tracks.filter((t) => t.kind === 'timerCoil' || t.kind === 'timerOut')) {
     const p = tr.part;
-    const time = formatTime(p.preset ?? 3000, 's');
+    const time = timerText(p);
     const name = nameOf(c, keyTag(tr), p);
     if (tr.kind === 'timerCoil') {
       out.push(bit(tr, 'timer', G.timer, { name: `${name} ${t_('코일', 'coil')} (${p.timerMode === 'off' ? 'OFF' : p.timerMode === 'flicker' ? t_('점멸', 'flicker') : p.timerMode === 'interval' ? t_('인터벌', 'interval') : 'ON'} ${time})` }));

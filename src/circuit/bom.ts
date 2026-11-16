@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, counterPreset, pos3Labels, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, counterPreset, pos3Labels, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
@@ -164,7 +164,7 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('릴레이', 'Relay'), spec: ab };
     }
     case 'timer':
-      if (p.timerMode === 'flicker') return { kind: tr('플리커 릴레이', 'Flicker relay'), spec: `${formatTime(p.preset ?? 500, 's')} ${tr('간격', 'interval')}${ab ? `, ${ab}` : ''}` };
+      if (p.timerMode === 'flicker') return { kind: tr('플리커 릴레이', 'Flicker relay'), spec: `${timerText(p, 500)} ${tr('간격', 'interval')}${ab ? `, ${ab}` : ''}` };
       return { kind: tr('타이머', 'Timer'), spec: `${p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : p.timerMode === 'interval' ? tr('인터벌', 'interval') : tr('ON 딜레이', 'on-delay')} ${formatTime(p.preset ?? 3000, 's')}${ab ? `, ${ab}` : ''}` };
     case 'pb_no':
     case 'pb_nc':
@@ -281,7 +281,7 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'r_timer8': {
       const mode = p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : p.timerMode === 'flicker' ? tr('플리커', 'flicker') : p.timerMode === 'interval' ? tr('인터벌', 'interval') : tr('ON 딜레이', 'on-delay');
       const cts = p.inst13 ? tr('한시 1a1b · 순시 1a1b', 'timed 1NO1NC · inst. 1NO1NC') : tr('한시 2a2b', 'timed 2NO2NC');
-      return { kind: tr('타이머 (8핀) + 소켓', 'Timer (8-pin) + socket'), spec: `${mode} ${formatTime(p.preset ?? 3000, 's')}, ${cts}` };
+      return { kind: tr('타이머 (8핀) + 소켓', 'Timer (8-pin) + socket'), spec: `${mode} ${timerText(p)}, ${cts}` };
     }
     case 'r_ss':
       return { kind: tr('셀렉터 스위치 (2단)', 'Selector switch (2-position)'), spec: ab };

@@ -1,6 +1,7 @@
 import type { CableSpec, Circuit, LampColor, Part, PartType, Pole, Rot, Wire, WireColor } from './types';
 import type { PlcDialect } from '../plc/types';
 import { tr } from '../i18n';
+import { formatTime } from '../model/format';
 
 export type PartCategory = 'power' | 'protect' | 'switch' | 'relay' | 'output' | 'pneumatic' | 'plc' | 'misc';
 
@@ -593,6 +594,13 @@ export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right',
 }
 
 /** 카운터 설정 수 */
+/** 타이머 설정 글: "3 s", 켜짐 · 꺼짐 시간이 다른 플리커 (트윈 타이머) 는 "ON 1 s · OFF 3 s" */
+export function timerText(p: Pick<Part, 'preset' | 'presetOff' | 'timerMode'>, def = 3000): string {
+  const on = p.preset ?? def;
+  const off = p.timerMode === 'flicker' && p.presetOff && p.presetOff > 0 ? p.presetOff : on;
+  return off === on ? formatTime(on, 's') : `ON ${formatTime(on, 's')} · OFF ${formatTime(off, 's')}`;
+}
+
 export function counterPreset(p: Pick<Part, 'count'>): number {
   return Math.max(1, Math.round(p.count ?? 5));
 }

@@ -419,7 +419,7 @@ function loadSym(p: Part): Sym | null {
     case 'r_ssr':
       return { type: 'coil', tag, extra: keep('name') };
     case 'r_timer8':
-      return { type: 'timer', tag, extra: keep('name', 'timerMode', 'preset') };
+      return { type: 'timer', tag, extra: keep('name', 'timerMode', 'preset', 'presetOff') };
     case 'r_lamp':
     case 'r_pbl':
     case 'r_light':
@@ -438,7 +438,7 @@ function loadSym(p: Part): Sym | null {
     case 'sol':
     case 'motor':
     case 'load':
-      return { type: p.type, tag, extra: keep('name', 'timerMode', 'preset', 'color', 'watt', 'pf') };
+      return { type: p.type, tag, extra: keep('name', 'timerMode', 'preset', 'presetOff', 'color', 'watt', 'pf') };
     default:
       return null;
   }

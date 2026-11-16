@@ -115,6 +115,8 @@ export interface Part {
   timerMode?: 'on' | 'off' | 'flicker' | 'interval';
   /** 타이머 설정 시간 (ms) */
   preset?: number;
+  /** 플리커의 꺼짐 시간 (ms, 트윈 타이머). 없으면 켜짐 시간 (preset) 과 같음 */
+  presetOff?: number;
   color?: LampColor;
   /** 실린더: 전진·후진 시간 (ms) */
   stroke?: number;
