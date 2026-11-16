@@ -122,6 +122,8 @@ function defaultName(p: Part): string {
     case 'motor':
     case 'motor3':
       return t_('전동기', 'Motor');
+    case 'load':
+      return t_('부하', 'Load');
     case 'sol':
       return t_('솔레노이드', 'Solenoid');
     case 'cyl':

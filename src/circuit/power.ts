@@ -236,6 +236,7 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
   r_pbl: 2,
   r_mc: 10,
   sol: 6,
+  load: 1000,
 };
 
 const THREE: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'r_load3', 'r_motor6']);

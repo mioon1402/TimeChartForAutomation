@@ -51,6 +51,7 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   motor3: 9,
   motor: 9,
   sol: 10,
+  load: 9,
   cyl: 11,
   plc: 3,
   smps: 0,
@@ -321,6 +322,8 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('3상 유도 전동기', '3-phase induction motor'), spec: '' };
     case 'motor':
       return { kind: tr('전동기', 'Motor'), spec: '' };
+    case 'load':
+      return { kind: tr('부하 (히터 등)', 'Load (heater …)'), spec: p.watt ? `${p.watt >= 1000 ? `${p.watt / 1000} kW` : `${p.watt} W`}` : '' };
     case 'sol': {
       const cyl = c.parts.find((x) => x.type === 'cyl' && (normTag(x.solPlus ?? '') === normTag(tag) || normTag(x.solMinus ?? '') === normTag(tag)));
       return { kind: tr('솔레노이드 밸브', 'Solenoid valve'), spec: cyl ? `${cyl.tag} ${normTag(cyl.solPlus ?? '') === normTag(tag) ? tr('전진', 'advance') : tr('후진', 'return')}` : '' };

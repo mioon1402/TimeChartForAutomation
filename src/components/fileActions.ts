@@ -19,6 +19,7 @@ import { uid } from '../model/wave';
 import { circuitExamples } from '../circuit/examples';
 import { applyCircuit } from '../circuit/chart';
 import { emptyCircuit } from '../circuit/types';
+import { toSchematic } from '../circuit/schematic';
 
 type FileHandle = { name: string; createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> };
 let handle: FileHandle | null = null;
@@ -74,6 +75,32 @@ export function addCircuitSheet() {
   p.circuit = emptyCircuit();
   g().addSheet(p);
   g().setTab('circuit');
+}
+
+/** 지금 차트의 실물 배선도를 회로도 (회로 기호) 로 다시 그려 새 차트 탭으로 */
+export function makeSchematicSheet() {
+  const cur = g().project;
+  const c = cur.circuit;
+  if (!c?.parts.length) {
+    g().toast(tr('회로도가 비어 있습니다', 'The circuit is empty'), 'warn');
+    return;
+  }
+  const res = toSchematic(c);
+  if (!res.circuit.parts.some((p) => p.type !== 'text')) {
+    g().toast(tr(`회로도로 바꿀 것이 없습니다. ${res.notes.join(' · ')}`, `Nothing to convert. ${res.notes.join(' · ')}`), 'warn');
+    return;
+  }
+  const name = `${sheetName(cur)} ${tr('회로도', 'schematic')}`;
+  const base = inheritMeta(createProject());
+  const p = applyCircuit({ ...base, sheet: name, meta: { ...base.meta, title: `${cur.meta.title || sheetName(cur)} ${tr('회로도', 'schematic')}`, description: '' }, circuit: res.circuit, ...(cur.plc ? { plc: cur.plc } : {}) });
+  g().addSheet(p);
+  g().setTab('circuit');
+  g().toast(
+    res.notes.length
+      ? tr(`회로도를 새 차트 탭에 그렸습니다. 확인할 것: ${res.notes.join(' · ')}`, `Schematic drawn in a new chart tab. Note: ${res.notes.join(' · ')}`)
+      : tr('회로도를 새 차트 탭에 그렸습니다. 같은 조작 순서로 시뮬레이션되어 타임차트가 실물 배선도와 같습니다', 'Schematic drawn in a new chart tab; it simulates to the same timing chart'),
+    res.notes.length ? 'warn' : 'ok',
+  );
 }
 
 /** 새 문서: 빈 회로도 */

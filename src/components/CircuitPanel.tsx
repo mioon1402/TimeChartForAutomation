@@ -7,7 +7,7 @@ import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, trImpedance, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
 import { changeSocketLayout } from '../circuit/socket';
-import { busSize, circuitWires, counterPreset, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, REAL, counterPreset, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -490,6 +490,11 @@ export function CircuitPanel() {
             { label: tr('새 회로도 (새 차트 탭)', 'New circuit (new chart tab)'), icon: 'plus', onClick: F.addCircuitSheet },
           ]}
         />
+        {circuit.parts.some((p) => REAL.has(p.type) && p.type !== 'r_panel') && (
+          <button type="button" className="btn small" onClick={F.makeSchematicSheet} disabled={running} title={tr('이 실물 배선도를 회로 기호로 다시 그려 새 차트 탭으로 엽니다 (조작 순서도 같이, 시뮬레이션 결과가 같음)', 'Redraw this wiring diagram as a schematic in a new chart tab (same operations, same simulation)')}>
+            <Icon name="circuit" size={13} /> {tr('회로도 만들기', 'Make schematic')}
+          </button>
+        )}
         <div className="sep" />
         <div className="tool-group">
           <IconButton icon="zoomOut" title={tr('축소 (Ctrl+휠)', 'Zoom out')} onClick={() => setZoom(Math.max(0.3, zoom / 1.2))} />

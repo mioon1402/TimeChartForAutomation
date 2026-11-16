@@ -185,6 +185,7 @@ export const PARTS: Record<PartType, PartDef> = {
   },
   motor: { type: 'motor', cat: 'output', pins: pins2('1', '2'), load: true, box: BOX2, prefix: 'M' },
   sol: { type: 'sol', cat: 'pneumatic', pins: pins2('1', '2'), load: true, box: BOX2, prefix: 'SOL' },
+  load: { type: 'load', cat: 'output', pins: pins2('1', '2'), load: true, box: BOX2, prefix: 'H' },
   // 헤드 쪽 포트(전진용)와 로드 쪽 포트(후진용). 배관이 없으면 솔레노이드 기호로 움직인다
   cyl: {
     type: 'cyl',
@@ -737,6 +738,8 @@ export function partKindName(type: PartType): string {
       return tr('전동기 (단상·직류)', 'Motor (1-ph / DC)');
     case 'sol':
       return tr('솔레노이드 밸브', 'Solenoid valve');
+    case 'load':
+      return tr('부하 (히터 · 팬 등)', 'Load (heater, fan …)');
     case 'cyl':
       return tr('공압 실린더', 'Pneumatic cylinder');
     case 'plc':
@@ -1076,6 +1079,7 @@ export function palette(): PaletteGroup[] {
         it('v32', tr('3/2 밸브 (NC)', '3/2 valve NC')),
         it('fc', tr('속도 제어 밸브', 'Flow control'), { speed: 50 }),
         it('sol', tr('솔레노이드 (코일)', 'Solenoid (coil)')),
+        it('load', tr('부하 (히터 · 팬)', 'Load (heater, fan)')),
         it('cyl', tr('공압 실린더', 'Cylinder'), { stroke: 1000, strokeBack: 1000 }),
       ],
     },
