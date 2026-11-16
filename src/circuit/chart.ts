@@ -5,7 +5,7 @@ import { formatTime, HOUR, MINUTE } from '../model/format';
 import { niceCeil, niceGrid } from '../plc/simulator';
 import type { Circuit, Part } from './types';
 import { CircuitModel, normTag, runScenario, type ScenarioResult, type Track } from './engine';
-import { compareTags, partKindName } from './parts';
+import { compareTags, counterPreset, partKindName, pos3Labels } from './parts';
 import { tr as t_ } from '../i18n';
 
 /** 대표 부품이 전자접촉기인가 (MC/KM 기호이거나 주접점이 있음) */
@@ -78,6 +78,12 @@ function defaultName(p: Part): string {
       return t_('타이머', 'Timer');
     case 'r_ss':
       return t_('셀렉터 스위치', 'Selector switch');
+    case 'r_ss3':
+      return t_('3단 셀렉터', '3-position selector');
+    case 'r_counter':
+      return t_('카운터', 'Counter');
+    case 'r_ssr':
+      return 'SSR';
     case 'r_estop':
       return t_('비상정지', 'E-stop');
     case 'r_tsw':
@@ -141,15 +147,26 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     return i < 0 ? Infinity : i;
   };
   const keyTag = (tr: Track) => tr.key.slice(tr.key.indexOf(':') + 1);
-  const pts = (tr: Track) => normalize(tr.points.filter((p) => p.t <= until + 1e-9), tr.kind === 'motor' ? 'bus' : 'bit', tr.kind === 'motor' ? '0' : 0);
+  const busKind = (tr: Track) => tr.kind === 'motor' || tr.kind === 'selector' || tr.kind === 'counterVal';
+  const pts = (tr: Track) => normalize(tr.points.filter((p) => p.t <= until + 1e-9), busKind(tr) ? 'bus' : 'bit', busKind(tr) ? '0' : 0);
+  const tr_pts = pts;
   const out: RowSpec[] = [];
   const bit = (tr: Track, role: SignalRole, group: string, extra: Partial<RowSpec> = {}): RowSpec => ({ tr, address: tr.tag, name: nameOf(c, keyTag(tr), tr.part), role, group, kind: 'bit', points: pts(tr), ...extra });
 
   // 조작: 조작 순서에 나온 순서, 그 밖에 바뀐 것
-  const ops = res.tracks.filter((t) => t.kind === 'operator' && (firstOp(keyTag(t)) < Infinity || pts(t).length > 1));
+  const ops = res.tracks.filter((t) => (t.kind === 'operator' || t.kind === 'selector') && (firstOp(keyTag(t)) < Infinity || tr_pts(t).length > 1));
   ops.sort((a, b) => firstOp(keyTag(a)) - firstOp(keyTag(b)) || compareTags(a.tag, b.tag));
-  const G = { plcIn: t_('PLC 입력', 'PLC inputs'), plcOut: t_('PLC 출력', 'PLC outputs'), op: t_('조작', 'Operation'), mc: t_('전자접촉기', 'Contactors'), relay: t_('릴레이', 'Relays'), timer: t_('타이머', 'Timers'), pneu: t_('공압', 'Pneumatics'), sensor: t_('센서', 'Sensors'), out: t_('출력', 'Outputs') };
-  for (const tr of ops) out.push(bit(tr, 'input', G.op));
+  const G = { plcIn: t_('PLC 입력', 'PLC inputs'), plcOut: t_('PLC 출력', 'PLC outputs'), op: t_('조작', 'Operation'), mc: t_('전자접촉기', 'Contactors'), relay: t_('릴레이', 'Relays'), timer: t_('타이머', 'Timers'), counter: t_('카운터', 'Counters'), pneu: t_('공압', 'Pneumatics'), sensor: t_('센서', 'Sensors'), out: t_('출력', 'Outputs') };
+  for (const tr of ops) {
+    if (tr.kind !== 'selector') {
+      out.push(bit(tr, 'input', G.op));
+      continue;
+    }
+    // 3단 셀렉터: 자리 이름으로 (가운데는 0)
+    const [l, , r] = pos3Labels(tr.part);
+    const p = tr_pts(tr).map((q) => ({ t: q.t, v: q.v === 'L' ? l : q.v === 'R' ? r : '0' }));
+    out.push({ ...bit(tr, 'input', G.op), kind: 'bus', points: normalize(p, 'bus', '0') });
+  }
 
   // PLC 입출력 (주소 = 디바이스, 이름 = 코멘트)
   for (const tr of res.tracks.filter((t) => t.kind === 'plcIn' || t.kind === 'plcOut')) {
@@ -185,6 +202,13 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     const t2 = t1 === undefined ? undefined : edge(row.points, off ? 0 : 1, t1);
     if (t1 !== undefined && t2 !== undefined && t2 > t1) row.dim = [t1, t2];
     out.push(row);
+  }
+
+  // 카운터: 센 수와 출력 (설정 수에 닿으면 출력)
+  for (const tr of res.tracks.filter((t) => t.kind === 'counterVal' || t.kind === 'counterOut')) {
+    const name = nameOf(c, keyTag(tr), tr.part);
+    if (tr.kind === 'counterVal') out.push({ ...bit(tr, 'counter', G.counter, { name: `${name} ${t_('센 수', 'count')} (${t_('설정', 'preset')} ${counterPreset(tr.part)})` }), kind: 'bus', points: pts(tr) });
+    else out.push(bit(tr, 'counter', G.counter, { address: `${tr.tag}.Q`, name: `${name} ${t_('출력', 'output')}` }));
   }
 
   // 타임 스위치: 접점 (설정 시각은 이름에 넣지 않는다: 이름은 한 번 정해지면 유지되므로 설정을 바꾸면 틀려진다)

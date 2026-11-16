@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { ALWAYS_ON, isLinkedSensor, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
+import { ALWAYS_ON, counterPreset, isLinkedSensor, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import { poleLive } from './supply';
 import type { PlcConfig, SimSettings } from '../plc/types';
@@ -20,7 +20,7 @@ import type { PlcRuntime } from '../plc/runtime';
  *  - 타이머 만료, 실린더 도착 시각을 다음 사건으로 잡아서 시간을 건너뛴다.
  */
 
-export type TagKind = 'coil' | 'timer' | 'tsw' | 'thr' | 'sensor' | 'operator';
+export type TagKind = 'coil' | 'timer' | 'tsw' | 'counter' | 'thr' | 'sensor' | 'operator';
 
 const DAY = 86400000;
 
@@ -50,6 +50,8 @@ export interface Conductor {
   power?: string;
   /** 타이머의 순시 접점: 한시 출력이 아니라 코일을 따른다 */
   inst?: boolean;
+  /** 3단 셀렉터: 이 자리 (-1 왼쪽, 1 오른쪽) 에서 닫힌다 */
+  sel?: -1 | 1;
 }
 
 /** 공압 포트 상태: P = 압력, E = 배기(대기), X = 막힘 */
@@ -76,7 +78,7 @@ export interface PlcBlock {
   outName: string[];
 }
 
-export type TrackKind = 'operator' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'tsw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut';
+export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut';
 
 export interface Track {
   key: string;
@@ -102,6 +104,10 @@ export class CircuitModel {
   readonly timerDef = new Map<string, { mode: 'on' | 'off' | 'flicker'; preset: number }>();
   /** 24시간 타임 스위치: 시계 전원 넷 (L · N) 과 켜지는 구간 */
   readonly tswDef = new Map<string, { part: Part; l: number; n: number; sched: [number, number][] }>();
+  /** 프리셋 카운터: 입력 CP · RST · COM 넷 (무전압 접점 입력: COM 과 이어지면 들어온 것) */
+  readonly counterDef = new Map<string, { part: Part; cp: number; rst: number; com: number; preset: number }>();
+  /** 3단 셀렉터 기호 */
+  readonly sel3 = new Set<string>();
   readonly cylDef = new Map<string, Part>();
   readonly sensorDef = new Map<string, { cyl: string; end: '+' | '-' }>();
   readonly operatorDefault = new Map<string, boolean>();
@@ -135,7 +141,7 @@ export class CircuitModel {
     plc?: PlcConfig,
   ) {
     this.net = buildNetlist(circuit);
-    const rank: Record<TagKind, number> = { coil: 5, timer: 5, tsw: 5, thr: 4, sensor: 3, operator: 2 };
+    const rank: Record<TagKind, number> = { coil: 5, timer: 5, tsw: 5, counter: 5, thr: 4, sensor: 3, operator: 2 };
     const setKind = (tag: string, k: TagKind, p: Part) => {
       const cur = this.tagKind.get(tag);
       if (!cur || rank[k] > rank[cur]) {
@@ -153,6 +159,10 @@ export class CircuitModel {
         setKind(tag, 'timer', p);
         push(this.timerParts, tag, p.id);
         if (!this.timerDef.has(tag)) this.timerDef.set(tag, { mode: p.timerMode ?? 'on', preset: Math.max(0, p.preset ?? 3000) });
+      } else if (p.type === 'r_counter') {
+        setKind(tag, 'counter', p);
+        const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
+        if (!this.counterDef.has(tag)) this.counterDef.set(tag, { part: p, cp: pn(2), rst: pn(3), com: pn(4), preset: counterPreset(p) });
       } else if (p.type === 'r_tsw') {
         setKind(tag, 'tsw', p);
         if (!this.tswDef.has(tag)) this.tswDef.set(tag, { part: p, l: this.net.pinNet.get(`${p.id}:0`)!, n: this.net.pinNet.get(`${p.id}:1`)!, sched: tswSched(p) });
@@ -165,6 +175,7 @@ export class CircuitModel {
         if (!this.sensorDef.has(tag)) this.sensorDef.set(tag, { cyl: normTag(p.cyl!), end: p.end ?? '+' });
       } else if (OPERATOR.has(p.type)) {
         setKind(tag, 'operator', p);
+        if (p.type === 'r_ss3') this.sel3.add(tag);
         if (def.defaultOn) this.operatorDefault.set(tag, true);
       } else if (p.type === 'cyl') {
         if (p.tag.trim() && !this.cylDef.has(tag)) this.cylDef.set(tag, p);
@@ -180,7 +191,7 @@ export class CircuitModel {
         poles.forEach(([i, j], k) => {
           const a = this.net.pinNet.get(`${p.id}:${i}`)!;
           const b = this.net.pinNet.get(`${p.id}:${j}`)!;
-          this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: def.polesNc?.[k] ?? !!def.nc, always, inst: p.type === 'r_timer8' && !!p.inst13 && k < 2 });
+          this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: def.polesNc?.[k] ?? !!def.nc, always, inst: p.type === 'r_timer8' && !!p.inst13 && k < 2, ...(p.type === 'r_ss3' ? { sel: k === 0 ? (-1 as const) : (1 as const) } : {}) });
         });
       }
       // 전원 계통에 없는 극 (3상 3선식의 N, 단상의 L3 …) 은 전압이 없다
@@ -295,6 +306,12 @@ export class CircuitSim {
   readonly timers = new Map<string, { coil: boolean; out: boolean; since: number }>();
   /** 타임 스위치: 다이얼이 가리키는 시각 (하루 안의 ms), 접점, 시계가 도는 중 (전원이 있을 때만 돈다) */
   readonly tsw = new Map<string, { dial: number; out: boolean; run: boolean }>();
+  /** 3단 셀렉터 자리: -1 왼쪽, 0 가운데, 1 오른쪽 */
+  readonly sel = new Map<string, -1 | 0 | 1>();
+  /** 카운터: 센 수, 출력, 입력 (CP · RST) 이 들어와 있나 */
+  readonly counters = new Map<string, { n: number; out: boolean; cp: boolean; rst: boolean }>();
+  /** 넷마다 이어진 묶음 (닫힌 접점까지 따라간 것) */
+  private root: Int32Array = new Int32Array(0);
   readonly cyl = new Map<string, CylState>();
   /** 넷마다 닿은 극 ('short' = 단락, null = 전압 없음) */
   netPole: (string | null)[] = [];
@@ -330,6 +347,8 @@ export class CircuitSim {
     for (const tag of m.coilParts.keys()) this.coilOn.set(tag, false);
     for (const tag of m.timerParts.keys()) this.timers.set(tag, { coil: false, out: false, since: 0 });
     for (const [tag, d] of m.tswDef) this.tsw.set(tag, { dial: this.clock0, out: schedOn(d.sched, this.clock0), run: false });
+    for (const tag of m.sel3) this.sel.set(tag, 0);
+    for (const tag of m.counterDef.keys()) this.counters.set(tag, { n: 0, out: false, cp: false, rst: false });
     for (const tag of m.cylDef.keys()) this.cyl.set(tag, { pos: 0, target: 0, atPlus: false, atMinus: true, hold: false });
     for (const v of m.valves) this.valvePos.set(v.part.id, v.part.type === 'v53' ? 'c' : 'b');
     for (const b of m.plcs) {
@@ -400,6 +419,8 @@ export class CircuitSim {
         return this.timers.get(tag)?.out ?? false;
       case 'tsw':
         return this.tsw.get(tag)?.out ?? false;
+      case 'counter':
+        return this.counters.get(tag)?.out ?? false;
       case 'thr':
       case 'operator':
         return this.act.get(tag) ?? false;
@@ -442,11 +463,27 @@ export class CircuitSim {
   setAct(tag: string, on: boolean): boolean {
     const k = this.m.tagKind.get(tag);
     if (k !== 'operator' && k !== 'thr') return false;
+    if (this.m.sel3.has(tag)) return this.setPos(tag, on ? 1 : 0);
     if ((this.act.get(tag) ?? false) === on) return false;
     this.act.set(tag, on);
     this.settle();
     this.record();
     return true;
+  }
+
+  /** 3단 셀렉터를 돌린다 (-1 왼쪽, 0 가운데, 1 오른쪽) */
+  setPos(tag: string, pos: -1 | 0 | 1): boolean {
+    if (!this.m.sel3.has(tag)) return pos === 0 ? this.setAct(tag, false) : this.setAct(tag, true);
+    if ((this.sel.get(tag) ?? 0) === pos) return false;
+    this.sel.set(tag, pos);
+    this.act.set(tag, pos !== 0);
+    this.settle();
+    this.record();
+    return true;
+  }
+
+  selPos(tag: string): -1 | 0 | 1 {
+    return this.sel.get(tag) ?? 0;
   }
 
   // ───────────── 계산 ─────────────
@@ -459,6 +496,7 @@ export class CircuitSim {
 
   /** 이 접점 (극) 이 지금 통하는가 */
   conductorClosed(c: Conductor): boolean {
+    if (c.sel !== undefined) return (this.sel.get(c.tag) ?? 0) === c.sel;
     const closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || (c.inst ? !!this.timers.get(c.tag)?.coil : this.on(c.tag)) !== c.nc;
     return closed && !(c.power && !this.powered.get(c.power));
   }
@@ -508,6 +546,7 @@ export class CircuitSim {
       } else groupPole.set(r, [...set][0]);
     }
     this.netPole = Array.from({ length: n }, (_, i) => groupPole.get(find(i)) ?? null);
+    this.root = Int32Array.from({ length: n }, (_, i) => find(i));
 
     this.energized.clear();
     this.motorMode.clear();
@@ -560,6 +599,8 @@ export class CircuitSim {
       }
       const a = live(nets[0]);
       const b = live(nets[1]);
+      // SSR 입력은 극성이 있다 (3 = +, 4 = -)
+      if (p.type === 'r_ssr' && !(a === '+24V' && b === '0V')) continue;
       if (a && b && a !== b && POLE_SYSTEM[a] === POLE_SYSTEM[b]) {
         this.energized.add(p.id);
         // 직류 전동기만 극성으로 방향이 바뀐다
@@ -601,6 +642,32 @@ export class CircuitSim {
         return true;
       }
       const out = schedOn(d.sched, st.dial);
+      if (out !== st.out) {
+        st.out = out;
+        return true;
+      }
+    }
+    // 카운터: 전원 (A1 · A2) 이 있을 때 CP 가 COM 과 이어지는 순간마다 하나씩 센다. RST 가 이어지면 0 으로
+    for (const [tag, d] of this.m.counterDef) {
+      const st = this.counters.get(tag)!;
+      const pw = this.energized.has(d.part.id);
+      const cp = this.root[d.cp] === this.root[d.com];
+      const rst = this.root[d.rst] === this.root[d.com];
+      if (rst !== st.rst) {
+        st.rst = rst;
+        if (rst && pw) st.n = 0;
+        return true;
+      }
+      if (cp !== st.cp) {
+        st.cp = cp;
+        if (cp && pw && !rst) st.n = Math.min(999999, st.n + 1);
+        return true;
+      }
+      if (rst && pw && st.n !== 0) {
+        st.n = 0;
+        return true;
+      }
+      const out = pw && st.n >= d.preset;
       if (out !== st.out) {
         st.out = out;
         return true;
@@ -838,17 +905,22 @@ export class CircuitSim {
     const m = this.m;
     const add = (key: string, tag: string, kind: TrackKind) => this.tracks.push({ key, tag: m.label(tag), kind, part: m.mainPart.get(tag)!, points: [], last: null });
     for (const [tag, k] of m.tagKind) {
-      if (k === 'operator' || k === 'thr') add(`op:${tag}`, tag, 'operator');
+      if ((k === 'operator' || k === 'thr') && m.sel3.has(tag)) add(`sel:${tag}`, tag, 'selector');
+      else if (k === 'operator' || k === 'thr') add(`op:${tag}`, tag, 'operator');
       else if (k === 'sensor') add(`sen:${tag}`, tag, 'sensor');
       else if (k === 'coil') add(`coil:${tag}`, tag, 'coil');
       else if (k === 'timer') {
         add(`tc:${tag}`, tag, 'timerCoil');
         add(`tq:${tag}`, tag, 'timerOut');
       } else if (k === 'tsw') add(`ts:${tag}`, tag, 'tsw');
+      else if (k === 'counter') {
+        add(`cv:${tag}`, tag, 'counterVal');
+        add(`cq:${tag}`, tag, 'counterOut');
+      }
     }
     for (const [tag, ids] of m.loadParts) {
       const k = m.tagKind.get(tag);
-      if (k === 'coil' || k === 'timer') continue;
+      if (k === 'coil' || k === 'timer' || k === 'counter') continue;
       const types = new Set(ids.map((id) => m.circuit.parts.find((p) => p.id === id)!.type));
       const motor = types.has('motor3') || types.has('motor') || types.has('r_motor3');
       const t = this.tracks.length;
@@ -882,6 +954,14 @@ export class CircuitSim {
         return this.timers.get(tag)?.out ? 1 : 0;
       case 'tsw':
         return this.tsw.get(tag)?.out ? 1 : 0;
+      case 'selector': {
+        const v = this.sel.get(tag) ?? 0;
+        return v < 0 ? 'L' : v > 0 ? 'R' : '0';
+      }
+      case 'counterVal':
+        return String(this.counters.get(tag)?.n ?? 0);
+      case 'counterOut':
+        return this.counters.get(tag)?.out ? 1 : 0;
       case 'load':
         return this.loadOn(tag) ? 1 : 0;
       case 'motor': {
@@ -924,6 +1004,8 @@ export interface OpEvent {
   t: number;
   tag: string;
   on: boolean;
+  /** 3단 셀렉터 자리 (-1 왼쪽, 0 가운데, 1 오른쪽) */
+  pos?: -1 | 0 | 1;
 }
 
 /** 조작 순서의 각 줄 시각 (앞 줄 조작 시각 + 대기) */
@@ -942,7 +1024,8 @@ export function opsToEvents(ops: OpStep[]): OpEvent[] {
     if (o.action === 'press') {
       ev.push({ t, tag, on: true });
       ev.push({ t: t + Math.max(0, o.hold), tag, on: false });
-    } else ev.push({ t, tag, on: o.action === 'on' });
+    } else if (o.action === 'left' || o.action === 'right') ev.push({ t, tag, on: true, pos: o.action === 'left' ? -1 : 1 });
+    else ev.push({ t, tag, on: o.action === 'on' });
   });
   return ev.map((e, i) => ({ e, i })).sort((a, b) => a.e.t - b.e.t || a.i - b.i).map((x) => x.e);
 }
@@ -976,7 +1059,8 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
       missing.add(ev.tag);
       continue;
     }
-    sim.setAct(ev.tag, ev.on);
+    if (ev.pos !== undefined) sim.setPos(ev.tag, ev.pos);
+    else sim.setAct(ev.tag, ev.on);
   }
   const lastOp = events.length ? events[events.length - 1].t : 0;
   // 타임 스위치가 있으면 하루 단위로 (조작이 하루를 넘으면 그만큼 더)

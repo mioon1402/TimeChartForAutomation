@@ -84,6 +84,8 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (typeof q.xr === 'number' && q.xr > 0 && q.xr < 1000) p.xr = q.xr;
     if (typeof q.kv === 'number' && q.kv > 0 && q.kv < 1000) p.kv = q.kv;
     if (typeof q.ka === 'number' && q.ka > 0 && q.ka < 1000) p.ka = q.ka;
+    if (typeof q.count === 'number' && q.count >= 1) p.count = Math.min(999999, Math.round(q.count));
+    if (optStr(q.pos3)) p.pos3 = str(q.pos3).slice(0, 60);
     if (typeof q.w === 'number' && q.w >= 2) p.w = Math.min(400, Math.round(q.w));
     if (typeof q.h === 'number' && q.h >= 2) p.h = Math.min(400, Math.round(q.h));
     if (Array.isArray(q.sched)) {
@@ -113,7 +115,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   for (const r of Array.isArray(o.ops) ? o.ops : []) {
     if (!r || typeof r !== 'object') continue;
     const q = r as Record<string, unknown>;
-    const action = q.action === 'on' || q.action === 'off' ? q.action : 'press';
+    const action = q.action === 'on' || q.action === 'off' || q.action === 'left' || q.action === 'right' ? q.action : 'press';
     const op: OpStep = { id: str(q.id) || uid('op'), wait: Math.max(0, num(q.wait)), tag: str(q.tag), action, hold: Math.max(0, num(q.hold, 300)) };
     if (optStr(q.note)) op.note = str(q.note);
     ops.push(op);

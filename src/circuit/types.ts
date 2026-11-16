@@ -86,6 +86,9 @@ export type PartType =
   | 'r_kepco' // 한전 수전점: 특고압 3상 (22.9 kV) 전원, 단락 전류 (kA)
   | 'r_vcb' // 진공차단기 VCB 3P (특고압)
   | 'r_tr3' // 3상 변압기 (Δ-Y): 1차 H1 H2 H3, 2차 X1 X2 X3 X0
+  | 'r_ss3' // 3단 셀렉터 스위치 (수동 · 정지 · 자동): 왼쪽 13-14 a, 오른쪽 23-24 a
+  | 'r_counter' // 프리셋 카운터: 전원 A1 · A2, 무전압 입력 CP · RST · COM, 출력 C → NO · NC
+  | 'r_ssr' // SSR (무접점 릴레이): 입력 3(+) · 4(-) DC, 출력 1-2 AC
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -170,6 +173,10 @@ export interface Part {
   kv?: number;
   /** 차단기: 차단 용량 (kA). 한전 수전점: 수전점 단락 전류 (kA) */
   ka?: number;
+  /** 카운터: 설정 수 (이 수만큼 세면 출력) */
+  count?: number;
+  /** 3단 셀렉터: 세 자리 이름 '왼쪽/가운데/오른쪽' (비우면 수동/정지/자동) */
+  pos3?: string;
 }
 
 /** 전선 색: 갈색 L1, 검정 L2, 회색 L3, 파랑 N, 녹황 PE, 그 밖 제어선 */
@@ -214,8 +221,8 @@ export interface OpStep {
   id: string;
   wait: number;
   tag: string;
-  /** press = 눌렀다 뗌 (hold 동안), on = 켬·누른 채 유지, off = 끔·뗌 */
-  action: 'press' | 'on' | 'off';
+  /** press = 눌렀다 뗌 (hold 동안), on = 켬·누른 채 유지, off = 끔·뗌 (3단 셀렉터는 가운데), left · right = 3단 셀렉터를 왼쪽 · 오른쪽으로 */
+  action: 'press' | 'on' | 'off' | 'left' | 'right';
   hold: number;
   /** 적으면 타임차트의 공정 스텝 이름이 된다 */
   note?: string;

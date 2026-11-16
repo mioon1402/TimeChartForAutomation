@@ -1049,6 +1049,28 @@ describe('example projects: motor control, DC sensor, home wiring', () => {
     expect(sol.at('load:SOL2')).toEqual([[0, 0], [2000, 1], [3000, 0], [4000, 1], [5000, 0]]);
   });
 
+  it('3-position selector: manual buttons, off in the centre, float switch in auto', () => {
+    const { at, res } = run('pump-manual-auto');
+    expect(at('sel:SS')).toEqual([[0, '0'], [500, 'L'], [5500, 'R'], [12000, '0']]);
+    expect(at('coil:MC1')).toEqual([[0, 0], [1500, 1], [4000, 0], [5500, 1], [8000, 0], [10000, 1], [12000, 0]]);
+    expect(at('load:GL')).toEqual(at('coil:MC1'));
+    expect(res.tracks.some((t) => t.key === 'op:SS')).toBe(false);
+  });
+
+  it('counter: counts closings of CP-COM, output at the preset until reset', () => {
+    const { at } = run('counter');
+    expect(at('cv:C1')).toEqual([[0, '0'], [1000, '1'], [2000, '2'], [3000, '3'], [5000, '0'], [6500, '1']]);
+    expect(at('cq:C1')).toEqual([[0, 0], [3000, 1], [5000, 0]]);
+    expect(at('load:YL')).toEqual([[0, 0], [3000, 1], [5000, 0]]);
+    expect(at('load:GL')).toEqual([[0, 1], [3000, 0], [5000, 1]]);
+  });
+
+  it('SSR: the DC input switches the AC heater', () => {
+    const { at } = run('ssr-heater');
+    expect(at('coil:SSR1')).toEqual([[0, 0], [1000, 1], [4000, 0]]);
+    expect(at('load:H1')).toEqual([[0, 0], [1000, 1], [4000, 0]]);
+  });
+
   it('examples are listed in groups', async () => {
     const { exampleGroups } = await import('../src/circuit/examples');
     const groups = exampleGroups().map((g) => g.key);

@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, LAMP_HEX, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, schedOn, stripSize, tbSize, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, counterPreset, LAMP_HEX, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock, formatTime } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -1314,6 +1314,121 @@ export function Motor6Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitCo
       <Label x={100} y={-12} text="PE" size={8} weight={800} fill="#15803d" />
       {p.name && <Label x={64} y={-30} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
       {spin && <Label x={74} y={30} text={st.dir > 0 ? 'FWD' : 'REV'} fill={c.accent} size={10} weight={800} />}
+    </g>
+  );
+}
+
+// ───────────────────────── 3단 셀렉터 · 카운터 · SSR ─────────────────────────
+
+/** 3단 셀렉터: 손잡이가 왼쪽 · 가운데 · 오른쪽. 왼쪽이면 13-14, 오른쪽이면 23-24 가 닫힌다 */
+export function Ss3Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const pos = st.sel ?? 0;
+  const [l, m, r] = pos3Labels(p);
+  const on = (k: -1 | 1) => pos === k;
+  return (
+    <g>
+      <rect x={-17} y={-56} width={34} height={20} rx={3} fill="#d1d5db" stroke="#9ca3af" />
+      <circle cy={-62} r={26} fill="#1f2937" stroke="#000" />
+      <g transform={`rotate(${pos * 45},0,-62)`}>
+        <rect x={-6} y={-84} width={12} height={44} rx={5} fill="#4b5563" stroke="#111827" />
+        <path d="M0,-82V-74" stroke="#f9fafb" strokeWidth={2.4} />
+      </g>
+      <Label x={-34} y={-80} text={l} anchor="end" fill={pos === -1 ? c.accent : c.ink} size={9.5} weight={800} />
+      <Label x={0} y={-94} text={m} fill={pos === 0 ? c.accent : c.ink} size={9.5} weight={800} />
+      <Label x={34} y={-80} text={r} anchor="start" fill={pos === 1 ? c.accent : c.ink} size={9.5} weight={800} />
+      <rect x={-40} y={-36} width={80} height={92} rx={5} fill="#111827" stroke="#6b7280" />
+      <Label x={-20} y={-12} text="13" fill="#f9fafb" size={7.5} />
+      <Label x={20} y={-12} text="14" fill="#f9fafb" size={7.5} />
+      <Label x={-20} y={29} text="23" fill="#f9fafb" size={7.5} />
+      <Label x={20} y={29} text="24" fill="#f9fafb" size={7.5} />
+      <Label x={0} y={-22} text={`${l} a`} fill={on(-1) ? '#4ade80' : '#9ca3af'} size={6.5} weight={600} />
+      <Label x={0} y={19} text={`${r} a`} fill={on(1) ? '#4ade80' : '#9ca3af'} size={6.5} weight={600} />
+      <Screw x={-20} y={0} ring="green" />
+      <Screw x={20} y={0} ring="green" />
+      <Screw x={-20} y={40} ring="green" />
+      <Screw x={20} y={40} ring="green" />
+      <Label x={46} y={-56} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      {p.name && <Label x={46} y={-43} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/** 프리셋 카운터 (48 각): 위 입력 CP · COM · RST, 아래 전원 A1 · A2 · 출력 C · NO · NC, 앞면에 센 수 / 설정 수 */
+export function CounterGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const preset = counterPreset(p);
+  const v = st.count ?? { n: 0, out: false };
+  const top = [
+    [-40, 'CP'],
+    [0, 'COM'],
+    [40, 'RST'],
+  ] as const;
+  const bottom = [
+    [-80, 'A1', 'orange'],
+    [-40, 'A2', 'orange'],
+    [0, 'C', 'grey'],
+    [40, 'NO', 'green'],
+    [80, 'NC', 'yellow'],
+  ] as const;
+  return (
+    <g>
+      <rect x={-96} y={-116} width={192} height={232} rx={7} fill={BODY} stroke={BODY_EDGE} />
+      <rect x={-96} y={-116} width={192} height={44} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={-96} y={72} width={192} height={44} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      {top.map(([x, t]) => (
+        <g key={t}>
+          <Screw x={x} y={-100} ring="grey" />
+          <Label x={x} y={-80} text={t} size={8.5} weight={800} />
+        </g>
+      ))}
+      <Label x={-88} y={-80} text={tr('입력', 'IN')} anchor="start" fill="#64748b" size={7} weight={700} />
+      {bottom.map(([x, t, ring]) => (
+        <g key={t}>
+          <Screw x={x} y={100} ring={ring} />
+          <Label x={x} y={86} text={t} size={8.5} weight={800} />
+        </g>
+      ))}
+      <rect x={-70} y={-60} width={140} height={120} rx={5} fill="#1f2937" stroke="#111827" />
+      <rect x={-60} y={-50} width={120} height={58} rx={3} fill="#0f172a" />
+      <Label x={52} y={-6} text={String(v.n).padStart(4, ' ')} anchor="end" fill="#f87171" size={30} weight={800} />
+      <Label x={-54} y={-38} text="CNT" anchor="start" fill="#64748b" size={7} weight={700} />
+      <rect x={-60} y={14} width={120} height={22} rx={3} fill="#0f172a" />
+      <Label x={-54} y={29} text="SET" anchor="start" fill="#64748b" size={7} weight={700} />
+      <Label x={52} y={30} text={String(preset)} anchor="end" fill="#4ade80" size={13} weight={800} />
+      <circle cx={-48} cy={48} r={4.5} fill={v.out ? '#ef4444' : '#475569'} />
+      <Label x={-38} y={51} text="OUT" anchor="start" fill={v.out ? '#fca5a5' : '#94a3b8'} size={7.5} weight={800} />
+      <rect x={22} y={42} width={30} height={12} rx={2} fill="#475569" />
+      <Label x={37} y={51} text="RST" fill="#e5e7eb" size={6.5} weight={700} />
+      <Label x={104} y={-100} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      {p.name && <Label x={104} y={-87} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+      {st.count && !st.on && <Label x={104} y={p.name ? -74 : -87} text={tr('전원 없음', 'No power')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+    </g>
+  );
+}
+
+/** SSR: 방열판 위의 몸통, 위 1 · 2 (출력), 아래 3 + · 4 - (입력). 입력이 들어오면 LED */
+export function SsrGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const on = st.on;
+  return (
+    <g>
+      <rect x={-52} y={-84} width={104} height={168} rx={3} fill="#cbd5e1" stroke="#94a3b8" />
+      {Array.from({ length: 6 }, (_, k) => (
+        <path key={k} d={`M${-46 + k * 18.4},-84V84`} stroke="#94a3b8" strokeWidth={1} />
+      ))}
+      <rect x={-38} y={-78} width={76} height={156} rx={4} fill="#111827" stroke="#374151" />
+      <Label x={-20} y={-38} text="1" fill="#f9fafb" size={8} weight={800} />
+      <Label x={20} y={-38} text="2" fill="#f9fafb" size={8} weight={800} />
+      <Label x={0} y={-24} text="LOAD AC" fill="#9ca3af" size={6.5} weight={700} />
+      <Label x={0} y={2} text="SSR" fill="#e5e7eb" size={12} weight={800} />
+      <circle cx={0} cy={16} r={4} fill={on ? '#ef4444' : '#4b5563'} />
+      <Label x={0} y={33} text="INPUT DC" fill="#9ca3af" size={6.5} weight={700} />
+      <Label x={-20} y={46} text="3 +" fill="#fca5a5" size={8} weight={800} />
+      <Label x={20} y={46} text="4 −" fill="#93c5fd" size={8} weight={800} />
+      <Screw x={-20} y={-60} />
+      <Screw x={20} y={-60} />
+      <Screw x={-20} y={60} ring="yellow" />
+      <Screw x={20} y={60} ring="yellow" />
+      <Label x={58} y={-66} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      {p.name && <Label x={58} y={-53} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
     </g>
   );
 }

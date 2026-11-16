@@ -293,3 +293,65 @@ describe('new field devices', () => {
     expect(bar).toMatchObject({ n: 6, pole: 'N' });
   });
 });
+
+describe('3-position selector, counter and SSR', () => {
+  it('the selector closes 13-14 on the left and 23-24 on the right; old two-way actions still work', () => {
+    const ss = part('r_ss3', 0, 0, 'SS');
+    const l1 = part('r_lamp', 10, 0, 'PL1');
+    const l2 = part('r_lamp', 20, 0, 'PL2');
+    const c: Circuit = {
+      parts: [ss, l1, l2, at(ss, 0, 'L'), at(ss, 2, 'L'), at(l1, 1, 'N'), at(l2, 1, 'N')],
+      wires: [wire(pinPositions(ss)[1], pinPositions(l1)[0]), wire(pinPositions(ss)[3], pinPositions(l2)[0])],
+      ops: [
+        { id: 'a', wait: 100, tag: 'SS', action: 'left', hold: 0 },
+        { id: 'b', wait: 100, tag: 'SS', action: 'right', hold: 0 },
+        { id: 'c', wait: 100, tag: 'SS', action: 'off', hold: 0 },
+        { id: 'd', wait: 100, tag: 'SS', action: 'on', hold: 0 },
+      ],
+    };
+    const res = runScenario(c);
+    const pts = (key: string) => res.tracks.find((t) => t.key === key)!.points.map((p) => [p.t, p.v]);
+    expect(pts('load:PL1')).toEqual([[0, 0], [100, 1], [200, 0]]);
+    expect(pts('load:PL2')).toEqual([[0, 0], [200, 1], [300, 0], [400, 1]]);
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify({ ...c, parts: c.parts.map((p) => (p.id === ss.id ? { ...p, pos3: '정/정지/역' } : p)) })))!;
+    expect(back.ops.map((o) => o.action)).toEqual(['left', 'right', 'off', 'on']);
+    expect(back.parts.find((p) => p.type === 'r_ss3')!.pos3).toBe('정/정지/역');
+  });
+
+  it('the counter counts only while powered and keeps its preset through saving', () => {
+    const cnt = part('r_counter', 0, 0, 'C1', { count: 2 });
+    const pb = part('r_pb', 20, 0, 'PB1');
+    const [cp, , com] = [pinPositions(cnt)[2], pinPositions(cnt)[3], pinPositions(cnt)[4]];
+    const mk = (powered: boolean): Circuit => ({
+      parts: [cnt, pb, ...(powered ? [at(cnt, 0, 'L'), at(cnt, 1, 'N')] : [])],
+      wires: [wire(cp, pinPositions(pb)[2]), wire(com, pinPositions(pb)[3])],
+      ops: [
+        { id: 'a', wait: 100, tag: 'PB1', action: 'press', hold: 50 },
+        { id: 'b', wait: 100, tag: 'PB1', action: 'press', hold: 50 },
+      ],
+    });
+    const on = runScenario(mk(true));
+    expect(on.tracks.find((t) => t.key === 'cq:C1')!.points.map((p) => [p.t, p.v])).toEqual([[0, 0], [200, 1]]);
+    const off = runScenario(mk(false));
+    expect(off.tracks.find((t) => t.key === 'cv:C1')!.points.map((p) => p.v)).toEqual(['0']);
+    expect(sanitizeCircuit(JSON.parse(JSON.stringify(mk(true))))!.parts.find((p) => p.type === 'r_counter')!.count).toBe(2);
+  });
+
+  it('reports supply voltage on the counter inputs', () => {
+    const cnt = part('r_counter', 0, 0, 'C1');
+    const c: Circuit = { parts: [cnt, at(cnt, 0, 'L'), at(cnt, 1, 'N'), at(cnt, 2, 'L')], wires: [], ops: [] };
+    expect(has(c, 'C1: 입력 (CP · RST · COM) 은 무전압 접점 입력인데 전원 (L1)')).toBe(true);
+  });
+
+  it('the SSR works only with + on 3 and 0 V on 4, and the check reports reversed polarity', () => {
+    const ssr = part('r_ssr', 0, 0, 'SSR1');
+    const good: Circuit = { parts: [ssr, at(ssr, 2, '+24V'), at(ssr, 3, '0V')], wires: [], ops: [] };
+    const bad: Circuit = { parts: [ssr, at(ssr, 2, '0V'), at(ssr, 3, '+24V')], wires: [], ops: [] };
+    expect(new CircuitSim(new CircuitModel(good)).coilOn.get('SSR1')).toBe(true);
+    expect(new CircuitSim(new CircuitModel(bad)).coilOn.get('SSR1')).toBe(false);
+    expect(has(bad, 'SSR1: 입력 극성이 반대입니다')).toBe(true);
+    expect(msgs(good)).toEqual([]);
+    const ac: Circuit = { parts: [ssr, at(ssr, 2, 'L'), at(ssr, 3, 'N')], wires: [], ops: [] };
+    expect(has(ac, 'SSR1: 정격은 DC 4-32V')).toBe(true);
+  });
+});

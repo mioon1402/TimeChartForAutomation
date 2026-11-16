@@ -399,6 +399,25 @@ export const PARTS: Record<PartType, PartDef> = {
   r_my2: { type: 'r_my2', cat: 'relay', pins: MY2, poles: myPoles('r_my2'), polesNc: [false, true, false, true], selfCoil: [MY2.length - 2, MY2.length - 1], load: true, box: [-3.4, -6.4, 2.4, 6.4], prefix: 'X' },
   r_my4: { type: 'r_my4', cat: 'relay', pins: MY4, poles: myPoles('r_my4'), polesNc: [false, true, false, true, false, true, false, true], selfCoil: [MY4.length - 2, MY4.length - 1], load: true, box: [-5.4, -6.4, 4.4, 6.4], prefix: 'X' },
   r_ss: { type: 'r_ss', cat: 'switch', pins: [pin(-1, 0, '11'), pin(1, 0, '12'), pin(-1, 2, '23'), pin(1, 2, '24')], poles: PB_POLES, polesNc: [true, false], operate: 'toggle', box: [-2.2, -4, 2.2, 3], prefix: 'SS' },
+  // 3단 셀렉터: 왼쪽에서 13-14, 오른쪽에서 23-24 가 닫힌다 (가운데는 둘 다 열림)
+  r_ss3: { type: 'r_ss3', cat: 'switch', pins: [pin(-1, 0, '13'), pin(1, 0, '14'), pin(-1, 2, '23'), pin(1, 2, '24')], poles: PB_POLES, polesNc: [false, false], operate: 'toggle', box: [-2.2, -4, 2.2, 3], prefix: 'SS' },
+  // 프리셋 카운터: 위 무전압 입력 CP · COM · RST (공통이 가운데), 아래 전원 A1 · A2 와 출력 C → NO · NC
+  r_counter: {
+    type: 'r_counter',
+    cat: 'relay',
+    pins: [pin(-4, 5, 'A1'), pin(-2, 5, 'A2'), pin(-2, -5, 'CP'), pin(2, -5, 'RST'), pin(0, -5, 'COM'), pin(0, 5, 'C'), pin(2, 5, 'NO'), pin(4, 5, 'NC')],
+    poles: [
+      [5, 6],
+      [5, 7],
+    ],
+    polesNc: [false, true],
+    load: true,
+    loadPins: [0, 1],
+    box: [-5, -6, 5, 6],
+    prefix: 'C',
+  },
+  // SSR: 위 1 · 2 출력 (교류 부하), 아래 3 (+) · 4 (-) 입력 (직류)
+  r_ssr: { type: 'r_ssr', cat: 'relay', pins: [pin(-1, -3, '1'), pin(1, -3, '2'), pin(-1, 3, '3+'), pin(1, 3, '4-')], poles: [[0, 1]], selfCoil: [2, 3], load: true, box: [-2.6, -4.2, 2.6, 4.2], prefix: 'SSR' },
   r_estop: { type: 'r_estop', cat: 'switch', pins: [pin(-1, 0, '11'), pin(1, 0, '12'), pin(-1, 2, '23'), pin(1, 2, '24')], poles: PB_POLES, polesNc: [true, false], operate: 'toggle', box: [-2.6, -4.4, 2.6, 3], prefix: 'EMS' },
   // 단자대: 극마다 위·아래 나사 (극수는 부품마다, partPins 참고)
   r_tb: { type: 'r_tb', cat: 'misc', pins: [], box: [-1.2, -2.6, 11.2, 2.6], prefix: 'TB' },
@@ -474,7 +493,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -547,6 +566,27 @@ export const ALWAYS_ON: ReadonlySet<PartType> = new Set(['fuse', 'fuse3', 'r_tb'
 export const PROX_TYPES: ReadonlySet<PartType> = new Set(['prox', 'r_prox']);
 export const SMPS_TYPES: ReadonlySet<PartType> = new Set(['smps', 'r_smps']);
 export const SOL_TYPES: ReadonlySet<PartType> = new Set(['sol', 'r_sol']);
+
+/** 3단 셀렉터의 세 자리 이름 (왼쪽 · 가운데 · 오른쪽) */
+export function pos3Labels(p: Pick<Part, 'pos3'>): [string, string, string] {
+  const d: [string, string, string] = [tr('수동', 'MAN'), tr('정지', 'OFF'), tr('자동', 'AUTO')];
+  const got = (p.pos3 ?? '').split('/').map((x) => x.trim());
+  return [got[0] || d[0], got[1] || d[1], got[2] || d[2]];
+}
+
+/** 조작 순서의 동작 이름 (3단 셀렉터는 자리 이름) */
+export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right', part?: Part): string {
+  if (part?.type === 'r_ss3') {
+    const [l, m, r] = pos3Labels(part);
+    return action === 'left' ? `← ${l}` : action === 'right' || action === 'on' ? `${r} →` : m;
+  }
+  return action === 'press' ? tr('누름 → 뗌', 'Press') : action === 'on' ? 'ON' : action === 'off' ? 'OFF' : action === 'left' ? tr('왼쪽', 'Left') : tr('오른쪽', 'Right');
+}
+
+/** 카운터 설정 수 */
+export function counterPreset(p: Pick<Part, 'count'>): number {
+  return Math.max(1, Math.round(p.count ?? 5));
+}
 
 export function tbSize(p: Part): number {
   return Math.min(40, Math.max(1, Math.round(p.n ?? 6)));
@@ -783,6 +823,12 @@ export function partKindName(type: PartType): string {
       return tr('DIN 레일', 'DIN rail');
     case 'r_ss':
       return tr('셀렉터 스위치 (1a1b)', 'Selector switch (1 NO 1 NC)');
+    case 'r_ss3':
+      return tr('3단 셀렉터 스위치 (2a)', '3-position selector (2 NO)');
+    case 'r_counter':
+      return tr('프리셋 카운터', 'Preset counter');
+    case 'r_ssr':
+      return tr('SSR (무접점 릴레이)', 'Solid-state relay');
     case 'r_estop':
       return tr('비상정지 스위치 (1a1b)', 'Emergency stop (1 NO 1 NC)');
     case 'r_tb':
@@ -866,6 +912,8 @@ export function palette(): PaletteGroup[] {
         it('r_timer8', tr('8핀 타이머 + 소켓', '8-pin timer + socket'), { sock: 'pf', timerMode: 'on', preset: 3000 }),
         it('r_timer8', tr('OFF 딜레이 타이머', 'Off-delay timer'), { sock: 'pf', timerMode: 'off', preset: 3000 }, 'rt8-off'),
         it('r_timer8', tr('플리커 (점멸) 타이머', 'Flicker timer'), { sock: 'pf', timerMode: 'flicker', preset: 1000 }, 'rt8-flk'),
+        it('r_counter', tr('카운터 (프리셋)', 'Counter (preset)'), { count: 5 }),
+        it('r_ssr', tr('SSR (무접점 릴레이)', 'SSR (solid-state relay)')),
         it('r_tsw', tr('24시간 타임 스위치', '24-h time switch'), { sched: [[18 * 3600000, 23 * 3600000]] }),
         it('r_sol', tr('솔레노이드 밸브', 'Solenoid valve')),
       ],
@@ -880,6 +928,7 @@ export function palette(): PaletteGroup[] {
         it('r_pbl', tr('조광형 푸시버튼 (녹)', 'Illuminated button (green)'), { color: 'green' }, 'rpbl-g'),
         it('r_pbl', tr('조광형 푸시버튼 (적)', 'Illuminated button (red)'), { color: 'red' }, 'rpbl-r'),
         it('r_ss', tr('셀렉터 스위치', 'Selector switch')),
+        it('r_ss3', tr('3단 셀렉터 (수동 · 정지 · 자동)', '3-position selector (man / off / auto)')),
         it('r_estop', tr('비상정지', 'E-stop')),
         it('r_fsw', tr('풋 스위치', 'Foot switch')),
         it('r_ls', tr('리밋 스위치', 'Limit switch')),
@@ -1088,7 +1137,7 @@ export const POLE_SYSTEM: Record<string, 'dc' | 'ac' | 'pe' | 'hv'> = { '+24V': 
 
 /** 기호를 따라 움직이는 접점 (코일·타이머·THR·스위치) */
 export const FOLLOWER: ReadonlySet<PartType> = new Set(['no', 'nc', 'km3']);
-export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3', 'r_prox', 'r_ls', 'r_pbl', 'r_fsw', 'r_float', 'r_psw']);
+export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3', 'r_prox', 'r_ls', 'r_pbl', 'r_fsw', 'r_float', 'r_psw', 'r_ss3']);
 export const VALVES: ReadonlySet<PartType> = new Set(['v32', 'v52', 'v52d', 'v53']);
 export const CONTACT_A: ReadonlySet<PartType> = new Set(['no', 'pb_no', 'sw_no', 'ls_no']);
 export const CONTACT_B: ReadonlySet<PartType> = new Set(['nc', 'pb_nc', 'sw_nc', 'ls_nc', 'estop']);

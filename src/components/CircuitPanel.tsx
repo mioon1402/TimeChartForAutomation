@@ -7,7 +7,7 @@ import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, trImpedance, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
 import { changeSocketLayout } from '../circuit/socket';
-import { busSize, circuitWires, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, palette, PARTS, partBox, partKindName, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, counterPreset, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -90,7 +90,8 @@ function actionsToOps(actions: OpEvent[], model: CircuitModel): OpStep[] {
     if (momentary && !a.on) continue;
     const t = r10(a.t);
     const op: OpStep = { id: uid('op'), wait: Math.max(0, t - prev), tag: model.label(a.tag), action: 'press', hold: 300 };
-    if (momentary) {
+    if (a.pos !== undefined) op.action = a.pos < 0 ? 'left' : a.pos > 0 ? 'right' : 'off';
+    else if (momentary) {
       const up = actions.slice(i + 1).find((b) => b.tag === a.tag && !b.on);
       op.hold = Math.max(10, r10((up?.t ?? a.t + 300) - a.t));
     } else op.action = a.on ? 'on' : 'off';
@@ -232,11 +233,20 @@ export function CircuitPanel() {
     setTick((t) => t + 1);
   };
 
-  const onOperate = (tag: string, phase: 'down' | 'up') => {
+  const onOperate = (tag: string, phase: 'down' | 'up', side?: -1 | 1) => {
     const r = runRef.current;
     if (!r) return;
     const t = simTime(performance.now());
     r.sim.advanceTo(t);
+    // 3단 셀렉터: 누른 쪽으로 돌리고, 이미 그쪽이면 가운데로
+    if (model.sel3.has(tag)) {
+      if (phase !== 'down') return;
+      const cur = r.sim.selPos(tag);
+      const next: -1 | 0 | 1 = cur === (side ?? 1) ? 0 : (side ?? 1);
+      if (r.sim.setPos(tag, next)) r.actions.push({ t, tag, on: next !== 0, pos: next });
+      setTick((x) => x + 1);
+      return;
+    }
     const main = model.mainPart.get(tag);
     const momentary = !!main && PARTS[main.type].operate === 'momentary';
     let v: boolean | null = null;
@@ -953,6 +963,25 @@ function PropsPane({
               <p className="small muted">{tr('2-7 전원 · 8-6 한시 a · 8-5 한시 b · 1-3 a · 1-4 b (모델마다 다르니 기기 옆면 결선도를 확인)', 'Power 2-7 · 8-6 timed NO · 8-5 timed NC · 1-3 NO · 1-4 NC (check the label on your model)')}</p>
             </>
           )}
+          {p.type === 'r_counter' && (
+            <>
+              <div className="grid2">
+                <Field label={tr('설정 수 (이만큼 세면 출력)', 'Preset count')}>
+                  <NumberInput value={counterPreset(p)} min={1} max={999999} step={1} onChange={(v) => set({ count: Math.max(1, Math.round(v ?? 5)) })} />
+                </Field>
+              </div>
+              <p className="small muted">{tr('A1 · A2 전원 · CP-COM 사이가 이어질 때마다 1 셈 (무전압 접점 입력) · RST-COM 이 이어지면 0 · 설정 수에 닿으면 C-NO 닫힘, C-NC 열림 (리셋까지 유지). 단자 번호는 기종마다 다르니 기기 옆면 결선도를 따르세요', 'Power A1/A2 · counts each time CP closes to COM (dry contact) · RST to COM resets · at the preset C-NO closes and C-NC opens until reset. Terminal numbers differ by model; follow the label on yours')}</p>
+            </>
+          )}
+          {p.type === 'r_ss3' && (
+            <>
+              <Field label={tr('자리 이름 (왼쪽 / 가운데 / 오른쪽)', 'Position names (left / centre / right)')} wide>
+                <TagInput value={p.pos3 ?? ''} onChange={(v) => set({ pos3: v || undefined })} placeholder={pos3Labels({}).join(' / ')} />
+              </Field>
+              <p className="small muted">{tr(`왼쪽 (${pos3Labels(p)[0]}) 이면 13-14, 오른쪽 (${pos3Labels(p)[2]}) 이면 23-24 가 닫히고 가운데는 둘 다 열립니다. 시뮬레이션 중에는 손잡이의 왼쪽 · 오른쪽을 눌러 돌립니다`, `Left (${pos3Labels(p)[0]}) closes 13-14, right (${pos3Labels(p)[2]}) closes 23-24, centre opens both. While simulating, click the left or right side of the knob`)}</p>
+            </>
+          )}
+          {p.type === 'r_ssr' && <p className="small muted">{tr('입력 3 (+) · 4 (-) 에 DC 를 넣으면 출력 1-2 가 통합니다 (교류 부하용, 극성 주의)', 'DC on input 3 (+) / 4 (-) turns output 1-2 on (AC load; mind the polarity)')}</p>}
           {p.type === 'r_relay8' && <p className="small muted">{tr('2-7 코일 · 1-3 a · 1-4 b · 8-6 a · 8-5 b (MK2P 꼴)', 'Coil 2-7 · 1-3 NO · 1-4 NC · 8-6 NO · 8-5 NC (MK2P-style)')}</p>}
           {(p.type === 'r_relay8' || p.type === 'r_timer8') && (
             <Field
@@ -1583,14 +1612,14 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
   const devices = model.operable().map((t) => {
     const p = model.mainPart.get(t)!;
     const name = circuit.parts.find((q) => tagKey(q) === t && q.name)?.name;
-    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: PARTS[p.type].operate === 'momentary' };
+    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: PARTS[p.type].operate === 'momentary', sel3: p.type === 'r_ss3' ? p : undefined };
   });
   const setOps = (next: OpStep[]) => onChange({ ...circuit, ops: next });
   const setOp = (i: number, patch: Partial<OpStep>) => setOps(ops.map((o, k) => (k === i ? { ...o, ...patch } : o)));
   const add = () => {
     const used = new Set(ops.map((o) => normTag(o.tag)));
     const d = devices.find((x) => !used.has(normTag(x.value))) ?? devices[0];
-    setOps([...ops, { id: uid('op'), wait: ops.length ? 2000 : 500, tag: d?.value ?? '', action: d && !d.momentary ? 'on' : 'press', hold: 300 }]);
+    setOps([...ops, { id: uid('op'), wait: ops.length ? 2000 : 500, tag: d?.value ?? '', action: d?.sel3 ? 'right' : d && !d.momentary ? 'on' : 'press', hold: 300 }]);
   };
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
@@ -1609,6 +1638,7 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
         <div className="cc-oplist">
           {ops.map((o, i) => {
             const known = devices.some((d) => normTag(d.value) === normTag(o.tag));
+            const sel3 = devices.find((d) => normTag(d.value) === normTag(o.tag))?.sel3;
             return (
               <div className="cc-op" key={o.id}>
                 <div className="cc-op-top">
@@ -1622,9 +1652,21 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                     ))}
                   </select>
                   <select className="input cc-op-act" value={o.action} onChange={(e) => setOp(i, { action: e.target.value as OpStep['action'] })} aria-label={tr('동작', 'Action')}>
-                    <option value="press">{tr('누름→뗌', 'Press')}</option>
-                    <option value="on">{tr('ON 유지', 'ON')}</option>
-                    <option value="off">OFF</option>
+                    {sel3 ? (
+                      <>
+                        <option value="left">{opActionLabel('left', sel3)}</option>
+                        <option value="off">{opActionLabel('off', sel3)}</option>
+                        <option value="right">{opActionLabel('right', sel3)}</option>
+                        {o.action === 'press' && <option value="press">{tr('누름→뗌', 'Press')}</option>}
+                      </>
+                    ) : (
+                      <>
+                        <option value="press">{tr('누름→뗌', 'Press')}</option>
+                        <option value="on">{tr('ON 유지', 'ON')}</option>
+                        <option value="off">OFF</option>
+                        {(o.action === 'left' || o.action === 'right') && <option value={o.action}>{opActionLabel(o.action)}</option>}
+                      </>
+                    )}
                   </select>
                   <button type="button" className="mini-btn danger" onClick={() => setOps(ops.filter((_, k) => k !== i))} title={tr('삭제', 'Delete')}>
                     <Icon name="x" size={12} />

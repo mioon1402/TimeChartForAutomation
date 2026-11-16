@@ -19,6 +19,7 @@ import { bomSummary, contactsLabel, partsList } from '../circuit/bom';
 import { termText, wireColorName, wiringList } from '../circuit/wiring';
 import { analyzePower } from '../circuit/power';
 import { CircuitModel, opTimes } from '../circuit/engine';
+import { opActionLabel } from '../circuit/parts';
 
 export interface ReportOpts {
   paper: 'A4' | 'A3';
@@ -1364,7 +1365,6 @@ function circuitBlocks(project: Project, o: ReportOpts): Block[] {
   const u = project.settings.timeUnit;
   if (o.circuit && c.ops.length) {
     const times = opTimes(c.ops);
-    const act = { press: tr('누름 → 뗌', 'Press'), on: 'ON', off: 'OFF' };
     blocks.push({
       id: 'circuit-ops',
       title: tr('조작 순서', 'Operations'),
@@ -1385,7 +1385,7 @@ function circuitBlocks(project: Project, o: ReportOpts): Block[] {
           <td className="mono">
             <b>{op.tag}</b> {c.parts.find((p) => p.tag === op.tag && p.name)?.name ?? ''}
           </td>
-          <td>{act[op.action]}</td>
+          <td>{opActionLabel(op.action, c.parts.find((p) => p.tag.trim().toUpperCase() === op.tag.trim().toUpperCase() && p.type === 'r_ss3'))}</td>
           <td className="mono">{op.action === 'press' ? formatTime(op.hold, u) : ''}</td>
           <td>{op.note ?? ''}</td>
         </tr>

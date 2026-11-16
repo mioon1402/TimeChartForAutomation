@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
+import type { Circuit, Part, Rot, Wire, WireColor } from '../circuit/types';
 import { autoWireColor } from '../circuit/wires';
 import { busSize, OPERATOR, panelSize, partBox, partPins, partWires, pinPositions, rotate, stripSize, tbSize, type PaletteItem } from '../circuit/parts';
 import { tagKey, type CircuitModel, type CircuitSim } from '../circuit/engine';
@@ -133,7 +133,8 @@ export interface CanvasProps {
   setZoom: (z: number) => void;
   sim: CircuitSim | null;
   /** 시뮬레이션 중 부품 조작 (down: 누름, up: 뗌) */
-  onOperate: (tag: string, phase: 'down' | 'up') => void;
+  /** side: 3단 셀렉터에서 누른 쪽 (-1 왼쪽, 1 오른쪽) */
+  onOperate: (tag: string, phase: 'down' | 'up', side?: -1 | 1) => void;
   onCommit: (next: Circuit, mergeKey?: string, regen?: boolean) => void;
   onEndMerge: () => void;
   onEditPart: (p: Part) => void;
@@ -372,7 +373,8 @@ export function CircuitCanvas(props: CanvasProps) {
       const p = hitPart(g);
       if (p && operable(p)) {
         const tag = tagKey(p);
-        props.onOperate(tag, 'down');
+        const [lx] = rotate(g[0] - p.x, g[1] - p.y, ((360 - p.rot) % 360) as Rot);
+        props.onOperate(tag, 'down', lx < 0 ? -1 : 1);
         setD({ kind: 'op', tag });
       } else {
         const el = wrapRef.current!;

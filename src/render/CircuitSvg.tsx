@@ -3,7 +3,7 @@ import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
 import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { BusGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { BusGlyph, CounterGlyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -57,6 +57,10 @@ export interface PartState {
   volt?: number;
   /** 6단자 전동기의 결선 (Y · Δ) */
   mode?: 'Y' | 'D';
+  /** 3단 셀렉터 자리 (-1 왼쪽, 0 가운데, 1 오른쪽) */
+  sel?: -1 | 0 | 1;
+  /** 카운터: 센 수, 출력 */
+  count?: { n: number; out: boolean };
   /** 타임 스위치: 다이얼 시각, 접점, 시계가 도는 중 */
   tsw?: { dial: number; out: boolean; run: boolean };
   /** 실린더: 스프링 복귀 (단동), 배관으로 움직임 */
@@ -94,6 +98,8 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     pos: p.type === 'cyl' ? sim.cylPos(tag) : 0,
     link: model.tagKind.get(tag),
     tsw: p.type === 'r_tsw' ? sim.tsw.get(tag) : undefined,
+    sel: p.type === 'r_ss3' ? sim.selPos(tag) : undefined,
+    count: p.type === 'r_counter' ? sim.counters.get(tag) : undefined,
     plcIn: p.type === 'plc' ? sim.plcIn.get(p.id) : undefined,
     plcOut: p.type === 'plc' ? sim.plcOut.get(p.id) : undefined,
   };
@@ -514,6 +520,12 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <Motor6Glyph p={p} st={st} c={c} />;
     case 'r_ss':
       return <SsGlyph p={p} st={st} c={c} />;
+    case 'r_ss3':
+      return <Ss3Glyph p={p} st={st} c={c} />;
+    case 'r_counter':
+      return <CounterGlyph p={p} st={st} c={c} />;
+    case 'r_ssr':
+      return <SsrGlyph p={p} st={st} c={c} />;
     case 'r_estop':
       return <EstopGlyph p={p} st={st} c={c} />;
     case 'r_tb':

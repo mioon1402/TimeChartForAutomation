@@ -740,6 +740,112 @@ function solAlternate(): Circuit {
 }
 
 /**
+ * 급수 펌프 수동 · 정지 · 자동 (3단 셀렉터): 조작 전원 → SS 13 · 23 (점퍼).
+ *  - 수동 (왼쪽, 13-14): 정지 PB0 (b) → 기동 PB1 (a) ∥ MC1 13-14 → 코일
+ *  - 자동 (오른쪽, 23-24): 플로트 FLS1 11-12 (b, 저수위에서 닫힘) → 코일
+ *  - 가운데: 둘 다 열려 정지
+ */
+function pumpManualAuto(): Circuit {
+  const b = new Builder();
+  b.part('r_ss3', 21, 20, 'SS', { name: tr('수동 · 정지 · 자동', 'Manual / off / auto') });
+  b.part('r_pb', 29, 20, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  b.part('r_pb', 37, 20, 'PB1', { name: tr('기동', 'Start'), color: 'green' });
+  b.part('r_float', 45, 20, 'FLS1', { name: tr('수조 수위', 'Tank level') });
+  b.part('r_lamp', 22, 6, 'GL', { name: tr('펌프 운전', 'Pump running'), color: 'green' });
+  motorKit(b, { ctlTo: [20, 20], coilFrom: [38, 22], hold: true, motor: tr('급수 펌프', 'Feed pump') });
+  // 13 · 23 점퍼 (조작 전원)
+  b.cable('red', [18, 22], [20, 22]);
+  // 수동: SS 14 → 정지 → 기동 ∥ MC1 13-14
+  b.cable('red', [22, 20], [28, 20]);
+  b.cable('red', [30, 20], [33, 20], [33, 22], [36, 22]);
+  b.cable('red', [33, 20], [33, 11], [10, 11], [10, 16]);
+  // 자동: SS 24 → 플로트 11-12 (b) → 코일
+  b.cable('yellow', [22, 22], [24, 22], [24, 25], [41, 25], [41, 20], [44, 20]);
+  b.cable('yellow', [46, 20], [48, 20], [48, 26], [40, 26]);
+  // 운전등: 코일과 나란히
+  b.cable('red', [21, 7], [21, 9], [40, 9], [40, 22]);
+  b.cable('blue', [23, 7], [23, 8], [14, 8]);
+  b.part('text', -2, -4, '', { text: tr('급수 펌프 수동 · 정지 · 자동: 3단 셀렉터. 수동은 기동 · 정지 버튼 (자기유지), 자동은 플로트 스위치, 가운데는 정지', 'Feed pump with a 3-position selector: buttons in manual, float switch in auto, off in the centre') });
+  b.op(500, 'SS', 'left', tr('수동', 'Manual'));
+  b.op(1000, 'PB1', 'press', tr('기동', 'Start'));
+  b.op(2500, 'PB0', 'press', tr('정지', 'Stop'));
+  b.op(1500, 'SS', 'right', tr('자동 → 저수위라 운전', 'Auto: level low, runs'));
+  b.op(2500, 'FLS1', 'on', tr('만수 → 정지', 'Tank full: stop'));
+  b.op(2000, 'FLS1', 'off', tr('저수위 → 운전', 'Level low: run'));
+  b.op(2000, 'SS', 'off', tr('가운데 (정지)', 'Centre: off'));
+  return b.done();
+}
+
+/**
+ * 생산 수량 카운터: 리밋 스위치 LS1 이 눌릴 때마다 카운터 C1 이 하나씩 세고 (CP-COM, 무전압 입력),
+ * 설정 수 3 에 닿으면 C-NO 로 완료등 YL, C-NC 의 진행등 GL 은 꺼진다. 리셋 버튼 PB1 (RST-COM) 으로 0.
+ */
+function counterBasic(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 3, 0, '', { pole: 'L' });
+  b.part('r_term', 5, 0, '', { pole: 'N' });
+  b.part('r_mcb2', 4, 6, 'MCB1', { name: tr('조작 전원', 'Control supply'), spec: 'AC/10A' });
+  b.part('r_counter', 20, 24, 'C1', { name: tr('생산 수량', 'Production count'), count: 3 });
+  b.part('r_ls', 13, 14, 'LS1', { name: tr('제품 감지', 'Product detect') });
+  b.part('r_pb', 27, 14, 'PB1', { name: tr('리셋', 'Reset'), color: 'yellow' });
+  b.part('r_lamp', 30, 24, 'GL', { name: tr('진행 중', 'Counting'), color: 'green' });
+  b.part('r_lamp', 38, 24, 'YL', { name: tr('완료', 'Done'), color: 'yellow' });
+  b.cable('brown', [3, 0], [3, 2]);
+  b.cable('blue', [5, 0], [5, 2]);
+  // 입력 (무전압): CP ─ LS1 23-24 ─ COM ─ PB1 23-24 ─ RST
+  b.cable('orange', [18, 19], [18, 18], [12, 18], [12, 16]);
+  b.cable('orange', [20, 19], [20, 17], [14, 17], [14, 16]);
+  b.cable('orange', [20, 17], [26, 17], [26, 16]);
+  b.cable('orange', [22, 19], [22, 18], [28, 18], [28, 16]);
+  // 전원: L → A1 · C, N → A2
+  b.cable('brown', [3, 10], [3, 32], [20, 32], [20, 29]);
+  b.cable('brown', [16, 29], [16, 30], [3, 30]);
+  b.cable('blue', [5, 10], [5, 31], [18, 31], [18, 29]);
+  // 출력: C-NC → 진행등, C-NO → 완료등, 램프 → N
+  b.cable('red', [24, 29], [24, 30], [29, 30], [29, 25]);
+  b.cable('red', [22, 29], [22, 31], [37, 31], [37, 25]);
+  b.cable('blue', [5, 31], [5, 34], [39, 34], [39, 25]);
+  b.cable('blue', [31, 25], [31, 34]);
+  b.part('text', 1, -4, '', { text: tr('생산 수량 카운터: LS1 이 3번 눌리면 완료등 (C-NO), 진행등 (C-NC) 은 꺼짐. PB1 로 리셋', 'Production counter: after 3 counts the done lamp lights; PB1 resets') });
+  b.op(1000, 'LS1', 'press', tr('제품 1', 'Product 1'));
+  b.op(1000, 'LS1', 'press', tr('제품 2', 'Product 2'));
+  b.op(1000, 'LS1', 'press', tr('제품 3 → 완료', 'Product 3: done'));
+  b.op(2000, 'PB1', 'press', tr('리셋', 'Reset'));
+  b.op(1500, 'LS1', 'press', tr('다시 세기', 'Counting again'));
+  return b.done();
+}
+
+/**
+ * SSR 로 히터 켜기: DC 24V 쪽 스위치 S1 → SSR 입력 3 (+) · 4 (-), 교류 쪽 L → SSR 1-2 → 히터 → N.
+ * 히터처럼 자주 켜고 끄는 부하는 접점이 닳지 않는 SSR 로 바꿔 쓴다 (온도 조절기 · PLC 의 DC 출력으로 바로 구동).
+ */
+function ssrHeater(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 2, 0, '', { pole: 'L' });
+  b.part('r_term', 4, 0, '', { pole: 'N' });
+  b.part('r_mcb2', 3, 6, 'MCB1', { name: tr('히터 전원', 'Heater supply'), spec: 'AC/20A' });
+  b.part('r_ssr', 12, 8, 'SSR1', { name: tr('히터 개폐', 'Heater switching') });
+  b.part('r_load1', 22, 8, 'H1', { name: tr('히터', 'Heater'), watt: 2000, pf: 1 });
+  b.part('r_sw', 5, 18, 'S1', { name: tr('히터 운전 (DC)', 'Heater on (DC)') });
+  b.part('r_term', 4, 27, '', { pole: '+24V' });
+  b.part('r_term', 13, 27, '', { pole: '0V' });
+  b.cable('brown', [2, 0], [2, 2]);
+  b.cable('blue', [4, 0], [4, 2]);
+  // 교류: L → SSR 1, SSR 2 → 히터, 히터 → N
+  b.cable('brown', [2, 10], [2, 13], [8, 13], [8, 3], [11, 3], [11, 5]);
+  b.cable('brown', [13, 5], [13, 3], [21, 3], [21, 5]);
+  b.cable('blue', [4, 10], [4, 12], [6, 12], [6, 1], [23, 1], [23, 5]);
+  // 직류: +24V → S1 → SSR 3 (+), SSR 4 (-) → 0V
+  b.cable('red', [4, 27], [4, 20]);
+  b.cable('red', [6, 20], [6, 23], [11, 23], [11, 11]);
+  b.cable('blue', [13, 11], [13, 27]);
+  b.part('text', 0, -4, '', { text: tr('SSR 로 히터 켜기: 입력 DC 24V (3 + · 4 -) 로 교류 히터 (1-2) 를 개폐', 'Heater on an SSR: a 24 V DC input (3 +, 4 -) switches the AC heater (1-2)') });
+  b.op(1000, 'S1', 'on', tr('히터 켬', 'Heater on'));
+  b.op(3000, 'S1', 'off', tr('히터 끔', 'Heater off'));
+  return b.done();
+}
+
+/**
  * 급수 펌프 자동 운전: 셀렉터 SS (자동 11-12 / 수동 23-24) 와 플로트 스위치 FLS1.
  *  - 자동: 저수위면 FLS1 11-12 (b) 가 닫혀 펌프 운전, 만수가 되면 열려 정지
  *  - 수동: 수위와 상관없이 운전
@@ -1256,6 +1362,9 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'motor-fwd-rev': 'motor',
   'sol-alternate': 'panel',
   'lamp-delay': 'home',
+  'pump-manual-auto': 'motor',
+  'counter': 'panel',
+  'ssr-heater': 'panel',
   'pump-float': 'motor',
   panel: 'panel',
   'relay-socket': 'panel',
@@ -1297,9 +1406,12 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'motor-ls-stop', name: tr('전동기: 리밋 스위치 자동 정지', 'Motor: limit switch stop'), desc: tr('자기유지로 돌다가 끝 위치의 리밋 스위치 (b접점) 가 열리면 스스로 정지', 'Self-holding run that stops when the limit switch (NC) opens'), build: motorLimitStop },
     { id: 'motor-fwd-rev', name: tr('전동기: 정 · 역 운전 이중 인터록', 'Motor: forward / reverse, double interlock'), desc: tr('접촉기 2개로 두 상을 바꿔 역회전. 버튼 b접점과 접촉기 b접점으로 이중 인터록, 돌던 중에 반대 버튼을 눌러도 안전', 'Two contactors swap two phases; button and contactor interlocks'), build: motorReversing },
     { id: 'star-delta', name: tr('전동기: 자동 Y-Δ 기동', 'Motor: automatic star-delta start'), desc: tr('6단자 전동기를 Y 결선으로 기동하고 타이머 3초 뒤 Δ 결선으로 전환. 접촉기 3개 · 타이머 · 인터록', 'A 6-lead motor starts in star and switches to delta after 3 s; three contactors, timer, interlock'), build: starDelta },
+    { id: 'pump-manual-auto', name: tr('급수 펌프: 수동 · 정지 · 자동 (3단 셀렉터)', 'Feed pump: manual / off / auto (3-position selector)'), desc: tr('3단 셀렉터로 수동 (기동 · 정지 버튼 자기유지) · 정지 · 자동 (플로트 스위치) 선택', 'A 3-position selector picks buttons, off or the float switch'), build: pumpManualAuto },
     { id: 'pump-float', name: tr('급수 펌프: 플로트 스위치 자동 / 수동', 'Feed pump: float switch auto / manual'), desc: tr('자동은 저수위에서 운전 · 만수에서 정지, 수동은 바로 운전. 셀렉터 · 플로트 스위치 · 운전등', 'Float switch in auto, direct run in manual'), build: pumpFloat },
     { id: 'dc-sensor', name: tr('직류 24V: SMPS · 근접 센서 · 릴레이 · 솔레노이드', '24 V DC: SMPS, proximity sensor, relay, solenoid'), desc: tr('퓨즈 → SMPS → 근접 센서 (PNP 3선식) → 각형 릴레이 → 솔레노이드 밸브 · 부저. 덕트 · 전압계', 'Fuse, SMPS, PNP sensor, blade relay, solenoid valve and buzzer; duct and voltmeter'), build: dcSensor },
     { id: 'sol-alternate', name: tr('솔레노이드 밸브 2개 교번 (플리커 타이머)', 'Two solenoid valves alternating (flicker timer)'), desc: tr('플리커 타이머의 a접점과 b접점이 1초마다 번갈아 밸브 A · B 를 여자', 'A flicker timer energises valve A and valve B in turn'), build: solAlternate },
+    { id: 'counter', name: tr('생산 수량 카운터 (완료등 · 리셋)', 'Production counter (done lamp, reset)'), desc: tr('리밋 스위치가 3번 눌리면 완료등, 리셋 버튼으로 0. 카운터의 무전압 입력 CP · COM · RST 와 출력 C · NO · NC', 'Three counts light the done lamp; reset button. Dry-contact inputs and the c/o output'), build: counterBasic },
+    { id: 'ssr-heater', name: tr('SSR 로 히터 켜기', 'Heater on an SSR'), desc: tr('DC 24V 스위치로 SSR 입력 (3 + · 4 -) 을 넣어 교류 히터 2 kW 를 개폐', 'A 24 V DC switch drives the SSR input; the SSR switches a 2 kW AC heater'), build: ssrHeater },
     { id: 'lamp-delay', name: tr('타이머 지연 점등 (표시등)', 'Delayed lamp on a timer'), desc: tr('스위치를 켜고 3초 뒤에 표시등이 켜진다. 8핀 타이머의 전원 2-7 과 한시 a접점 8-6', 'The lamp lights 3 s after the switch; 8-pin timer power 2-7 and timed NO 8-6'), build: lampDelay },
     { id: 'home-outlet', name: tr('주거 배선: 누전차단기 · 스위치 · 전등 · 콘센트', 'Home wiring: ELB, switch, light, outlet'), desc: tr('누전차단기에서 스위치 → 전등, 콘센트. 중성선 바와 접지 바에서 회로마다 한 가닥씩', 'ELB to switch, light and outlet; neutral and earth bars'), build: homeOutlet },
     { id: 'real', name: tr('실물 배선도: 전동기 기동·정지', 'Wiring diagram: motor start/stop'), desc: tr('차단기 3P·2P, 전자접촉기, 푸시버튼 유닛, 전동기를 실제 단자 번호와 전선 색으로', 'Real devices with terminal numbers and wire colours'), build: realWiring },
