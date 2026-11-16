@@ -75,6 +75,7 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_float: 6,
   r_psw: 6,
   r_prox: 6,
+  r_prox2: 6,
   r_buzzer: 7,
   r_sol: 7,
   r_fan: 8,
@@ -176,7 +177,9 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'ls_no':
     case 'ls_nc': {
       const kind =
-        p.sense === 'reed'
+        p.sense === 'inductive' || p.sense === 'capacitive' || p.sense === 'photo'
+          ? tr('근접 센서 (2선식)', 'Proximity sensor (2-wire)')
+          : p.sense === 'reed'
           ? tr('리드 스위치 (실린더 센서)', 'Reed switch')
           : p.sense === 'float'
             ? tr('플로트 스위치', 'Float switch')
@@ -219,6 +222,8 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: 'SMPS', spec: tr('입력 AC 100-240V, 출력 DC 24V', 'in AC 100-240V, out DC 24V') };
     case 'r_prox':
       return { kind: p.sense === 'photo' ? tr('광전 센서 (3선식)', 'Photo sensor (3-wire)') : tr('근접 센서 (3선식)', 'Proximity sensor (3-wire)'), spec: `${p.npn ? 'NPN' : 'PNP'} NO, DC 24V` };
+    case 'r_prox2':
+      return { kind: tr('근접 센서 (2선식)', 'Proximity sensor (2-wire)'), spec: `${p.ncOut ? 'NC' : 'NO'}, ${p.ac ? 'AC 100-240V' : 'DC 12-24V'}` };
     case 'r_ls':
       return { kind: tr('리밋 스위치', 'Limit switch'), spec: ab };
     case 'r_fsw':

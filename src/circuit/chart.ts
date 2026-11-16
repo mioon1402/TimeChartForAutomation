@@ -52,6 +52,8 @@ function defaultName(p: Part): string {
       return t_('조광형 버튼', 'Illuminated button');
     case 'r_prox':
       return p.sense === 'photo' ? t_('광전 센서', 'Photo sensor') : t_('근접 센서', 'Proximity sensor');
+    case 'r_prox2':
+      return t_('근접 센서', 'Proximity sensor');
     case 'r_buzzer':
       return t_('부저', 'Buzzer');
     case 'r_sol':
@@ -103,7 +105,7 @@ function defaultName(p: Part): string {
       return t_('비상정지', 'E-stop');
     case 'ls_no':
     case 'ls_nc':
-      return p.sense === 'reed' ? t_('리드 스위치', 'Reed switch') : p.sense === 'float' ? t_('플로트 스위치', 'Float switch') : p.sense === 'pressure' ? t_('압력 스위치', 'Pressure switch') : t_('리밋 스위치', 'Limit switch');
+      return p.sense === 'inductive' || p.sense === 'capacitive' || p.sense === 'photo' ? t_('근접 센서', 'Proximity sensor') : p.sense === 'reed' ? t_('리드 스위치', 'Reed switch') : p.sense === 'float' ? t_('플로트 스위치', 'Float switch') : p.sense === 'pressure' ? t_('압력 스위치', 'Pressure switch') : t_('리밋 스위치', 'Limit switch');
     case 'prox':
       return p.sense === 'photo' ? t_('광전 센서', 'Photo sensor') : t_('근접 센서', 'Proximity sensor');
     case 'mcb':

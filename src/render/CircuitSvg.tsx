@@ -3,7 +3,7 @@ import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
 import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { BusGlyph, CounterGlyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { BusGlyph, CounterGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -195,6 +195,9 @@ function actuatorFor(p: Part, st: PartState, c: CircuitColors): ReactNode {
             <circle cx={-25} cy={6} r={4} stroke={c.ink} fill="none" />
           </>
         );
+      // 2선식 근접 센서: 접점에 마름모 (근접 감지)
+      if (p.sense === 'inductive' || p.sense === 'capacitive' || p.sense === 'photo')
+        return <path d="M-16,0h-2M-23,-5l5,5-5,5-5,-5z" stroke={c.ink} fill={st.act ? c.fillOn : 'none'} />;
       if (p.sense === 'pressure')
         return (
           <>
@@ -530,6 +533,8 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <SsGlyph p={p} st={st} c={c} />;
     case 'r_ss3':
       return <Ss3Glyph p={p} st={st} c={c} />;
+    case 'r_prox2':
+      return <Prox2Glyph p={p} st={st} c={c} />;
     case 'r_counter':
       return <CounterGlyph p={p} st={st} c={c} />;
     case 'r_ssr':

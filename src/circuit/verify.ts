@@ -233,6 +233,24 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       if (plus(A) && minus(B)) continue;
       if (plus(B) && minus(A) && !plus(A)) out.push({ level: 'error', msg: tr(`${name(p)}: 전원 극성이 반대입니다. 갈색 선이 + (24V), 파랑 선이 0V 입니다`, `${name(p)}: supply polarity is reversed (brown = +, blue = 0V)`), partIds: [p.id] });
       else out.push({ level: 'error', msg: tr(`${name(p)}: 센서 전원이 이어지지 않았습니다 (${!plus(A) ? '갈색 → +24V' : ''}${!plus(A) && !minus(B) ? ', ' : ''}${!minus(B) ? '파랑 → 0V' : ''})`, `${name(p)}: sensor supply is not connected`), partIds: [p.id] });
+    } else if (p.type === 'r_prox2') {
+      // 2선식 센서: 이 센서를 뺀 나머지로 양쪽 끝이 어디에 닿는지 본다
+      const [bn, bu] = [pinNet(p, 0), pinNet(p, 1)];
+      if (![bn, bu].some(wired)) continue;
+      const rest = new Groups(n);
+      for (const k of model.conductors) if (k.part.id !== p.id) rest.union(k.a, k.b);
+      const restPoles = polesOf(rest);
+      const [A, B] = [restPoles(bn), restPoles(bu)];
+      const across = pair(A, B);
+      if (across) {
+        out.push({ level: 'error', msg: tr(`${name(p)}: 부하 없이 전원 두 극 (${across.join(' · ')}) 사이에 바로 물려 있습니다. 2선식 센서는 리밋 스위치처럼 부하와 직렬로 잇습니다 (감지하는 순간 단락되어 센서가 탑니다)`, `${name(p)}: wired straight across the supply (${across.join(', ')}). A 2-wire sensor goes in series with a load; it shorts and burns when it detects`), partIds: [p.id] });
+        continue;
+      }
+      if (!p.ac && ((B.has('+24V') && !A.has('+24V')) || (A.has('0V') && !B.has('0V'))))
+        out.push({ level: 'error', msg: tr(`${name(p)}: 극성이 반대입니다. 직류 2선식 센서는 갈색이 + 쪽, 파랑이 0V 쪽입니다 (거꾸로면 켜지지 않습니다)`, `${name(p)}: reversed polarity; on a DC 2-wire sensor brown goes to the + side and blue to the 0 V side`), partIds: [p.id] });
+      const sys = new Set([...seriesPoles(bn), ...seriesPoles(bu)].filter(live).map((id) => POLE_SYSTEM[id]));
+      if (!p.ac && sys.has('ac') && !sys.has('dc')) out.push({ level: 'error', msg: tr(`${name(p)}: 직류용 (DC 12-24V) 2선식 센서가 교류 회로에 있습니다. 속성에서 AC 용으로 바꾸거나 직류 회로에 잇습니다`, `${name(p)}: a DC 2-wire sensor in an AC circuit`), partIds: [p.id] });
+      if (p.ac && sys.has('dc') && !sys.has('ac')) out.push({ level: 'error', msg: tr(`${name(p)}: 교류용 (AC 100-240V) 2선식 센서가 직류 회로에 있습니다. 속성에서 DC 용으로 바꿉니다`, `${name(p)}: an AC 2-wire sensor in a DC circuit`), partIds: [p.id] });
     } else if (p.type === 'r_ssr') {
       const [a, b] = [pinNet(p, 2), pinNet(p, 3)];
       if (![a, b].some(wired)) continue;
