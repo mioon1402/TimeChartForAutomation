@@ -955,7 +955,7 @@ function PropsPane({
           {(p.type === 'timer' || p.type === 'r_timer8') && (
             <div className="grid2">
               <Field label={tr('동작', 'Mode')}>
-                <Select value={p.timerMode ?? 'on'} onChange={(v: 'on' | 'off' | 'flicker') => set({ timerMode: v })} options={[{ value: 'on', label: tr('ON 딜레이 (한시 동작)', 'On-delay') }, { value: 'off', label: tr('OFF 딜레이 (한시 복귀)', 'Off-delay') }, { value: 'flicker', label: tr('플리커 (점멸)', 'Flicker') }]} />
+                <Select value={p.timerMode ?? 'on'} onChange={(v: 'on' | 'off' | 'flicker' | 'interval') => set({ timerMode: v })} options={[{ value: 'on', label: tr('ON 딜레이 (한시 동작)', 'On-delay') }, { value: 'off', label: tr('OFF 딜레이 (한시 복귀)', 'Off-delay') }, { value: 'interval', label: tr('인터벌 (원샷: 켜지면 설정 시간만 ON)', 'Interval (one-shot)') }, { value: 'flicker', label: tr('플리커 (점멸)', 'Flicker') }]} />
               </Field>
               <Field label={p.timerMode === 'flicker' ? tr('켜짐·꺼짐 시간', 'On/off time') : tr('설정 시간', 'Preset')}>
                 <TimeInput value={p.preset ?? 3000} onChange={(v) => v !== undefined && set({ preset: v })} />
@@ -1741,6 +1741,9 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
       <div className="grid2">
         <Field label={tr('시뮬레이션 시간', 'Duration')} hint={tr('비우면 마지막 변화에 맞춤', 'Empty = fit to last change')}>
           <TimeInput value={circuit.duration} allowEmpty placeholder={tr('자동', 'auto')} onChange={(v) => onChange({ ...circuit, duration: v && v > 0 ? v : undefined })} />
+        </Field>
+        <Field label={tr('릴레이 동작 시간 (ms)', 'Relay operate time (ms)')} hint={tr('0 = 바로 붙음 (이상적). 실제 릴레이 · 전자접촉기는 10~30 ms. 넣으면 접점이 바뀌는 순간의 짧은 끊김이 보입니다', '0 = instant. Real relays and contactors take 10–30 ms; set it to see brief drop-outs')}>
+          <NumberInput value={circuit.relayMs ?? 0} min={0} max={1000} step={5} onChange={(v) => onChange({ ...circuit, relayMs: v && v > 0 ? Math.min(1000, v) : undefined })} />
         </Field>
         {model.tswDef.size > 0 && (
           <Field label={tr('시작 시각', 'Start clock')} hint={tr('타임 스위치의 시계가 시작하는 시각. 00:00 이면 차트의 시간이 곧 하루의 시각', 'Clock time at t = 0')}>

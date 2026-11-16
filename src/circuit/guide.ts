@@ -291,8 +291,13 @@ export function partGuide(type: PartType): PartGuide | null {
           ['1 – 3 / 1 – 4', tr('한시 접점 한 벌 더. 속성에서 순시(전원이 들어오면 바로)로 바꿀 수 있습니다', 'second timed pair, or instantaneous if chosen')],
         ],
         [tr('7 은 N 에, 2 는 타이머를 돌리고 싶은 신호(예: 릴레이 a접점 뒤)에', '7 to N, 2 to the signal that should start timing'), tr('시간이 지난 뒤 켤 것은 a접점(8-6)에, 그동안만 켤 것은 b접점(8-5)에 잇습니다', 'What turns on after the delay goes on the NO contact; what is on meanwhile goes on the NC')],
-        AUTO() + ' ' + tr('다이얼에 지난 시간이 차오르고, 시간이 되면 UP 램프가 켜집니다. 설정 시간과 동작(ON/OFF 딜레이 · 플리커)은 속성에서 바꿉니다.', 'The dial fills as time passes; change preset and mode in the properties.'),
-        'panel',
+        AUTO() +
+          ' ' +
+          tr(
+            '다이얼에 지난 시간이 차오르고, 시간이 되면 UP 램프가 켜집니다. 동작은 속성에서: ON 딜레이 (전원이 들어오고 설정 시간 뒤 ON), OFF 딜레이 (전원이 들어오면 바로 ON, 전원이 빠지고 설정 시간 뒤 OFF), 인터벌 (전원이 들어오면 바로 ON, 설정 시간 뒤 OFF: "감지하면 3초만" 같은 원샷), 플리커 (켜짐 · 꺼짐 반복).',
+            'The dial fills as time passes. Modes: on-delay, off-delay (on at once, off after the delay once power is removed), interval (on at once, off after the preset: a one-shot), flicker.',
+          ),
+        'sensor-oneshot',
       );
     case 'r_pb':
       return g(
@@ -549,7 +554,7 @@ export function partGuide(type: PartType): PartGuide | null {
       return g(
         tr('타이머 코일입니다. 전압이 걸리고 설정 시간이 지나면 기호가 같은 접점(한시 접점)이 바뀝니다.', 'A timer coil: after the preset time its contacts change.'),
         [['A1 · A2', tr('코일처럼 잇습니다', 'wired like a coil')]],
-        [tr('설정 시간과 동작(ON 딜레이 · OFF 딜레이 · 플리커)은 속성에서', 'Preset and mode in the properties'), tr('a · b 접점 기호에 타이머 기호(T1)를 적으면 한시 접점', 'Contacts tagged T1 are its timed contacts')],
+        [tr('설정 시간과 동작(ON 딜레이 · OFF 딜레이 · 인터벌 · 플리커)은 속성에서', 'Preset and mode (on-delay, off-delay, interval, flicker) in the properties'), tr('OFF 딜레이의 한시 b접점을 자기를 켜는 회로에 넣으면 매번 다시 시작합니다 (시뮬레이션이 0초 펄스로 알려 줌)', 'An off-delay timed NC in its own feed makes it restart every cycle (the simulation reports a 0-second pulse)'), tr('a · b 접점 기호에 타이머 기호(T1)를 적으면 한시 접점', 'Contacts tagged T1 are its timed contacts')],
         AUTO(),
         'timer',
       );

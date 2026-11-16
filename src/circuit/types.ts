@@ -112,7 +112,7 @@ export interface Part {
   spec?: string;
   pole?: Pole;
   /** on = ON 딜레이, off = OFF 딜레이, flicker = 켜져 있는 동안 preset 마다 반전 (플리커 릴레이) */
-  timerMode?: 'on' | 'off' | 'flicker';
+  timerMode?: 'on' | 'off' | 'flicker' | 'interval';
   /** 타이머 설정 시간 (ms) */
   preset?: number;
   color?: LampColor;
@@ -258,6 +258,8 @@ export interface Circuit {
   supply?: 'lv' | 'hv';
   /** 전원 계통 (없으면 3상 4선식) */
   system?: PowerSystem;
+  /** 릴레이 · 전자접촉기 · 타이머 코일이 붙고 떨어지는 데 걸리는 시간 (ms). 없으면 0 (바로) */
+  relayMs?: number;
   /** 계통의 대표 전압 (V): 3상은 선간 (3상 4선식 기본 380, 상전압은 선간 / √3), 단상 3선식은 L1-L2 (기본 220), 단상 2선식은 L-N (기본 220) */
   vll?: number;
 }

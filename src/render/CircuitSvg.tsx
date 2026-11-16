@@ -579,7 +579,7 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
   let lines: string[] = [p.tag];
   if (p.name) lines.push(p.name);
   if (p.type === 'sw_no' && p.sel) lines.push(`(${pos3Labels(p)[p.sel < 0 ? 0 : 2]})`);
-  if (p.type === 'timer') lines[0] = `${p.tag} ${formatTime(p.preset ?? 3000, 's').replace(' ', '')}${p.timerMode === 'off' ? ' OFF' : p.timerMode === 'flicker' ? ' FLK' : ''}`;
+  if (p.type === 'timer') lines[0] = `${p.tag} ${formatTime(p.preset ?? 3000, 's').replace(' ', '')}${p.timerMode === 'off' ? ' OFF' : p.timerMode === 'flicker' ? ' FLK' : p.timerMode === 'interval' ? ' INT' : ''}`;
   if (p.type === 'cyl') lines = [[p.tag, p.name].filter(Boolean).join(' '), ...(!st.air && p.solPlus?.trim() ? [`${p.solPlus}${p.solMinus ? ` / ${p.solMinus}` : ''}`] : [])];
   if (p.type === 'fc') lines.push(`${p.speed ?? 50}%`);
   let lx: number;

@@ -191,7 +191,7 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     const time = formatTime(p.preset ?? 3000, 's');
     const name = nameOf(c, keyTag(tr), p);
     if (tr.kind === 'timerCoil') {
-      out.push(bit(tr, 'timer', G.timer, { name: `${name} ${t_('코일', 'coil')} (${p.timerMode === 'off' ? 'OFF' : p.timerMode === 'flicker' ? t_('점멸', 'flicker') : 'ON'} ${time})` }));
+      out.push(bit(tr, 'timer', G.timer, { name: `${name} ${t_('코일', 'coil')} (${p.timerMode === 'off' ? 'OFF' : p.timerMode === 'flicker' ? t_('점멸', 'flicker') : p.timerMode === 'interval' ? t_('인터벌', 'interval') : 'ON'} ${time})` }));
       continue;
     }
     const row = bit(tr, 'timer', G.timer, { address: `${tr.tag}.Q`, name: `${name} ${t_('한시 접점', 'timed contact')}` });
@@ -202,8 +202,10 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
       out.push(row);
       continue;
     }
+    // 인터벌은 코일이 들어온 때부터 출력이 꺼질 때까지
+    const interval = p.timerMode === 'interval';
     const t1 = off ? edge(coil, 0, edge(coil, 1, 0) ?? Infinity) : edge(coil, 1, 0);
-    const t2 = t1 === undefined ? undefined : edge(row.points, off ? 0 : 1, t1);
+    const t2 = t1 === undefined ? undefined : edge(row.points, off || interval ? 0 : 1, t1);
     if (t1 !== undefined && t2 !== undefined && t2 > t1) row.dim = [t1, t2];
     out.push(row);
   }
@@ -271,7 +273,7 @@ function opSteps(c: Circuit, res: ScenarioResult, until: number): Step[] {
 export function circuitSig(c: Circuit, plcSource = ''): string {
   const plc = c.parts.some((p) => p.type === 'plc') ? plcSource : '';
   // 시작 시각 · 전원 계통은 있을 때만 넣는다 (예전 회로의 서명이 바뀌지 않게). 계통에 없는 극은 전압이 없어 동작이 바뀐다
-  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc, ...(c.clock ? [c.clock] : []), ...(c.system ? [c.system] : [])]);
+  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc, ...(c.clock ? [c.clock] : []), ...(c.system ? [c.system] : []), ...(c.relayMs ? [`relay${c.relayMs}`] : [])]);
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);

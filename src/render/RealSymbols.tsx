@@ -575,7 +575,7 @@ export function Timer8Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitCo
   };
   const [ex, ey] = ang(frac);
   const [sx, sy] = ang(0);
-  const mode = p.timerMode === 'off' ? 'OFF DLY' : p.timerMode === 'flicker' ? 'FLICKER' : 'ON DLY';
+  const mode = p.timerMode === 'off' ? 'OFF DLY' : p.timerMode === 'flicker' ? 'FLICKER' : p.timerMode === 'interval' ? 'INTERVAL' : 'ON DLY';
   return (
     <OctalSocket p={p} coil={tr('전원', 'power')}>
       <rect x={-70} y={-46} width={140} height={92} rx={8} fill="#f1f5f9" stroke="#94a3b8" strokeWidth={1.4} />
