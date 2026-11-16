@@ -479,13 +479,13 @@ export function CircuitPanel() {
           label={tr('예제 회로', 'Examples')}
           icon="circuit"
           items={[
-            ...exampleGroups().flatMap((g, k) => [
-              ...(k ? [{ divider: true }] : []),
-              { label: g.title, disabled: true },
-              ...circuitExamples()
+            // 묶음마다 폴더 (누르면 그 자리에서 펼쳐짐)
+            ...exampleGroups().map((g) => ({
+              label: g.title,
+              sub: circuitExamples()
                 .filter((ex) => ex.group === g.key)
                 .map((ex) => ({ label: ex.name, icon: 'circuit', onClick: () => F.openCircuitExample(ex.id) })),
-            ]),
+            })),
             { divider: true },
             { label: tr('새 회로도 (새 차트 탭)', 'New circuit (new chart tab)'), icon: 'plus', onClick: F.addCircuitSheet },
           ]}
