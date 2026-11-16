@@ -230,6 +230,8 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
   r_my4: 2,
   r_buzzer: 3,
   r_sol: 6,
+  r_counter: 4,
+  r_ssr: 0.2,
   r_fan: 20,
   r_pbl: 2,
   r_mc: 10,

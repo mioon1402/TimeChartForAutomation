@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, counterPreset, pos3Labels, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
@@ -86,6 +86,9 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_rail: 11,
   r_timer8: 4,
   r_ss: 6,
+  r_ss3: 6,
+  r_counter: 4,
+  r_ssr: 3,
   r_estop: 6,
   r_tb: 12,
   r_tsw: 4,
@@ -133,7 +136,7 @@ export function socketText(p: Part): string {
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
 function mainOf(parts: Part[]): Part {
   const rank = (p: Part) =>
-    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw'
+    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw' || p.type === 'r_counter' || p.type === 'r_ssr'
       ? 0
       : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'r_vcb'
         ? 1
@@ -276,6 +279,12 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     }
     case 'r_ss':
       return { kind: tr('셀렉터 스위치 (2단)', 'Selector switch (2-position)'), spec: ab };
+    case 'r_ss3':
+      return { kind: tr('셀렉터 스위치 (3단)', 'Selector switch (3-position)'), spec: `${pos3Labels(p).join(' · ')}, 2a` };
+    case 'r_counter':
+      return { kind: tr('프리셋 카운터', 'Preset counter'), spec: tr(`설정 ${counterPreset(p)}, 무전압 입력, 출력 1c, AC 220V`, `preset ${counterPreset(p)}, dry-contact input, 1 c/o output, AC 220V`) };
+    case 'r_ssr':
+      return { kind: tr('SSR (무접점 릴레이)', 'Solid-state relay'), spec: tr('입력 DC 4-32V, 출력 AC 220V', 'in DC 4-32V, out AC 220V') };
     case 'r_estop':
       return { kind: tr('비상정지 스위치', 'Emergency stop'), spec: [tr('적색 버섯, 잠김', 'red mushroom, latching'), ab].join(', ') };
     case 'r_tb':
@@ -342,7 +351,7 @@ export function partsList(c: Circuit): BomRow[] {
   for (const [k, parts] of groups) {
     const main = mainOf(parts);
     // 실물 기기는 몸 안의 보조 접점(1a1b)도 센다
-    const inside = parts.reduce((n, p) => n + (p.type === 'r_my4' ? 4 : p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_my2' ? 2 : p.type === 'r_ls' || p.type === 'r_fsw' || p.type === 'r_float' || p.type === 'r_psw' || p.type === 'r_pbl' || p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' ? 1 : 0), 0);
+    const inside = parts.reduce((n, p) => n + (p.type === 'r_my4' ? 4 : p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_my2' ? 2 : p.type === 'r_ls' || p.type === 'r_fsw' || p.type === 'r_float' || p.type === 'r_psw' || p.type === 'r_pbl' || p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' || p.type === 'r_counter' ? 1 : 0), 0);
     const a = parts.filter((p) => CONTACT_A.has(p.type)).length + inside;
     const b = parts.filter((p) => CONTACT_B.has(p.type)).length + inside;
     const poles = (parts.filter((p) => p.type === 'km3').length + parts.filter((p) => p.type === 'r_mc').length) * 3;

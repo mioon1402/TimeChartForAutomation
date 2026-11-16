@@ -294,6 +294,52 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('시뮬레이션에서 누를 때마다 0 ↔ 1 로 바뀝니다.', 'Each click turns it between 0 and 1.'),
         'tsw-panel',
       );
+    case 'r_ss3':
+      return g(
+        tr('3단 셀렉터 스위치입니다. 왼쪽 · 가운데 · 오른쪽 세 자리에 머뭅니다 (수동 · 정지 · 자동, 정 · 정지 · 역 등).', 'A 3-position selector that stays in left, centre or right (manual / off / auto, forward / off / reverse …).'),
+        [
+          ['13 – 14', tr('손잡이가 왼쪽일 때 닫힘 (보통 수동)', 'closed in the left position (usually manual)')],
+          ['23 – 24', tr('손잡이가 오른쪽일 때 닫힘 (보통 자동)', 'closed in the right position (usually auto)')],
+          [tr('가운데', 'Centre'), tr('두 접점 모두 열림 (정지)', 'both contacts open (off)')],
+        ],
+        [
+          tr('조작 전원을 13 과 23 에 함께 주고 (점퍼), 14 → 수동 회로 (기동 · 정지 버튼), 24 → 자동 회로 (플로트 · 타임 스위치 등) 로 잇습니다', 'Feed 13 and 23 together (jumper); 14 goes to the manual path (buttons), 24 to the automatic path (float, time switch …)'),
+          tr('자리 이름은 속성에서 바꿉니다 (예: 정 / 정지 / 역)', 'Rename the positions in the properties (e.g. FWD / OFF / REV)'),
+        ],
+        tr('시뮬레이션에서 손잡이의 왼쪽을 누르면 왼쪽으로, 오른쪽을 누르면 오른쪽으로 돌고, 같은 쪽을 한 번 더 누르면 가운데로 돌아옵니다. 조작 순서표에서는 동작을 왼쪽 · 가운데 · 오른쪽으로 고릅니다.', 'Click the left or right side of the knob to turn it; click the same side again to return to the centre. In the operation list pick left, centre or right.'),
+        'pump-manual-auto',
+      );
+    case 'r_counter':
+      return g(
+        tr('프리셋 카운터입니다. 입력이 들어올 때마다 하나씩 세고, 설정 수에 닿으면 출력 접점이 바뀌어 리셋할 때까지 유지합니다 (제품 수 세기, 몇 번 왕복 뒤 정지).', 'A preset counter: counts each input and switches its output at the preset until reset (counting products, stop after n strokes).'),
+        [
+          ['A1 · A2', tr('카운터 전원 (AC 220V). 전원이 없으면 세지 않고 출력도 꺼집니다', 'counter supply (AC 220V); without it nothing counts and the output is off')],
+          ['CP – COM', tr('계수 입력 (무전압 접점): 리밋 스위치 · 센서 접점 · 버튼의 a접점을 이 두 단자 사이에. 닫힐 때마다 1 셈', 'count input (dry contact): put a limit switch, sensor or button contact between them; each closing counts one')],
+          ['RST – COM', tr('리셋 입력 (무전압 접점): 닫히면 0 으로', 'reset input (dry contact): closing resets to 0')],
+          ['C → NO · NC', tr('출력 1c: 설정 수에 닿으면 C-NO 닫힘 · C-NC 열림', 'output 1 c/o: at the preset C-NO closes, C-NC opens')],
+        ],
+        [
+          tr('입력은 전압을 넣지 않는 접점 입력입니다. CP · RST · COM 에 L 이나 N 을 잇지 마세요 (기기가 상합니다)', 'The inputs are dry contacts: never wire L or N to CP, RST or COM'),
+          tr('정지시키려면 출력 C-NC 를 자기유지 회로에 직렬로, 완료 표시는 C-NO 뒤에 램프를', 'To stop a machine put C-NC in series with the holding circuit; put a lamp after C-NO for "done"'),
+          tr('단자 번호는 기종마다 다릅니다. 실물은 기기 옆면의 결선도를 따르세요', 'Terminal numbers differ by model; follow the label on your counter'),
+        ],
+        tr('시뮬레이션에서는 CP-COM 이 이어지는 순간마다 하나씩 세고, 센 수와 출력이 타임차트의 카운터 칸에 나옵니다.', 'In the simulation each closing of CP-COM counts one; the count and the output appear in the chart.'),
+        'counter',
+      );
+    case 'r_ssr':
+      return g(
+        tr('SSR (무접점 릴레이) 입니다. 직류 신호 (PLC · 온도 조절기 · 스위치) 로 교류 부하 (히터 · 램프) 를 켜고 끕니다. 접점이 닳지 않아 자주 켜고 끄는 히터에 씁니다.', 'A solid-state relay: a DC signal (PLC, temperature controller, switch) switches an AC load (heater, lamp). No contacts to wear, so it suits heaters switched often.'),
+        [
+          ['3 (+) · 4 (-)', tr('입력: DC 24V 의 + 를 3 에, 0V 를 4 에 (극성이 바뀌면 동작하지 않음)', 'input: +24 V to 3, 0 V to 4 (reversed polarity does not work)')],
+          ['1 · 2', tr('출력: 교류 부하와 직렬로 (L → 1, 2 → 부하 → N)', 'output: in series with the AC load (L → 1, 2 → load → N)')],
+        ],
+        [
+          tr('SSR 은 켜질 때 열이 납니다. 방열판에 달고, 부하 전류에 여유 있는 정격을 고릅니다', 'SSRs run hot: mount on a heat sink and choose a rating with margin'),
+          tr('출력 앞에 차단기 (또는 속단 퓨즈) 를 둡니다', 'Put a breaker (or fast fuse) ahead of the output'),
+        ],
+        tr('입력에 + 와 0V 가 바르게 걸리면 출력 1-2 가 바로 통합니다.', 'With + and 0 V on the input the output 1-2 conducts at once.'),
+        'ssr-heater',
+      );
     case 'r_estop':
       return g(
         tr('비상정지 스위치입니다. 누르면 잠겨서 회로를 끊고, 다시 누르면(실제로는 돌리면) 풀립니다.', 'An emergency stop: latches when pressed and cuts the circuit.'),

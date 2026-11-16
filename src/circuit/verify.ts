@@ -66,7 +66,7 @@ const COLOR_NAME: Record<WireColor, [string, string]> = {
 /** 기기에 적힌 정격 전압: 교류 · 직류와 전압 범위 (없으면 null) */
 export function ratedVoltage(p: Part): { kind: 'ac' | 'dc' | 'any'; lo: number; hi: number; text: string } | null {
   // 덮개에 AC 220V 가 적혀 나오는 기기는 사양을 비워도 그 전압으로 본다
-  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : '';
+  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : '';
   const text = p.spec?.trim() || shown;
   if (text) {
     const m = /(\d+(?:\.\d+)?)\s*(?:[~\-–]\s*(\d+(?:\.\d+)?))?\s*V/i.exec(text);
@@ -233,6 +233,14 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       if (plus(A) && minus(B)) continue;
       if (plus(B) && minus(A) && !plus(A)) out.push({ level: 'error', msg: tr(`${name(p)}: 전원 극성이 반대입니다. 갈색 선이 + (24V), 파랑 선이 0V 입니다`, `${name(p)}: supply polarity is reversed (brown = +, blue = 0V)`), partIds: [p.id] });
       else out.push({ level: 'error', msg: tr(`${name(p)}: 센서 전원이 이어지지 않았습니다 (${!plus(A) ? '갈색 → +24V' : ''}${!plus(A) && !minus(B) ? ', ' : ''}${!minus(B) ? '파랑 → 0V' : ''})`, `${name(p)}: sensor supply is not connected`), partIds: [p.id] });
+    } else if (p.type === 'r_ssr') {
+      const [a, b] = [pinNet(p, 2), pinNet(p, 3)];
+      if (![a, b].some(wired)) continue;
+      const [A, B] = [allPoles(a), allPoles(b)];
+      if (B.has('+24V') && A.has('0V') && !A.has('+24V')) out.push({ level: 'error', msg: tr(`${name(p)}: 입력 극성이 반대입니다. 3 에 + (24V), 4 에 0V 를 잇습니다`, `${name(p)}: input polarity is reversed (3 = +, 4 = 0 V)`), partIds: [p.id] });
+    } else if (p.type === 'r_counter') {
+      const hot = new Set([2, 3, 4].flatMap((i) => [...allPoles(pinNet(p, i))].filter(live)));
+      if (hot.size) out.push({ level: 'error', msg: tr(`${name(p)}: 입력 (CP · RST · COM) 은 무전압 접점 입력인데 전원 (${[...hot].join(' · ')}) 이 닿습니다. 리밋 스위치 · 버튼의 접점만 CP-COM, RST-COM 사이에 넣으세요`, `${name(p)}: the inputs (CP, RST, COM) are dry contacts but ${[...hot].join(', ')} reaches them; put only switch contacts between CP/RST and COM`), partIds: [p.id] });
     } else if (SMPS.has(p.type)) {
       const [l, nn] = [pinNet(p, 0), pinNet(p, 1)];
       if (!PARTS[p.type].pins.some((_, i) => wired(pinNet(p, i)))) continue;
