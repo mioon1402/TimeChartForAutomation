@@ -1152,4 +1152,111 @@ describe('relay operate time and 0-second pulses', () => {
     expect(back.relayMs).toBe(20);
     for (const ex of circuitExamples()) expect(runScenario(ex.build()).warnings.filter((w) => w.includes('0초 펄스')), ex.id).toEqual([]);
   });
+
+  it('starts from the settled state: coils that are on at power-up do not wait for the relay time', () => {
+    const c = circuitExamples().find((e) => e.id === 'pump-float')!.build();
+    const a = runScenario(c);
+    const b = runScenario({ ...c, relayMs: 20 });
+    expect(edges(a, 'coil:MC1')[0].v).toBe(1);
+    expect(edges(b, 'coil:MC1')[0].v).toBe(1);
+    expect(edges(b, 'coil:MC1').map((e) => e.t)).toEqual(edges(a, 'coil:MC1').map((e) => (e.t ? e.t + 20 : 0)));
+  });
+
+  it('a relay that cuts its own coil chatters with a relay time and is reported once', () => {
+    let n = 0;
+    const parts: Part[] = [];
+    const wires: Wire[] = [];
+    const P = (type: PartType, x: number, y: number, tag = '', extra: Partial<Part> = {}) => parts.push({ id: `p${n++}`, type, x, y, rot: 0, tag, ...extra });
+    const W = (a: [number, number], b: [number, number]) => wires.push({ id: `w${n++}`, a, b });
+    P('src', 0, 0, '', { pole: 'L' });
+    P('src', 0, 30, '', { pole: 'N' });
+    W([0, 0], [8, 0]);
+    W([0, 30], [8, 30]);
+    P('sw_no', 4, 4, 'SS1');
+    P('nc', 4, 12, 'X1');
+    P('coil', 4, 24, 'X1');
+    W([4, 0], [4, 2]);
+    W([4, 6], [4, 10]);
+    W([4, 14], [4, 22]);
+    W([4, 26], [4, 30]);
+    const c: Circuit = { parts, wires, ops: [{ id: 'o', wait: 1000, tag: 'SS1', action: 'on', hold: 0 }], duration: 3000 };
+    expect(runScenario(c).warnings).toEqual(['1 s: 릴레이가 계속 켜졌다 꺼졌다 합니다 (발진)']);
+    const res = runScenario({ ...c, relayMs: 20 });
+    expect(edges(res, 'coil:X1').slice(0, 4).map((e) => [e.t, e.v])).toEqual([[0, 0], [1020, 1], [1040, 0], [1060, 1]]);
+    const chatter = res.warnings.filter((w) => w.includes('채터링'));
+    expect(chatter).toHaveLength(1);
+    expect(chatter[0]).toMatch(/^1\.2 s: X1 이\(가\) 계속 붙었다 떨어집니다 \(채터링, 약 40 ms 주기\)/);
+  });
+});
+
+describe('operations at the same moment', () => {
+  const both = [
+    { id: 'a', wait: 500, tag: 'PB1', action: 'press' as const, hold: 300 },
+    { id: 'b', wait: 0, tag: 'PB2', action: 'press' as const, hold: 300 },
+  ];
+
+  it('double interlock: pressing forward and reverse together starts neither (and nothing latches on release)', () => {
+    const c = circuitExamples().find((e) => e.id === 'motor-fwd-rev')!.build();
+    for (const relayMs of [0, 20]) {
+      const res = runScenario({ ...c, ops: both, duration: 3000, ...(relayMs ? { relayMs } : {}) });
+      expect(edges(res, 'coil:MC1'), `${relayMs}`).toEqual([{ t: 0, v: 0 }]);
+      expect(edges(res, 'coil:MC2'), `${relayMs}`).toEqual([{ t: 0, v: 0 }]);
+    }
+  });
+
+  it('contactor interlock only: instant relays let the first rung win; with a relay time both pull in and short the phases', () => {
+    const c = circuitExamples().find((e) => e.id === 'reversing')!.build();
+    const a = runScenario({ ...c, ops: both, duration: 3000 });
+    expect(edges(a, 'coil:MC1').map((e) => [e.t, e.v])).toEqual([[0, 0], [500, 1]]);
+    expect(edges(a, 'coil:MC2').map((e) => [e.t, e.v])).toEqual([[0, 0]]);
+    const b = runScenario({ ...c, ops: both, duration: 3000, relayMs: 20 });
+    expect(edges(b, 'coil:MC1').slice(0, 3).map((e) => [e.t, e.v])).toEqual([[0, 0], [520, 1], [540, 0]]);
+    expect(b.warnings.some((w) => w.startsWith('0.52 s: 단락'))).toBe(true);
+    expect(b.warnings.some((w) => w.includes('MC1 · MC2 이(가) 계속 붙었다 떨어집니다'))).toBe(true);
+  });
+
+  it('a press with no hold time is still a press (on and off are applied one after the other)', () => {
+    const c = circuitExamples().find((e) => e.id === 'self-hold')!.build();
+    const pb = c.ops.find((o) => o.action === 'press')!;
+    const res = runScenario({ ...c, ops: [{ ...pb, wait: 500, hold: 0 }], duration: 2000 });
+    expect(edges(res, 'coil:MC1').map((e) => [e.t, e.v])).toEqual([[0, 0], [500, 1]]);
+  });
+});
+
+describe('flicker with separate on and off times (twin timer)', () => {
+  const flick = (presetOff?: number) => {
+    let n = 0;
+    const parts: Part[] = [];
+    const wires: Wire[] = [];
+    const P = (type: PartType, x: number, y: number, tag = '', extra: Partial<Part> = {}) => parts.push({ id: `p${n++}`, type, x, y, rot: 0, tag, ...extra });
+    const W = (a: [number, number], b: [number, number]) => wires.push({ id: `w${n++}`, a, b });
+    P('src', 0, 0, '', { pole: 'L' });
+    P('src', 0, 30, '', { pole: 'N' });
+    W([0, 0], [12, 0]);
+    W([0, 30], [12, 30]);
+    P('sw_no', 4, 4, 'SS1');
+    P('timer', 4, 24, 'T1', { timerMode: 'flicker', preset: 1000, ...(presetOff ? { presetOff } : {}) });
+    W([4, 0], [4, 2]);
+    W([4, 6], [4, 22]);
+    W([4, 26], [4, 30]);
+    P('no', 10, 4, 'T1');
+    P('sol', 10, 24, 'SOL1');
+    W([10, 0], [10, 2]);
+    W([10, 6], [10, 22]);
+    W([10, 26], [10, 30]);
+    const c: Circuit = { parts, wires, ops: [{ id: 'o', wait: 1000, tag: 'SS1', action: 'on', hold: 0 }, { id: 'p', wait: 9500, tag: 'SS1', action: 'off', hold: 0 }], duration: 12000 };
+    return c;
+  };
+
+  it('on 1 s, off 3 s', () => {
+    const c = flick(3000);
+    expect(edges(runScenario(c), 'load:SOL1').map((e) => [e.t, e.v])).toEqual([[0, 0], [1000, 1], [2000, 0], [5000, 1], [6000, 0], [9000, 1], [10000, 0]]);
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify(c)))!;
+    expect(back.parts.find((p) => p.type === 'timer')!.presetOff).toBe(3000);
+    expect(partsList(c).find((r) => r.tag === 'T1')!.spec).toContain('ON 1 s · OFF 3 s');
+  });
+
+  it('without an off time it is the same as before (on = off)', () => {
+    expect(edges(runScenario(flick()), 'load:SOL1').map((e) => [e.t, e.v])).toEqual([[0, 0], [1000, 1], [2000, 0], [3000, 1], [4000, 0], [5000, 1], [6000, 0], [7000, 1], [8000, 0], [9000, 1], [10000, 0]]);
+  });
 });

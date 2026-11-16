@@ -52,6 +52,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (POLES.includes(q.pole as Pole)) p.pole = q.pole as Pole;
     if (q.timerMode === 'on' || q.timerMode === 'off' || q.timerMode === 'flicker' || q.timerMode === 'interval') p.timerMode = q.timerMode;
     if (typeof q.preset === 'number' && q.preset >= 0) p.preset = q.preset;
+    if (typeof q.presetOff === 'number' && q.presetOff > 0) p.presetOff = q.presetOff;
     if (COLORS.includes(q.color as LampColor)) p.color = q.color as LampColor;
     if (typeof q.stroke === 'number' && q.stroke >= 0) p.stroke = q.stroke;
     if (typeof q.strokeBack === 'number' && q.strokeBack >= 0) p.strokeBack = q.strokeBack;

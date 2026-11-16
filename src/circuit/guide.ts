@@ -294,8 +294,8 @@ export function partGuide(type: PartType): PartGuide | null {
         AUTO() +
           ' ' +
           tr(
-            '다이얼에 지난 시간이 차오르고, 시간이 되면 UP 램프가 켜집니다. 동작은 속성에서: ON 딜레이 (전원이 들어오고 설정 시간 뒤 ON), OFF 딜레이 (전원이 들어오면 바로 ON, 전원이 빠지고 설정 시간 뒤 OFF), 인터벌 (전원이 들어오면 바로 ON, 설정 시간 뒤 OFF: "감지하면 3초만" 같은 원샷), 플리커 (켜짐 · 꺼짐 반복).',
-            'The dial fills as time passes. Modes: on-delay, off-delay (on at once, off after the delay once power is removed), interval (on at once, off after the preset: a one-shot), flicker.',
+            '다이얼에 지난 시간이 차오르고, 시간이 되면 UP 램프가 켜집니다. 동작은 속성에서: ON 딜레이 (전원이 들어오고 설정 시간 뒤 ON), OFF 딜레이 (전원이 들어오면 바로 ON, 전원이 빠지고 설정 시간 뒤 OFF), 인터벌 (전원이 들어오면 바로 ON, 설정 시간 뒤 OFF: "감지하면 3초만" 같은 원샷), 플리커 (켜짐 · 꺼짐 반복, 꺼짐 시간을 따로 넣으면 트윈 타이머).',
+            'The dial fills as time passes. Modes: on-delay, off-delay (on at once, off after the delay once power is removed), interval (on at once, off after the preset: a one-shot), flicker (separate off time = twin timer).',
           ),
         'sensor-oneshot',
       );
@@ -554,7 +554,7 @@ export function partGuide(type: PartType): PartGuide | null {
       return g(
         tr('타이머 코일입니다. 전압이 걸리고 설정 시간이 지나면 기호가 같은 접점(한시 접점)이 바뀝니다.', 'A timer coil: after the preset time its contacts change.'),
         [['A1 · A2', tr('코일처럼 잇습니다', 'wired like a coil')]],
-        [tr('설정 시간과 동작(ON 딜레이 · OFF 딜레이 · 인터벌 · 플리커)은 속성에서', 'Preset and mode (on-delay, off-delay, interval, flicker) in the properties'), tr('OFF 딜레이의 한시 b접점을 자기를 켜는 회로에 넣으면 매번 다시 시작합니다 (시뮬레이션이 0초 펄스로 알려 줌)', 'An off-delay timed NC in its own feed makes it restart every cycle (the simulation reports a 0-second pulse)'), tr('a · b 접점 기호에 타이머 기호(T1)를 적으면 한시 접점', 'Contacts tagged T1 are its timed contacts')],
+        [tr('설정 시간과 동작(ON 딜레이 · OFF 딜레이 · 인터벌 · 플리커)은 속성에서. 플리커는 켜짐 · 꺼짐 시간을 따로 넣을 수 있음', 'Preset and mode (on-delay, off-delay, interval, flicker) in the properties; flicker can have a separate off time'), tr('OFF 딜레이의 한시 b접점을 자기를 켜는 회로에 넣으면 매번 다시 시작합니다 (시뮬레이션이 0초 펄스로 알려 줌)', 'An off-delay timed NC in its own feed makes it restart every cycle (the simulation reports a 0-second pulse)'), tr('a · b 접점 기호에 타이머 기호(T1)를 적으면 한시 접점', 'Contacts tagged T1 are its timed contacts')],
         AUTO(),
         'timer',
       );

@@ -957,9 +957,14 @@ function PropsPane({
               <Field label={tr('동작', 'Mode')}>
                 <Select value={p.timerMode ?? 'on'} onChange={(v: 'on' | 'off' | 'flicker' | 'interval') => set({ timerMode: v })} options={[{ value: 'on', label: tr('ON 딜레이 (한시 동작)', 'On-delay') }, { value: 'off', label: tr('OFF 딜레이 (한시 복귀)', 'Off-delay') }, { value: 'interval', label: tr('인터벌 (원샷: 켜지면 설정 시간만 ON)', 'Interval (one-shot)') }, { value: 'flicker', label: tr('플리커 (점멸)', 'Flicker') }]} />
               </Field>
-              <Field label={p.timerMode === 'flicker' ? tr('켜짐·꺼짐 시간', 'On/off time') : tr('설정 시간', 'Preset')}>
+              <Field label={p.timerMode === 'flicker' ? tr('켜짐 시간', 'On time') : tr('설정 시간', 'Preset')}>
                 <TimeInput value={p.preset ?? 3000} onChange={(v) => v !== undefined && set({ preset: v })} />
               </Field>
+              {p.timerMode === 'flicker' && (
+                <Field label={tr('꺼짐 시간', 'Off time')} hint={tr('비우면 켜짐 시간과 같음. 다르게 넣으면 트윈 타이머 (예: 2초 ON · 5초 OFF 반복)', 'Empty = same as on time. Different = twin timer (e.g. 2 s on, 5 s off)')}>
+                  <TimeInput value={p.presetOff} allowEmpty placeholder={tr('켜짐과 같음', 'same as on')} onChange={(v) => set({ presetOff: v && v > 0 ? v : undefined })} />
+                </Field>
+              )}
             </div>
           )}
           {p.type === 'r_timer8' && (

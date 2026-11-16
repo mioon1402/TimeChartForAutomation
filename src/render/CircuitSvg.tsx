@@ -1,10 +1,9 @@
 import type { ReactNode, JSX } from 'react';
 import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
-import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
+import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, timerText, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
 import { BusGlyph, CounterGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
-import { formatTime } from '../model/format';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
@@ -579,7 +578,7 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
   let lines: string[] = [p.tag];
   if (p.name) lines.push(p.name);
   if (p.type === 'sw_no' && p.sel) lines.push(`(${pos3Labels(p)[p.sel < 0 ? 0 : 2]})`);
-  if (p.type === 'timer') lines[0] = `${p.tag} ${formatTime(p.preset ?? 3000, 's').replace(' ', '')}${p.timerMode === 'off' ? ' OFF' : p.timerMode === 'flicker' ? ' FLK' : p.timerMode === 'interval' ? ' INT' : ''}`;
+  if (p.type === 'timer') lines[0] = `${p.tag} ${timerText(p).replace(/(ON|OFF) /g, '').replace(/ (?=m?s|min|h)/g, '').replace(' · ', '/')}${p.timerMode === 'off' ? ' OFF' : p.timerMode === 'flicker' ? ' FLK' : p.timerMode === 'interval' ? ' INT' : ''}`;
   if (p.type === 'cyl') lines = [[p.tag, p.name].filter(Boolean).join(' '), ...(!st.air && p.solPlus?.trim() ? [`${p.solPlus}${p.solMinus ? ` / ${p.solMinus}` : ''}`] : [])];
   if (p.type === 'fc') lines.push(`${p.speed ?? 50}%`);
   let lx: number;

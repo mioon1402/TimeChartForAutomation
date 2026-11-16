@@ -103,7 +103,8 @@ export class CircuitModel {
   readonly tagLabel = new Map<string, string>();
   readonly coilParts = new Map<string, string[]>();
   readonly timerParts = new Map<string, string[]>();
-  readonly timerDef = new Map<string, { mode: 'on' | 'off' | 'flicker' | 'interval'; preset: number }>();
+  /** preset = 설정 시간 (플리커는 켜짐 시간), off = 플리커의 꺼짐 시간 */
+  readonly timerDef = new Map<string, { mode: 'on' | 'off' | 'flicker' | 'interval'; preset: number; off: number }>();
   /** 24시간 타임 스위치: 시계 전원 넷 (L · N) 과 켜지는 구간 */
   readonly tswDef = new Map<string, { part: Part; l: number; n: number; sched: [number, number][] }>();
   /** 프리셋 카운터: 입력 CP · RST · COM 넷 (무전압 접점 입력: COM 과 이어지면 들어온 것) */
@@ -163,7 +164,10 @@ export class CircuitModel {
       if (p.type === 'timer' || p.type === 'r_timer8') {
         setKind(tag, 'timer', p);
         push(this.timerParts, tag, p.id);
-        if (!this.timerDef.has(tag)) this.timerDef.set(tag, { mode: p.timerMode ?? 'on', preset: Math.max(0, p.preset ?? 3000) });
+        if (!this.timerDef.has(tag)) {
+          const preset = Math.max(0, p.preset ?? 3000);
+          this.timerDef.set(tag, { mode: p.timerMode ?? 'on', preset, off: p.timerMode === 'flicker' && p.presetOff && p.presetOff > 0 ? p.presetOff : preset });
+        }
       } else if (p.type === 'r_counter') {
         setKind(tag, 'counter', p);
         const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
@@ -322,6 +326,10 @@ export class CircuitSim {
   private root: Int32Array = new Int32Array(0);
   /** 릴레이 동작 시간이 있을 때: 코일 · 타이머가 바뀔 예정 (c:태그 · t:태그) */
   private readonly pending = new Map<string, { want: boolean; at: number }>();
+  /** 채터링 검사: 코일마다 최근 1초 동안 바뀐 시각 */
+  private readonly flipLog = new Map<string, number[]>();
+  /** 시작할 때 자리 잡는 동안은 릴레이 동작 시간을 두지 않는다 */
+  private boot = false;
   readonly cyl = new Map<string, CylState>();
   /** 넷마다 닿은 극 ('short' = 단락, null = 전압 없음) */
   netPole: (string | null)[] = [];
@@ -375,11 +383,14 @@ export class CircuitSim {
       }
     }
     this.buildTracks();
+    // 시작 상태는 전원이 들어와 자리 잡은 상태로 (릴레이 동작 시간 없이)
+    this.boot = true;
     this.settle();
     if (this.rt) {
       this.scanPlc();
       this.settle();
     }
+    this.boot = false;
     this.record();
   }
 
@@ -464,7 +475,7 @@ export class CircuitSim {
     const def = this.m.timerDef.get(tag);
     if (!st || !def) return null;
     const pending = def.mode === 'on' ? st.coil && !st.out : def.mode === 'flicker' ? st.coil : def.mode === 'interval' ? st.coil && st.out : !st.coil && st.out;
-    return { coil: st.coil, out: st.out, elapsed: pending ? this.t - st.since : null, preset: def.preset };
+    return { coil: st.coil, out: st.out, elapsed: pending ? this.t - st.since : null, preset: timerSpan(def, st.out) };
   }
 
   cylPos(tag: string): number {
@@ -493,6 +504,28 @@ export class CircuitSim {
     this.settle();
     this.record();
     return true;
+  }
+
+  /** 같은 순간의 조작을 한꺼번에 바꾸고 한 번만 자리 잡는다 (두 버튼을 동시에 누름 · 뗌) */
+  applyAll(list: { tag: string; on: boolean; pos?: -1 | 0 | 1 }[]): void {
+    let changed = false;
+    for (const e of list) {
+      if (this.m.sel3.has(e.tag)) {
+        const pos = e.pos ?? (e.on ? 1 : 0);
+        if ((this.sel.get(e.tag) ?? 0) === pos) continue;
+        this.sel.set(e.tag, pos);
+        this.act.set(e.tag, pos !== 0);
+        changed = true;
+      } else {
+        const on = e.pos !== undefined ? e.pos !== 0 : e.on;
+        if ((this.act.get(e.tag) ?? false) === on) continue;
+        this.act.set(e.tag, on);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    this.settle();
+    this.record();
   }
 
   selPos(tag: string): -1 | 0 | 1 {
@@ -643,8 +676,21 @@ export class CircuitSim {
 
   /** 코일·타이머·실린더 하나를 바꾸면 true */
   /** 릴레이 동작 시간이 있으면 바로 바꾸지 않고 예약한다. 바꿨으면 true */
+  /** 1초 안에 10번 넘게 붙었다 떨어지면 채터링으로 알린다 (자기 b접점으로 자기를 끊는 회로 등) */
+  private chatterCheck(key: string): boolean {
+    if (this.warned.has(`chatter:${key}`)) return false;
+    const list = this.flipLog.get(key) ?? [];
+    list.push(this.t);
+    while (list.length && list[0] < this.t - 1000 - EPS) list.shift();
+    this.flipLog.set(key, list);
+    if (list.length < 10) return false;
+    this.warned.add(`chatter:${key}`);
+    this.flipLog.delete(key);
+    return true;
+  }
+
   private delayed(key: string, want: boolean, cur: boolean): boolean {
-    if (this.m.relayMs <= 0) return false;
+    if (this.m.relayMs <= 0 || this.boot) return false;
     const pd = this.pending.get(key);
     if (want === cur) this.pending.delete(key);
     else if (!pd || pd.want !== want) this.pending.set(key, { want, at: this.t + this.m.relayMs });
@@ -893,7 +939,7 @@ export class CircuitSim {
     for (const pd of this.pending.values()) best = Math.min(best, pd.at);
     for (const [tag, st] of this.timers) {
       const def = this.m.timerDef.get(tag)!;
-      if ((def.mode === 'on' && st.coil && !st.out) || (def.mode === 'off' && !st.coil && st.out) || (def.mode === 'flicker' && st.coil && def.preset > 0) || (def.mode === 'interval' && st.coil && st.out)) best = Math.min(best, st.since + def.preset);
+      if ((def.mode === 'on' && st.coil && !st.out) || (def.mode === 'off' && !st.coil && st.out) || (def.mode === 'flicker' && st.coil && def.preset > 0) || (def.mode === 'interval' && st.coil && st.out)) best = Math.min(best, st.since + timerSpan(def, st.out));
     }
     for (const [tag, st] of this.cyl) {
       if (st.pos === st.target || st.hold) continue;
@@ -949,22 +995,29 @@ export class CircuitSim {
       }
       this.moveTo(next);
       // 릴레이 동작 시간이 지난 코일 · 타이머
+      const chatter: string[] = [];
       for (const [key, pd] of [...this.pending]) {
         if (pd.at > this.t + EPS) continue;
         this.pending.delete(key);
         const tag = key.slice(2);
+        if (this.chatterCheck(key)) chatter.push(this.m.label(tag));
         if (key[0] === 'c') this.coilOn.set(tag, pd.want);
         else if (this.timers.get(tag)!.coil !== pd.want) this.setTimerCoil(tag, pd.want);
       }
+      if (chatter.length)
+        this.warnings.push(
+          `${formatTime(this.t, 's')}: ${[...new Set(chatter)].join(' · ')} 이(가) 계속 붙었다 떨어집니다 (채터링, 약 ${Math.round(this.m.relayMs * 2)} ms 주기). 자기 b접점이 자기 코일을 끊거나, 인터록 없이 서로 끊는 회로입니다. 실제로는 접점이 타고 소리가 납니다`,
+        );
       for (const [tag, st] of this.timers) {
         const def = this.m.timerDef.get(tag)!;
-        if (st.since + def.preset > this.t + EPS) continue;
+        const span = timerSpan(def, st.out);
+        if (st.since + span > this.t + EPS) continue;
         if (def.mode === 'on' && st.coil && !st.out) st.out = true;
         else if (def.mode === 'off' && !st.coil && st.out) st.out = false;
         else if (def.mode === 'interval' && st.coil && st.out) st.out = false;
         else if (def.mode === 'flicker' && st.coil && def.preset > 0) {
           st.out = !st.out;
-          st.since += def.preset;
+          st.since += span;
         }
       }
       if (this.nextScan !== null && this.nextScan <= this.t + EPS) {
@@ -1121,6 +1174,11 @@ export interface ScenarioResult {
 }
 
 /** 조작 순서대로 회로를 돌려 신호 기록을 얻는다 */
+/** 지금 세고 있는 구간의 길이: 플리커는 켜져 있으면 켜짐 시간, 꺼져 있으면 꺼짐 시간 */
+function timerSpan(def: { mode: string; preset: number; off: number }, out: boolean): number {
+  return def.mode === 'flicker' && !out ? def.off : def.preset;
+}
+
 export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c), hook?: (sim: CircuitSim) => void): ScenarioResult {
   const sim = new CircuitSim(model);
   if (hook) {
@@ -1130,16 +1188,27 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
   const events = opsToEvents(c.ops);
   const fixed = c.duration && c.duration > 0 ? c.duration : null;
   const missing = new Set<string>();
-  for (const ev of events) {
-    if (fixed !== null && ev.t > fixed) break;
-    sim.advanceTo(ev.t);
-    const k = model.tagKind.get(ev.tag);
-    if (k !== 'operator' && k !== 'thr') {
-      missing.add(ev.tag);
-      continue;
+  // 같은 시각의 조작은 동시에 (한 버튼씩 차례로 바꾸면 그 사이에 코일이 붙었다 떨어질 수 있다)
+  for (let i = 0; i < events.length; ) {
+    const t = events[i].t;
+    if (fixed !== null && t > fixed) break;
+    sim.advanceTo(t);
+    // 같은 기기가 다시 나오면 (누름 시간 0 의 누름 · 뗌) 거기서 끊어 차례로
+    const now: typeof events = [];
+    for (; i < events.length && events[i].t <= t + EPS; i++) {
+      const ev = events[i];
+      const k = model.tagKind.get(ev.tag);
+      if (k !== 'operator' && k !== 'thr') {
+        missing.add(ev.tag);
+        continue;
+      }
+      if (now.some((e) => e.tag === ev.tag)) {
+        sim.applyAll(now);
+        now.length = 0;
+      }
+      now.push(ev);
     }
-    if (ev.pos !== undefined) sim.setPos(ev.tag, ev.pos);
-    else sim.setAct(ev.tag, ev.on);
+    sim.applyAll(now);
   }
   const lastOp = events.length ? events[events.length - 1].t : 0;
   // 타임 스위치가 있으면 하루 단위로 (조작이 하루를 넘으면 그만큼 더)
