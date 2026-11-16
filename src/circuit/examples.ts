@@ -846,6 +846,39 @@ function ssrHeater(): Circuit {
 }
 
 /**
+ * 2선식 근접 센서: 갈색 · 파랑 두 선을 부하와 직렬로 (스위치처럼).
+ *  - 직류 (왼쪽): +24V → PX1 갈색, 파랑 → 램프 PL1 → 0V
+ *  - 교류 (오른쪽): L → 차단기 → PX2 → 램프 PL2 → N (교류용은 극성 없음)
+ */
+function prox2Wire(): Circuit {
+  const b = new Builder();
+  // 직류
+  b.part('r_term', 0, 0, '', { pole: '+24V' });
+  b.part('r_term', 14, 0, '', { pole: '0V' });
+  b.part('r_prox2', 3, 8, 'PX1', { name: tr('제품 감지 (DC)', 'Part present (DC)'), sense: 'inductive' });
+  b.part('r_lamp', 11, 12, 'PL1', { name: tr('감지 표시', 'Detected'), color: 'green', spec: 'DC 24V' });
+  b.cable('red', [0, 0], [0, 13], [2, 13], [2, 11]);
+  b.cable('yellow', [4, 11], [4, 15], [10, 15], [10, 13]);
+  b.cable('blue', [12, 13], [12, 16], [14, 16], [14, 0]);
+  // 교류
+  b.part('r_term', 20, 0, '', { pole: 'L' });
+  b.part('r_term', 32, 0, '', { pole: 'N' });
+  b.part('r_mcb1', 20, 6, 'MCB1', { name: tr('센서 회로', 'Sensor circuit'), spec: 'AC/10A' });
+  b.part('r_prox2', 24, 16, 'PX2', { name: tr('제품 감지 (AC)', 'Part present (AC)'), sense: 'inductive', ac: true });
+  b.part('r_lamp', 29, 20, 'PL2', { name: tr('감지 표시', 'Detected'), color: 'yellow' });
+  b.cable('brown', [20, 0], [20, 2]);
+  b.cable('brown', [20, 10], [20, 21], [23, 21], [23, 19]);
+  b.cable('red', [25, 19], [25, 23], [28, 23], [28, 21]);
+  b.cable('blue', [30, 21], [30, 24], [32, 24], [32, 0]);
+  b.part('text', 0, -4, '', { text: tr('2선식 근접 센서: 갈색 · 파랑을 부하와 직렬로 (직류는 갈색이 + 쪽, 교류는 극성 없음)', '2-wire proximity sensors in series with their loads (DC: brown on the + side; AC: no polarity)') });
+  b.op(1000, 'PX1', 'on', tr('PX1 감지', 'PX1 detects'));
+  b.op(1000, 'PX2', 'on', tr('PX2 감지', 'PX2 detects'));
+  b.op(1000, 'PX1', 'off', tr('PX1 해제', 'PX1 clear'));
+  b.op(1000, 'PX2', 'off', tr('PX2 해제', 'PX2 clear'));
+  return b.done();
+}
+
+/**
  * 급수 펌프 자동 운전: 셀렉터 SS (자동 11-12 / 수동 23-24) 와 플로트 스위치 FLS1.
  *  - 자동: 저수위면 FLS1 11-12 (b) 가 닫혀 펌프 운전, 만수가 되면 열려 정지
  *  - 수동: 수위와 상관없이 운전
@@ -1365,6 +1398,7 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'pump-manual-auto': 'motor',
   'counter': 'panel',
   'ssr-heater': 'panel',
+  prox2: 'panel',
   'pump-float': 'motor',
   panel: 'panel',
   'relay-socket': 'panel',
@@ -1411,6 +1445,7 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'dc-sensor', name: tr('직류 24V: SMPS · 근접 센서 · 릴레이 · 솔레노이드', '24 V DC: SMPS, proximity sensor, relay, solenoid'), desc: tr('퓨즈 → SMPS → 근접 센서 (PNP 3선식) → 각형 릴레이 → 솔레노이드 밸브 · 부저. 덕트 · 전압계', 'Fuse, SMPS, PNP sensor, blade relay, solenoid valve and buzzer; duct and voltmeter'), build: dcSensor },
     { id: 'sol-alternate', name: tr('솔레노이드 밸브 2개 교번 (플리커 타이머)', 'Two solenoid valves alternating (flicker timer)'), desc: tr('플리커 타이머의 a접점과 b접점이 1초마다 번갈아 밸브 A · B 를 여자', 'A flicker timer energises valve A and valve B in turn'), build: solAlternate },
     { id: 'counter', name: tr('생산 수량 카운터 (완료등 · 리셋)', 'Production counter (done lamp, reset)'), desc: tr('리밋 스위치가 3번 눌리면 완료등, 리셋 버튼으로 0. 카운터의 무전압 입력 CP · COM · RST 와 출력 C · NO · NC', 'Three counts light the done lamp; reset button. Dry-contact inputs and the c/o output'), build: counterBasic },
+    { id: 'prox2', name: tr('2선식 근접 센서 (DC · AC)', '2-wire proximity sensors (DC, AC)'), desc: tr('갈색 · 파랑 두 선을 램프와 직렬로. 직류는 갈색이 + 쪽, 교류는 극성 없음', 'Brown and blue in series with a lamp; DC brown on +, AC unpolarised'), build: prox2Wire },
     { id: 'ssr-heater', name: tr('SSR 로 히터 켜기', 'Heater on an SSR'), desc: tr('DC 24V 스위치로 SSR 입력 (3 + · 4 -) 을 넣어 교류 히터 2 kW 를 개폐', 'A 24 V DC switch drives the SSR input; the SSR switches a 2 kW AC heater'), build: ssrHeater },
     { id: 'lamp-delay', name: tr('타이머 지연 점등 (표시등)', 'Delayed lamp on a timer'), desc: tr('스위치를 켜고 3초 뒤에 표시등이 켜진다. 8핀 타이머의 전원 2-7 과 한시 a접점 8-6', 'The lamp lights 3 s after the switch; 8-pin timer power 2-7 and timed NO 8-6'), build: lampDelay },
     { id: 'home-outlet', name: tr('주거 배선: 누전차단기 · 스위치 · 전등 · 콘센트', 'Home wiring: ELB, switch, light, outlet'), desc: tr('누전차단기에서 스위치 → 전등, 콘센트. 중성선 바와 접지 바에서 회로마다 한 가닥씩', 'ELB to switch, light and outlet; neutral and earth bars'), build: homeOutlet },

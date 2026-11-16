@@ -1071,6 +1071,12 @@ describe('example projects: motor control, DC sensor, home wiring', () => {
     expect(at('load:H1')).toEqual([[0, 0], [1000, 1], [4000, 0]]);
   });
 
+  it('2-wire proximity sensors: DC (brown on +) and AC, each in series with its lamp', () => {
+    const { at } = run('prox2');
+    expect(at('load:PL1')).toEqual([[0, 0], [1000, 1], [3000, 0]]);
+    expect(at('load:PL2')).toEqual([[0, 0], [2000, 1], [4000, 0]]);
+  });
+
   it('examples are listed in groups', async () => {
     const { exampleGroups } = await import('../src/circuit/examples');
     const groups = exampleGroups().map((g) => g.key);

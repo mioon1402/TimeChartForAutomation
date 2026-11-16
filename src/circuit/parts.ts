@@ -362,6 +362,8 @@ export const PARTS: Record<PartType, PartDef> = {
   r_fuse: { type: 'r_fuse', cat: 'protect', pins: [pin(0, -3, '1'), pin(0, 3, '2')], poles: [[0, 1]], box: [-1.3, -4, 1.3, 4], prefix: 'F' },
   r_smps: { type: 'r_smps', cat: 'power', pins: [pin(-4, 4, 'L'), pin(-2, 4, 'N'), pin(4, 4, '+V'), pin(2, 4, '-V'), pin(0, 4, 'FG')], box: [-5.2, -4, 5.2, 5.2], prefix: 'PS' },
   r_prox: { type: 'r_prox', cat: 'switch', pins: [pin(-2, 3, 'BN'), pin(0, 3, 'BK'), pin(2, 3, 'BU')], operate: 'toggle', box: [-3, -4.2, 3, 3.6], prefix: 'PX' },
+  // 2선식: 갈색 · 파랑 두 선이 접점처럼 (엔진이 직접 접점을 만든다: NO/NC 는 Part.ncOut, 직류 극성은 Part.ac 가 없을 때)
+  r_prox2: { type: 'r_prox2', cat: 'switch', pins: [pin(-1, 3, 'BN'), pin(1, 3, 'BU')], operate: 'toggle', box: [-3, -4.2, 3, 3.6], prefix: 'PX' },
   r_ls: {
     type: 'r_ls',
     cat: 'switch',
@@ -494,7 +496,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -794,6 +796,8 @@ export function partKindName(type: PartType): string {
       return tr('SMPS (DC 24V 전원)', 'SMPS (24 V DC supply)');
     case 'r_prox':
       return tr('근접 · 광전 센서 (3선식)', 'Proximity / photo sensor (3-wire)');
+    case 'r_prox2':
+      return tr('근접 센서 (2선식)', 'Proximity sensor (2-wire)');
     case 'r_ls':
       return tr('리밋 스위치 (1a1b)', 'Limit switch (1 NO 1 NC)');
     case 'r_buzzer':
@@ -946,6 +950,8 @@ export function palette(): PaletteGroup[] {
         it('r_prox', tr('근접 센서 PNP (3선식)', 'Proximity PNP (3-wire)'), { sense: 'inductive' }, 'rprox-p'),
         it('r_prox', tr('근접 센서 NPN (3선식)', 'Proximity NPN (3-wire)'), { sense: 'inductive', npn: true }, 'rprox-n'),
         it('r_prox', tr('광전 센서 (3선식)', 'Photo sensor (3-wire)'), { sense: 'photo' }, 'rprox-ph', 'PH'),
+        it('r_prox2', tr('근접 센서 DC 2선식', 'Proximity DC 2-wire'), { sense: 'inductive' }, 'rprox2-dc'),
+        it('r_prox2', tr('근접 센서 AC 2선식', 'Proximity AC 2-wire'), { sense: 'inductive', ac: true }, 'rprox2-ac'),
         it('r_float', tr('플로트 스위치 (수위)', 'Float switch')),
         it('r_psw', tr('압력 스위치', 'Pressure switch')),
       ],
@@ -1038,6 +1044,7 @@ export function palette(): PaletteGroup[] {
         it('prox', tr('근접 센서 (유도형)', 'Proximity (inductive)'), { sense: 'inductive' }, 'prox-i', 'PX'),
         it('prox', tr('근접 센서 (정전용량형)', 'Proximity (capacitive)'), { sense: 'capacitive' }, 'prox-c', 'PX'),
         it('prox', tr('광전 센서', 'Photoelectric sensor'), { sense: 'photo' }, 'prox-p', 'PE'),
+        it('ls_no', tr('근접 센서 (2선식)', 'Proximity (2-wire)'), { sense: 'inductive' }, 'prox2', 'PX'),
         it('ls_no', tr('리드 스위치 (실린더 센서)', 'Reed switch (cylinder)'), { sense: 'reed' }, 'reed', 'RS'),
         it('ls_no', tr('플로트 스위치', 'Float switch'), { sense: 'float' }, 'float', 'FLS'),
         it('ls_no', tr('압력 스위치', 'Pressure switch'), { sense: 'pressure' }, 'press', 'PS'),
@@ -1141,13 +1148,13 @@ export const POLE_SYSTEM: Record<string, 'dc' | 'ac' | 'pe' | 'hv'> = { '+24V': 
 
 /** 기호를 따라 움직이는 접점 (코일·타이머·THR·스위치) */
 export const FOLLOWER: ReadonlySet<PartType> = new Set(['no', 'nc', 'km3']);
-export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3', 'r_prox', 'r_ls', 'r_pbl', 'r_fsw', 'r_float', 'r_psw', 'r_ss3']);
+export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3', 'r_prox', 'r_ls', 'r_pbl', 'r_fsw', 'r_float', 'r_psw', 'r_ss3', 'r_prox2']);
 export const VALVES: ReadonlySet<PartType> = new Set(['v32', 'v52', 'v52d', 'v53']);
 export const CONTACT_A: ReadonlySet<PartType> = new Set(['no', 'pb_no', 'sw_no', 'ls_no']);
 export const CONTACT_B: ReadonlySet<PartType> = new Set(['nc', 'pb_nc', 'sw_nc', 'ls_nc', 'estop']);
 
 export function isLinkedSensor(p: Part): boolean {
-  return (p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'prox' || p.type === 'r_ls' || p.type === 'r_prox') && !!p.cyl;
+  return (p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'prox' || p.type === 'r_ls' || p.type === 'r_prox' || p.type === 'r_prox2') && !!p.cyl;
 }
 
 /** 기호 순서 비교: PB2 < PB10 */

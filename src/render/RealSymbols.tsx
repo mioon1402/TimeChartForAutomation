@@ -1432,3 +1432,37 @@ export function SsrGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColor
     </g>
   );
 }
+
+/** 2선식 근접 센서: 원통 몸통에 갈색 · 파랑 두 선. 부하와 직렬로 (스위치처럼) 잇는다 */
+export function Prox2Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const on = st.act;
+  const leads: [number, string, string][] = [
+    [-20, '#92400e', p.ac ? tr('갈', 'BN') : tr('갈 +', 'BN +')],
+    [20, '#2563eb', p.ac ? tr('청', 'BU') : tr('청 -', 'BU -')],
+  ];
+  return (
+    <g>
+      {leads.map(([x, col, t]) => (
+        <g key={x}>
+          <path d={`M0,-8C0,20 ${x},16 ${x},46`} stroke="#00000040" strokeWidth={5.4} fill="none" />
+          <path d={`M0,-8C0,20 ${x},16 ${x},46`} stroke={col} strokeWidth={3.6} fill="none" />
+          <rect x={x - 3} y={44} width={6} height={12} fill="#d1d5db" stroke="#6b7280" strokeWidth={0.8} />
+          <circle cx={x} cy={60} r={5} fill={col} stroke="#ffffff" strokeWidth={1.2} />
+          <Label x={x} y={76} text={t} size={7} weight={700} fill={c.muted} />
+        </g>
+      ))}
+      <rect x={-14} y={-78} width={28} height={12} rx={2} fill={p.ac ? '#a3e635' : '#f97316'} stroke="#7c2d12" strokeWidth={0.8} />
+      <rect x={-14} y={-66} width={28} height={46} fill="#9ca3af" stroke="#4b5563" />
+      {[-60, -52, -44, -36, -28].map((y) => (
+        <path key={y} d={`M-14,${y}H14`} stroke="#4b5563" strokeWidth={1} />
+      ))}
+      <rect x={-18} y={-40} width={36} height={8} fill="#d1d5db" stroke="#6b7280" />
+      <rect x={-12} y={-20} width={24} height={12} rx={2} fill="#1f2937" />
+      {on && <path d="M-12,-84Q0,-94 12,-84M-18,-90Q0,-104 18,-90" stroke="#f97316" strokeWidth={1.6} fill="none" />}
+      <circle cx={0} cy={-14} r={3.4} fill={on ? '#ef4444' : '#6b7280'} stroke="#111827" strokeWidth={0.8} />
+      <Label x={24} y={-66} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <Label x={24} y={-53} text={`${tr('2선식', '2-wire')} · ${p.ac ? 'AC 100-240V' : 'DC 12-24V'} · ${p.ncOut ? 'NC' : 'NO'}`} anchor="start" size={8.5} weight={600} fill={c.muted} />
+      {p.name && <Label x={24} y={-41} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}

@@ -52,6 +52,8 @@ export interface Conductor {
   inst?: boolean;
   /** 3단 셀렉터: 이 자리 (-1 왼쪽, 1 오른쪽) 에서 닫힌다 */
   sel?: -1 | 1;
+  /** 직류 2선식 센서: a = 갈색, b = 파랑. 파랑이 + 쪽이거나 갈색이 0V 쪽이면 (거꾸로 이으면) 켜지지 않는다 */
+  dc2?: boolean;
 }
 
 /** 공압 포트 상태: P = 압력, E = 배기(대기), X = 막힘 */
@@ -210,6 +212,9 @@ export class CircuitModel {
         // PNP: 감지하면 출력이 + 에, NPN: 출력이 0V 에 이어진다
         this.proxs.push({ part: p, bn: pin(0), bu: pin(2) });
         this.conductors.push({ part: p, a: p.npn ? pin(1) : pin(0), b: p.npn ? pin(2) : pin(1), ia: p.npn ? 1 : 0, ib: p.npn ? 2 : 1, tag, nc: false, always: false, power: p.id });
+      } else if (p.type === 'r_prox2') {
+        // 2선식: 갈색 · 파랑이 부하와 직렬인 접점 (전원은 부하를 거쳐 받는다)
+        this.conductors.push({ part: p, a: pin(0), b: pin(1), ia: 0, ib: 1, tag, nc: !!p.ncOut, always: false, ...(p.ac ? {} : { dc2: true }) });
       } else if (SMPS_TYPES.has(p.type)) this.smpsList.push({ part: p, inL: pin(0), inN: pin(1), outP: pin(2), outM: pin(3) });
       else if (p.type === 'air') this.airSrc.push(pin(0));
       else if (p.type === 'frl' || p.type === 'fc') {
@@ -439,6 +444,7 @@ export class CircuitSim {
   closed(p: Part): boolean {
     if (p.type === 'fuse' || p.type === 'fuse3' || p.type === 'r_tb') return true;
     if (p.type === 'sw_no' && p.sel) return this.selPos(tagKey(p)) === p.sel;
+    if (p.type === 'r_prox2') return this.on(tagKey(p)) !== !!p.ncOut;
     if ((p.type === 'no' || p.type === 'nc') && p.inst13) return !!this.timers.get(tagKey(p))?.coil !== (p.type === 'nc');
     const v = this.on(tagKey(p));
     return PARTS[p.type].nc ? !v : v;
@@ -514,14 +520,6 @@ export class CircuitSim {
       }
       return i;
     };
-    for (const c of this.m.conductors) {
-      if (this.conductorClosed(c)) {
-        const ra = find(c.a);
-        const rb = find(c.b);
-        if (ra !== rb) parent[ra] = rb;
-      }
-    }
-    const poles = new Map<number, Set<string>>();
     const sources = [...this.m.sources];
     for (const s of this.m.smpsList) {
       if (!this.powered.get(s.part.id)) continue;
@@ -532,6 +530,33 @@ export class CircuitSim {
       ['L1', 'L2', 'L3'].forEach((id, k) => poleLive(this.m.circuit, id) && sources.push({ net: t.x[k], id }));
       if (poleLive(this.m.circuit, 'N')) sources.push({ net: t.x0, id: 'N' });
     }
+    const join = (a: number, b: number) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent[ra] = rb;
+    };
+    const dc2: Conductor[] = [];
+    for (const c of this.m.conductors) {
+      if (!this.conductorClosed(c)) continue;
+      if (c.dc2) dc2.push(c);
+      else join(c.a, c.b);
+    }
+    // 직류 2선식 센서: 나머지를 다 이은 뒤 극성을 보고 (갈색이 0V 쪽 · 파랑이 + 쪽이면 거꾸로라 켜지지 않음) 잇는다
+    for (let changed = dc2.length > 0; changed; ) {
+      changed = false;
+      const at = new Map<number, Set<string>>();
+      for (const s of sources) at.set(find(s.net), (at.get(find(s.net)) ?? new Set<string>()).add(s.id));
+      for (let i = dc2.length - 1; i >= 0; i--) {
+        const c = dc2[i];
+        const bn = at.get(find(c.a)) ?? new Set<string>();
+        const bu = at.get(find(c.b)) ?? new Set<string>();
+        if ((bu.has('+24V') && !bn.has('+24V')) || (bn.has('0V') && !bu.has('0V'))) continue;
+        join(c.a, c.b);
+        dc2.splice(i, 1);
+        changed = true;
+      }
+    }
+    const poles = new Map<number, Set<string>>();
     for (const s of sources) {
       const r = find(s.net);
       const set = poles.get(r) ?? new Set<string>();

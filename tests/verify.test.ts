@@ -355,3 +355,57 @@ describe('3-position selector, counter and SSR', () => {
     expect(has(ac, 'SSR1: 정격은 DC 4-32V')).toBe(true);
   });
 });
+
+describe('2-wire proximity sensor', () => {
+  /** +24V → (센서 또는 램프) → … → 0V. hi = 센서가 + 쪽 */
+  const dc = (o: { hi?: boolean; reversed?: boolean; ac?: boolean; ncOut?: boolean; direct?: boolean } = {}): Circuit => {
+    const px = part('r_prox2', 10, 0, 'PX1', { sense: 'inductive', ...(o.ac ? { ac: true } : {}), ...(o.ncOut ? { ncOut: true } : {}) });
+    const lamp = part('r_lamp', 20, 0, 'PL1', { spec: 'DC 24V' });
+    const [bn, bu] = pinPositions(px);
+    const [x1, x2] = pinPositions(lamp);
+    const parts = [px, lamp];
+    const wires: Wire[] = [];
+    const top = o.reversed ? bu : bn;
+    const bottom = o.reversed ? bn : bu;
+    if (o.direct) parts.push(term('+24V', ...top), term('0V', ...bottom));
+    else if (o.hi !== false) {
+      parts.push(term('+24V', ...top), term('0V', ...x2));
+      wires.push(wire(bottom, [bottom[0], 8]), wire([bottom[0], 8], [x1[0], 8]), wire([x1[0], 8], x1));
+    } else {
+      parts.push(term('+24V', ...x1), term('0V', ...bottom));
+      wires.push(wire(x2, [x2[0], 8]), wire([x2[0], 8], [top[0], 8]), wire([top[0], 8], top));
+    }
+    return { parts, wires, ops: [{ id: 'a', wait: 100, tag: 'PX1', action: 'on', hold: 0 }] };
+  };
+  const lamp = (c: Circuit) => runScenario(c).tracks.find((t) => t.key === 'load:PL1')!.points.map((p) => [p.t, p.v]);
+
+  it('switches the load in series, on the + side or the 0 V side', () => {
+    expect(lamp(dc())).toEqual([[0, 0], [100, 1]]);
+    expect(lamp(dc({ hi: false }))).toEqual([[0, 0], [100, 1]]);
+    expect(msgs(dc())).toEqual([]);
+    expect(msgs(dc({ hi: false }))).toEqual([]);
+  });
+
+  it('a reversed DC sensor does not switch on and the check says why; the AC type has no polarity', () => {
+    expect(lamp(dc({ reversed: true }))).toEqual([[0, 0]]);
+    expect(lamp(dc({ reversed: true, hi: false }))).toEqual([[0, 0]]);
+    expect(has(dc({ reversed: true }), 'PX1: 극성이 반대입니다')).toBe(true);
+    expect(has(dc({ reversed: true, hi: false }), 'PX1: 극성이 반대입니다')).toBe(true);
+    expect(lamp(dc({ reversed: true, ac: true }))).toEqual([[0, 0], [100, 1]]);
+    expect(has(dc({ ac: true }), 'PX1: 교류용 (AC 100-240V) 2선식 센서가 직류 회로에')).toBe(true);
+  });
+
+  it('NC output is on until it detects', () => {
+    expect(lamp(dc({ ncOut: true }))).toEqual([[0, 1], [100, 0]]);
+  });
+
+  it('reports a sensor wired straight across the supply', () => {
+    expect(has(dc({ direct: true }), 'PX1: 부하 없이 전원 두 극 (+24V · 0V) 사이에 바로 물려 있습니다')).toBe(true);
+  });
+
+  it('keeps AC / NC through saving and becomes a 2-wire proximity contact in the schematic', () => {
+    const c = dc({ ac: true, ncOut: true });
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify(c)))!;
+    expect(back.parts.find((p) => p.type === 'r_prox2')).toMatchObject({ ac: true, ncOut: true });
+  });
+});

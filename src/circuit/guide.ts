@@ -167,6 +167,21 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('시뮬레이션에서 센서를 누르면 감지 (다시 누르면 해제) 됩니다. 속성에서 실린더 끝에 연결하면 실린더가 닿을 때 스스로 감지합니다.', 'Click to detect or release; link it to a cylinder end in the properties to make it automatic.'),
         'dc-sensor',
       );
+    case 'r_prox2':
+      return g(
+        tr('2선식 근접 센서입니다. 갈색 · 파랑 두 선뿐이고, 리밋 스위치처럼 부하 (릴레이 코일 · PLC 입력 · 램프) 와 직렬로 잇습니다. 센서 전원은 부하를 거쳐 받습니다. 직류용 (DC 12-24V) 은 극성이 있고, 교류용 (AC 100-240V) 은 극성이 없습니다.', 'A 2-wire proximity sensor: just brown and blue, wired in series with the load (relay coil, PLC input, lamp) like a limit switch; it takes its supply through the load. The DC type is polarised, the AC type is not.'),
+        [
+          [tr('갈색 (BN)', 'brown (BN)'), tr('직류: + 쪽 (+24V 쪽이나 부하의 + 쪽). 교류: 어느 쪽이든', 'DC: the + side (+24 V, or the + end of the load). AC: either side')],
+          [tr('파랑 (BU)', 'blue (BU)'), tr('직류: 0V 쪽 (부하 쪽이나 0V). 교류: 어느 쪽이든', 'DC: the 0 V side. AC: either side')],
+        ],
+        [
+          tr('+24V → 갈색, 파랑 → 부하 → 0V (또는 +24V → 부하 → 갈색, 파랑 → 0V)', '+24 V → brown, blue → load → 0 V (or +24 V → load → brown, blue → 0 V)'),
+          tr('부하 없이 전원 두 극 사이에 바로 이으면 감지하는 순간 단락되어 센서가 탑니다 → [검사] 탭이 알려 줍니다', 'Never wire it straight across the supply: it shorts and burns when it detects (the Check tab reports this)'),
+          tr('꺼져 있어도 누설전류 (약 1 mA 이하) 가 흐르고 켜지면 잔류전압 (몇 V) 이 남습니다. 소형 릴레이 · PLC 입력이 꺼지지 않으면 부하와 나란히 블리더 저항을 답니다', 'Off-state leakage (≤ about 1 mA) and on-state residual voltage (a few V): if a small relay or PLC input will not drop out, add a bleeder resistor across the load'),
+        ],
+        tr('시뮬레이션에서 센서를 누르면 감지 (다시 누르면 해제) 됩니다. 직류용을 거꾸로 이으면 켜지지 않습니다. 속성에서 실린더 끝에 연결하면 실린더가 닿을 때 스스로 감지합니다.', 'Click to detect or release. A reversed DC sensor does not switch on. Link it to a cylinder end in the properties to make it automatic.'),
+        'prox2',
+      );
     case 'r_ls':
     case 'r_fsw':
     case 'r_float':
@@ -498,7 +513,7 @@ export function partGuide(type: PartType): PartGuide | null {
     case 'ls_no':
     case 'ls_nc':
       return g(
-        tr('리밋 스위치(또는 리드 · 플로트 · 압력 스위치)입니다. 실린더 끝에 연결하면 실린더가 닿을 때 저절로 바뀝니다.', 'A limit switch; linked to a cylinder end it operates by itself.'),
+        tr('리밋 스위치(또는 리드 · 플로트 · 압력 스위치, 2선식 근접 센서)입니다. 접점처럼 부하와 직렬로 잇습니다. 실린더 끝에 연결하면 실린더가 닿을 때 저절로 바뀝니다.', 'A limit switch (or reed, float, pressure switch, 2-wire proximity sensor) wired in series like a contact; linked to a cylinder end it operates by itself.'),
         [[tr('위 · 아래', 'top, bottom'), tr('선 중간에 직렬로', 'in series')]],
         [tr('속성에서 [실린더 연결]과 전진단/후진단을 고릅니다', 'Choose the cylinder and its end in the properties'), tr('연결하지 않으면 손으로 누르는 스위치입니다', 'Unlinked, you click it by hand')],
         tr('실린더에 연결하면 자동, 아니면 누를 때마다 바뀝니다.', 'Automatic when linked, otherwise click to toggle.'),

@@ -370,6 +370,8 @@ function contactSym(k: Conductor): Sym | null {
       return { type: nc ? 'ls_nc' : 'ls_no', tag, extra: keep('cyl', 'end') };
     case 'r_float':
       return { type: nc ? 'ls_nc' : 'ls_no', tag, extra: { sense: 'float' } };
+    case 'r_prox2':
+      return { type: nc ? 'ls_nc' : 'ls_no', tag, extra: { sense: p.sense ?? 'inductive', ...keep('cyl', 'end') } };
     case 'r_psw':
       return { type: nc ? 'ls_nc' : 'ls_no', tag, extra: { sense: 'pressure' } };
     case 'r_mcb1':

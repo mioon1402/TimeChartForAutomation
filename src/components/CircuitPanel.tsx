@@ -1062,12 +1062,25 @@ function PropsPane({
               </Field>
             </div>
           )}
+          {p.type === 'r_prox2' && (
+            <>
+              <div className="grid2">
+                <Field label={tr('전원', 'Supply')}>
+                  <Select value={p.ac ? 'ac' : 'dc'} onChange={(v) => set({ ac: v === 'ac' || undefined })} options={[{ value: 'dc', label: tr('DC 12-24V (극성 있음)', 'DC 12-24V (polarised)') }, { value: 'ac', label: tr('AC 100-240V (극성 없음)', 'AC 100-240V (no polarity)') }]} />
+                </Field>
+                <Field label={tr('출력', 'Output')}>
+                  <Select value={p.ncOut ? 'nc' : 'no'} onChange={(v) => set({ ncOut: v === 'nc' || undefined })} options={[{ value: 'no', label: tr('NO (감지하면 켜짐)', 'NO (on when detecting)') }, { value: 'nc', label: tr('NC (감지하면 꺼짐)', 'NC (off when detecting)') }]} />
+                </Field>
+              </div>
+              <p className="small muted">{tr('갈색 · 파랑 두 선을 부하와 직렬로 (스위치처럼). 직류는 갈색이 + 쪽', 'Brown and blue in series with the load, like a switch. DC: brown on the + side')}</p>
+            </>
+          )}
           {(p.type === 'ls_no' || p.type === 'ls_nc') && (
             <Field label={tr('스위치 종류', 'Switch type')} wide>
-              <Select value={p.sense ?? ''} onChange={(v) => set({ sense: (v || undefined) as Part['sense'] })} options={[{ value: '', label: tr('리밋 스위치 (롤러)', 'Limit switch (roller)') }, { value: 'reed', label: tr('리드 스위치 (실린더 센서)', 'Reed switch') }, { value: 'float', label: tr('플로트 스위치 (수위)', 'Float switch') }, { value: 'pressure', label: tr('압력 스위치', 'Pressure switch') }]} />
+              <Select value={p.sense ?? ''} onChange={(v) => set({ sense: (v || undefined) as Part['sense'] })} options={[{ value: '', label: tr('리밋 스위치 (롤러)', 'Limit switch (roller)') }, { value: 'inductive', label: tr('근접 센서 (2선식)', 'Proximity sensor (2-wire)') }, { value: 'reed', label: tr('리드 스위치 (실린더 센서)', 'Reed switch') }, { value: 'float', label: tr('플로트 스위치 (수위)', 'Float switch') }, { value: 'pressure', label: tr('압력 스위치', 'Pressure switch') }]} />
             </Field>
           )}
-          {(p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'r_ls' || PROX_TYPES.has(p.type)) && (
+          {(p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'r_ls' || p.type === 'r_prox2' || PROX_TYPES.has(p.type)) && (
             <div className="grid2">
               <Field label={tr('실린더 연결', 'Cylinder')} hint={tr('비우면 시뮬레이션에서 눌러서 조작', 'Empty: operate by clicking')}>
                 <Select value={p.cyl ?? ''} onChange={(v) => set({ cyl: v || undefined })} options={[{ value: '', label: tr('(손으로 조작)', '(manual)') }, ...cylTags.map((t) => ({ value: t, label: t }))]} />
