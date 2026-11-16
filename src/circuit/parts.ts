@@ -375,7 +375,8 @@ export const PARTS: Record<PartType, PartDef> = {
     prefix: 'LS',
   },
   r_buzzer: { type: 'r_buzzer', cat: 'output', pins: [pin(-1, 1, 'X1'), pin(1, 1, 'X2')], load: true, box: [-1.8, -2.8, 1.8, 1.8], prefix: 'BZ' },
-  r_sol: { type: 'r_sol', cat: 'output', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], load: true, box: [-2.6, -3.2, 2.6, 2.8], prefix: 'SOL' },
+  // 솔레노이드 밸브 (5포트 공압 밸브 + 코일). 단자 이름은 partPins 가 결선 방식에 따라 (리드선 + · - / DIN 1 · 2 · 접지)
+  r_sol: { type: 'r_sol', cat: 'output', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], load: true, box: [-2.9, -3.4, 2.9, 2.9], prefix: 'SOL' },
   r_fan: { type: 'r_fan', cat: 'output', pins: [pin(-1, 3, 'L'), pin(1, 3, 'N')], load: true, box: [-3, -3, 3, 3.8], prefix: 'FAN' },
   r_pbl: {
     type: 'r_pbl',
@@ -570,6 +571,11 @@ export const PROX_TYPES: ReadonlySet<PartType> = new Set(['prox', 'r_prox']);
 export const SMPS_TYPES: ReadonlySet<PartType> = new Set(['smps', 'r_smps']);
 export const SOL_TYPES: ReadonlySet<PartType> = new Set(['sol', 'r_sol']);
 
+/** 솔레노이드 밸브 코일이 교류인가 (사양에 AC 가 적혀 있으면). 비우면 DC 24V */
+export function solAc(p: Pick<Part, 'spec'>): boolean {
+  return /\bAC\b/i.test(p.spec ?? '');
+}
+
 /** 3단 셀렉터의 세 자리 이름 (왼쪽 · 가운데 · 오른쪽) */
 export function pos3Labels(p: Pick<Part, 'pos3'>): [string, string, string] {
   const d: [string, string, string] = [tr('수동', 'MAN'), tr('정지', 'OFF'), tr('자동', 'AUTO')];
@@ -601,6 +607,8 @@ export function partPins(p: Part): PinDef[] {
   // 8핀 소켓은 단자 배열에 따라 자리가 다르다 (차례는 늘 단자 번호 1~8)
   if (p.type === 'r_relay8' || p.type === 'r_timer8') return OCTAL_PINS[octalLayout(p)];
   if (p.type === 'r_nbar') return Array.from({ length: tbSize(p) }, (_, k) => pin(2 * k, 0, String(k + 1)));
+  // 솔레노이드 밸브: 리드선이면 직류는 + · - (빨강 · 검정), DIN 커넥터면 1 · 2 와 접지
+  if (p.type === 'r_sol') return p.conn === 'din' ? [pin(-1, 2, '1'), pin(1, 2, '2'), pin(0, 2, 'PE')] : solAc(p) ? [pin(-1, 2, '1'), pin(1, 2, '2')] : [pin(-1, 2, '+'), pin(1, 2, '-')];
   if (p.type !== 'r_tb') return PARTS[p.type].pins;
   const out: PinDef[] = [];
   for (let k = 0; k < tbSize(p); k++) out.push(pin(2 * k, -2, String(k + 1)), pin(2 * k, 2, String(k + 1)));

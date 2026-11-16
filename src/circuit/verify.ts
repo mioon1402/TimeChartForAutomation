@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType, WireColor } from './types';
-import { circuitWires, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL } from './parts';
+import { circuitWires, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL, solAc } from './parts';
 import { onWireInterior } from './netlist';
 import type { CircuitModel } from './engine';
 import { nominalVolt, poleLive, systemVolts } from './supply';
@@ -66,7 +66,7 @@ const COLOR_NAME: Record<WireColor, [string, string]> = {
 /** 기기에 적힌 정격 전압: 교류 · 직류와 전압 범위 (없으면 null) */
 export function ratedVoltage(p: Part): { kind: 'ac' | 'dc' | 'any'; lo: number; hi: number; text: string } | null {
   // 덮개에 AC 220V 가 적혀 나오는 기기는 사양을 비워도 그 전압으로 본다
-  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : '';
+  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' ? 'DC 24V' : '';
   const text = p.spec?.trim() || shown;
   if (text) {
     const m = /(\d+(?:\.\d+)?)\s*(?:[~\-–]\s*(\d+(?:\.\d+)?))?\s*V/i.exec(text);
@@ -251,6 +251,12 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       const sys = new Set([...seriesPoles(bn), ...seriesPoles(bu)].filter(live).map((id) => POLE_SYSTEM[id]));
       if (!p.ac && sys.has('ac') && !sys.has('dc')) out.push({ level: 'error', msg: tr(`${name(p)}: 직류용 (DC 12-24V) 2선식 센서가 교류 회로에 있습니다. 속성에서 AC 용으로 바꾸거나 직류 회로에 잇습니다`, `${name(p)}: a DC 2-wire sensor in an AC circuit`), partIds: [p.id] });
       if (p.ac && sys.has('dc') && !sys.has('ac')) out.push({ level: 'error', msg: tr(`${name(p)}: 교류용 (AC 100-240V) 2선식 센서가 직류 회로에 있습니다. 속성에서 DC 용으로 바꿉니다`, `${name(p)}: an AC 2-wire sensor in a DC circuit`), partIds: [p.id] });
+    } else if (p.type === 'r_sol' && p.conn !== 'din' && !solAc(p)) {
+      // 직류 코일 리드선: 빨강이 +, 검정이 - (LED · 서지 흡수 다이오드가 든 코일은 극성이 있다)
+      const [a, b] = [pinNet(p, 0), pinNet(p, 1)];
+      if (![a, b].some(wired)) continue;
+      const [A, B] = [allPoles(a), allPoles(b)];
+      if (B.has('+24V') && A.has('0V') && !A.has('+24V')) out.push({ level: 'warn', msg: tr(`${name(p)}: 리드선 극성이 반대입니다. 직류 코일은 빨강이 + (24V), 검정이 0V 쪽입니다 (표시등이 안 켜지고, 서지 흡수 다이오드가 든 코일은 상할 수 있음)`, `${name(p)}: lead polarity reversed; red is + and black is 0 V on a DC coil`), partIds: [p.id] });
     } else if (p.type === 'r_ssr') {
       const [a, b] = [pinNet(p, 2), pinNet(p, 3)];
       if (![a, b].some(wired)) continue;
@@ -316,7 +322,8 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
     // ── 7) 접지 (PE · FG) 단자
     {
       const hasPe = sources.some((s) => s.id === 'PE');
-      const open = c.parts.filter((p) => REAL.has(p.type) && partPins(p).some((d, i) => (d.label === 'PE' || d.label === 'FG') && !tiePoles(pinNet(p, i)).has('PE')) && partPins(p).some((_, i) => wired(pinNet(p, i))));
+      // 직류 솔레노이드 (DIN 커넥터) 는 접지가 없어도 된다
+      const open = c.parts.filter((p) => REAL.has(p.type) && !(p.type === 'r_sol' && !solAc(p)) && partPins(p).some((d, i) => (d.label === 'PE' || d.label === 'FG') && !tiePoles(pinNet(p, i)).has('PE')) && partPins(p).some((_, i) => wired(pinNet(p, i))));
       if (open.length)
         out.push({
           level: 'warn',

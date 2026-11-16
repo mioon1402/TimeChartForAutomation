@@ -237,7 +237,7 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'r_buzzer':
       return { kind: tr('부저', 'Buzzer'), spec: '' };
     case 'r_sol':
-      return { kind: tr('솔레노이드 밸브', 'Solenoid valve'), spec: tr('코일 DC 24V', 'coil DC 24V') };
+      return { kind: tr('솔레노이드 밸브', 'Solenoid valve'), spec: `${tr('코일', 'coil')} ${p.spec?.trim() || 'DC 24V'}, ${p.conn === 'din' ? tr('DIN 커넥터', 'DIN connector') : tr('리드선', 'lead wires')}` };
     case 'r_fan':
       return { kind: tr('판넬 팬', 'Panel fan'), spec: 'AC 220V' };
     case 'r_outlet':
