@@ -1,6 +1,6 @@
 import type { ReactNode, JSX } from 'react';
 import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
-import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
+import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
 import { BusGlyph, CounterGlyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
@@ -345,6 +345,14 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <Coil st={st} c={c} />;
     case 'timer':
       return <Coil st={st} c={c} timer />;
+    case 'load':
+      return (
+        <g>
+          <path d="M0,-40V-10M0,10V40" stroke={c.ink} />
+          <rect x={-15} y={-10} width={30} height={20} stroke={st.on ? c.accent : c.ink} fill={st.on ? c.fillOn : c.bg} strokeWidth={st.on ? 2.2 : 1.6} />
+          <path d="M-9,6l4,-12M-2,6l4,-12M5,6l4,-12" stroke={st.on ? c.accent : c.ink} strokeWidth={1.2} />
+        </g>
+      );
     case 'sol':
       return (
         <g>
@@ -565,6 +573,7 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
   const side = p.type === 'prox' ? 2.6 : p.type === 'fc' || p.type === 'frl' ? 1.7 : 0.9;
   let lines: string[] = [p.tag];
   if (p.name) lines.push(p.name);
+  if (p.type === 'sw_no' && p.sel) lines.push(`(${pos3Labels(p)[p.sel < 0 ? 0 : 2]})`);
   if (p.type === 'timer') lines[0] = `${p.tag} ${formatTime(p.preset ?? 3000, 's').replace(' ', '')}${p.timerMode === 'off' ? ' OFF' : p.timerMode === 'flicker' ? ' FLK' : ''}`;
   if (p.type === 'cyl') lines = [[p.tag, p.name].filter(Boolean).join(' '), ...(!st.air && p.solPlus?.trim() ? [`${p.solPlus}${p.solMinus ? ` / ${p.solMinus}` : ''}`] : [])];
   if (p.type === 'fc') lines.push(`${p.speed ?? 50}%`);
@@ -588,6 +597,8 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
   }
   const pinLabels = PARTS[p.type].pins.filter((pin) => pin.label).length && !wide && !valve && p.type !== 'prox';
   const pinText = (i: number, label: string) => {
+    const term = p.term?.split('-');
+    if (term?.length === 2) return term[i];
     if (st.link === 'thr' && (p.type === 'nc' || p.type === 'no')) return p.type === 'nc' ? ['95', '96'][i] : ['97', '98'][i];
     if (st.link === 'timer' && (p.type === 'nc' || p.type === 'no')) return p.type === 'nc' ? ['55', '56'][i] : ['67', '68'][i];
     return label;
@@ -606,7 +617,7 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
       )}
       {pinLabels &&
         PARTS[p.type].pins.map((pin, i) => {
-          const [ox, oy] = rotate(-7, pin.y < 0 ? -26 : 30, p.rot);
+          const [ox, oy] = rotate(p.term && pin.y < 0 ? 7 : -7, pin.y < 0 ? -26 : 30, p.rot);
           const [px, py] = pinPositions(p)[i];
           return (
             <text key={i} x={px * G + ox} y={py * G + oy + 3} textAnchor="middle" fontSize={8.5} fill={c.muted}>

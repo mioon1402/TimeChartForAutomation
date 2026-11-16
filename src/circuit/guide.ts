@@ -538,6 +538,8 @@ export function partGuide(type: PartType): PartGuide | null {
       return g(tr('3상 전동기입니다. 세 상이 모두 닿으면 돌고, 상 순서로 정 · 역이 정해집니다.', 'A 3-phase motor.'), [['U · V · W', tr('THR 아래에서', 'from the overload relay')]], [tr('L1→U, L2→V, L3→W 는 정회전. 두 상을 바꾸면 역회전', 'Swap two phases to reverse')], AUTO(), 'reversing');
     case 'motor':
       return g(tr('전동기(단상 · 직류)입니다. 양 끝에 전압이 걸리면 돕니다. 직류는 극을 바꾸면 역회전합니다.', 'A single-phase or DC motor.'), [[tr('위 · 아래', 'top, bottom'), tr('두 극 사이에', 'between two poles')]], [tr('접점이나 MC 를 거쳐 전원에 잇습니다', 'Wire through a contact to the supply')], AUTO());
+    case 'load':
+      return g(tr('부하 (히터 · 팬 등) 입니다. 두 단자 사이에 전압이 걸리면 동작합니다. 용량은 속성의 [해석] 값으로 적습니다.', 'A load (heater, fan …): on when powered. Enter its rating for the analysis.'), [[tr('위 · 아래', 'top, bottom'), tr('한쪽은 접점 뒤에, 다른 쪽은 N 에', 'one side after the contact, the other to N')]], [tr('자주 켜고 끄는 히터는 SSR 로 개폐합니다', 'Switch heaters that cycle often with an SSR')], AUTO(), 'ssr-heater');
     case 'sol':
       return g(
         tr('솔레노이드(밸브 코일)입니다. 전압이 걸리면 밸브가 넘어가 실린더가 움직입니다.', 'A solenoid: when powered the valve shifts and the cylinder moves.'),

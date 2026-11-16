@@ -86,6 +86,8 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (typeof q.ka === 'number' && q.ka > 0 && q.ka < 1000) p.ka = q.ka;
     if (typeof q.count === 'number' && q.count >= 1) p.count = Math.min(999999, Math.round(q.count));
     if (optStr(q.pos3)) p.pos3 = str(q.pos3).slice(0, 60);
+    if (q.sel === -1 || q.sel === 1) p.sel = q.sel;
+    if (optStr(q.term)) p.term = str(q.term).slice(0, 24);
     if (typeof q.w === 'number' && q.w >= 2) p.w = Math.min(400, Math.round(q.w));
     if (typeof q.h === 'number' && q.h >= 2) p.h = Math.min(400, Math.round(q.h));
     if (Array.isArray(q.sched)) {

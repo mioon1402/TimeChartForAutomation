@@ -175,7 +175,7 @@ export class CircuitModel {
         if (!this.sensorDef.has(tag)) this.sensorDef.set(tag, { cyl: normTag(p.cyl!), end: p.end ?? '+' });
       } else if (OPERATOR.has(p.type)) {
         setKind(tag, 'operator', p);
-        if (p.type === 'r_ss3') this.sel3.add(tag);
+        if (p.type === 'r_ss3' || (p.type === 'sw_no' && p.sel)) this.sel3.add(tag);
         if (def.defaultOn) this.operatorDefault.set(tag, true);
       } else if (p.type === 'cyl') {
         if (p.tag.trim() && !this.cylDef.has(tag)) this.cylDef.set(tag, p);
@@ -191,7 +191,7 @@ export class CircuitModel {
         poles.forEach(([i, j], k) => {
           const a = this.net.pinNet.get(`${p.id}:${i}`)!;
           const b = this.net.pinNet.get(`${p.id}:${j}`)!;
-          this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: def.polesNc?.[k] ?? !!def.nc, always, inst: p.type === 'r_timer8' && !!p.inst13 && k < 2, ...(p.type === 'r_ss3' ? { sel: k === 0 ? (-1 as const) : (1 as const) } : {}) });
+          this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: def.polesNc?.[k] ?? !!def.nc, always, inst: (p.type === 'r_timer8' && !!p.inst13 && k < 2) || ((p.type === 'no' || p.type === 'nc') && !!p.inst13), ...(p.type === 'r_ss3' ? { sel: k === 0 ? (-1 as const) : (1 as const) } : p.type === 'sw_no' && p.sel ? { sel: p.sel } : {}) });
         });
       }
       // 전원 계통에 없는 극 (3상 3선식의 N, 단상의 L3 …) 은 전압이 없다
@@ -438,6 +438,8 @@ export class CircuitSim {
   /** 접점 (부품) 이 닫혀 있는가 */
   closed(p: Part): boolean {
     if (p.type === 'fuse' || p.type === 'fuse3' || p.type === 'r_tb') return true;
+    if (p.type === 'sw_no' && p.sel) return this.selPos(tagKey(p)) === p.sel;
+    if ((p.type === 'no' || p.type === 'nc') && p.inst13) return !!this.timers.get(tagKey(p))?.coil !== (p.type === 'nc');
     const v = this.on(tagKey(p));
     return PARTS[p.type].nc ? !v : v;
   }

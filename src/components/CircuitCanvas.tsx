@@ -374,7 +374,7 @@ export function CircuitCanvas(props: CanvasProps) {
       if (p && operable(p)) {
         const tag = tagKey(p);
         const [lx] = rotate(g[0] - p.x, g[1] - p.y, ((360 - p.rot) % 360) as Rot);
-        props.onOperate(tag, 'down', lx < 0 ? -1 : 1);
+        props.onOperate(tag, 'down', p.type === 'sw_no' && p.sel ? p.sel : lx < 0 ? -1 : 1);
         setD({ kind: 'op', tag });
       } else {
         const el = wrapRef.current!;
