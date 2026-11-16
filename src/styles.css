@@ -782,6 +782,21 @@ button.chip:hover {
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: var(--shadow);
+  /* 화면 아래로 넘치면 메뉴 안에서 스크롤 (높이는 Menu 가 남은 화면만큼 정한다) */
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.menu-folder.open > .menu-item.folder {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.menu-sub {
+  margin: 0 0 4px 12px;
+  padding-left: 4px;
+  border-left: 2px solid var(--accent-soft);
 }
 
 .menu-pop.ctx {

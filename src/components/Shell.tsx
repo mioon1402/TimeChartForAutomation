@@ -8,7 +8,7 @@ import { GUIDE_URL, introUrl, ISSUES_URL, OFFLINE_FILE, REPO_URL, servedFromWeb,
 import { templates } from '../model/templates';
 import { sequenceStatus } from '../model/seqEdit';
 import { autoChartOn, circuitStatus } from '../circuit/chart';
-import { circuitExamples } from '../circuit/examples';
+import { circuitExamples, exampleGroups } from '../circuit/examples';
 import { tourTitle, type TourId } from './Tour';
 
 export function TopBar({ onHelp }: { onHelp: () => void }) {
@@ -67,7 +67,13 @@ export function TopBar({ onHelp }: { onHelp: () => void }) {
                 ]),
             { divider: true },
             ...templates().map((t) => ({ label: tr('템플릿: ', 'Template: ') + t.name, icon: 'chart', onClick: () => F.loadTemplate(t.id) })),
-            ...circuitExamples().map((ex) => ({ label: tr('예제 회로: ', 'Example circuit: ') + ex.name, icon: 'circuit', onClick: () => F.openCircuitExample(ex.id) })),
+            // 예제 회로는 묶음마다 폴더로 (전부 펼치면 메뉴가 화면을 넘는다)
+            ...exampleGroups().map((g) => ({
+              label: tr('예제 회로: ', 'Example circuits: ') + g.title,
+              sub: circuitExamples()
+                .filter((ex) => ex.group === g.key)
+                .map((ex) => ({ label: ex.name, icon: 'circuit', onClick: () => F.openCircuitExample(ex.id) })),
+            })),
             { label: tr('예제: PLC 프로그램 → 차트', 'Example: PLC program → chart'), icon: 'cpu', onClick: () => setTab('plc') },
             ...(WEB_TRIAL ? [] : [{ divider: true }, { label: tr('보고서 인쇄 / PDF', 'Print report / PDF'), icon: 'print', shortcut: 'Ctrl+P', onClick: F.printReport }]),
           ]}

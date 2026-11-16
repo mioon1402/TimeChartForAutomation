@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { formatTime, parseTime } from '../model/format';
 import { useStore } from '../store/store';
@@ -55,6 +55,9 @@ const PATHS: Record<string, string> = {
   wire: 'M4 19h6V5h10M4 17v4M20 3v4',
   rotate: 'M20 11a8 8 0 10-2.3 5.7M20 4v7h-7',
   stop: 'M6 6h12v12H6z',
+  folder: 'M3 6h6l2 2h10v11H3z',
+  chevronRight: 'M9 6l6 6-6 6',
+  chevronDown: 'M6 9l6 6 6-6',
 };
 
 export function Icon({ name, size = 16, className }: { name: keyof typeof PATHS | string; size?: number; className?: string }) {
@@ -84,11 +87,47 @@ export interface MenuItem {
   disabled?: boolean;
   divider?: boolean;
   checked?: boolean;
+  /** 폴더: 누르면 그 자리에서 아래로 펼쳐진다 (한 번에 하나만) */
+  sub?: MenuItem[];
 }
 
 export function Menu({ label, items, icon, tour }: { label: string; items: MenuItem[]; icon?: string; tour?: string }) {
   const [open, setOpen] = useState(false);
+  /** 펼친 폴더 (메뉴를 닫았다 열어도 기억) */
+  const [folder, setFolder] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  // 화면 아래로 넘치지 않게: 남은 높이까지만, 넘치면 메뉴 안에서 스크롤
+  useLayoutEffect(() => {
+    const el = popRef.current;
+    if (!open || !el) return;
+    const fit = () => {
+      el.style.maxHeight = `${Math.max(160, window.innerHeight - el.getBoundingClientRect().top - 12)}px`;
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [open]);
+  const item = (it: MenuItem, key: string | number, nested = false) =>
+    it.divider ? (
+      <div key={key} className="menu-div" />
+    ) : (
+      <button
+        type="button"
+        key={key}
+        role="menuitem"
+        className={`menu-item ${nested ? 'nested' : ''}`}
+        disabled={it.disabled}
+        onClick={() => {
+          setOpen(false);
+          it.onClick?.();
+        }}
+      >
+        <span className="menu-ico">{it.checked ? <Icon name="check" size={14} /> : it.icon ? <Icon name={it.icon} size={14} /> : null}</span>
+        <span className="menu-label">{it.label}</span>
+        {it.shortcut && <span className="menu-sc">{it.shortcut}</span>}
+      </button>
+    );
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
@@ -109,28 +148,23 @@ export function Menu({ label, items, icon, tour }: { label: string; items: MenuI
         {label}
       </button>
       {open && (
-        <div className="menu-pop" role="menu">
-          {items.map((it, i) =>
-            it.divider ? (
-              <div key={i} className="menu-div" />
-            ) : (
-              <button
-                type="button"
-                key={i}
-                role="menuitem"
-                className="menu-item"
-                disabled={it.disabled}
-                onClick={() => {
-                  setOpen(false);
-                  it.onClick?.();
-                }}
-              >
-                <span className="menu-ico">{it.checked ? <Icon name="check" size={14} /> : it.icon ? <Icon name={it.icon} size={14} /> : null}</span>
-                <span className="menu-label">{it.label}</span>
-                {it.shortcut && <span className="menu-sc">{it.shortcut}</span>}
-              </button>
-            ),
-          )}
+        <div className="menu-pop" role="menu" ref={popRef}>
+          {items.map((it, i) => {
+            if (!it.sub) return item(it, i);
+            const on = folder === i;
+            return (
+              <div key={i} className={`menu-folder ${on ? 'open' : ''}`}>
+                <button type="button" className="menu-item folder" aria-expanded={on} onClick={() => setFolder(on ? null : i)}>
+                  <span className="menu-ico">
+                    <Icon name={on ? 'chevronDown' : 'chevronRight'} size={14} />
+                  </span>
+                  <span className="menu-label">{it.label}</span>
+                  <span className="menu-sc">{it.sub.filter((s) => !s.divider).length}</span>
+                </button>
+                {on && <div className="menu-sub">{it.sub.map((s, k) => item(s, `${i}.${k}`, true))}</div>}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
