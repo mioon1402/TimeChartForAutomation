@@ -4914,6 +4914,18 @@ button.seq-kpi {
   transition: width 0.2s;
 }
 
+.cc-wiring-len {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.cc-wiring-len .btn {
+  margin-left: auto;
+}
+
 .cc-wiring-opts {
   display: flex;
   align-items: center;

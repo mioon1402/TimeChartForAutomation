@@ -23,6 +23,10 @@ import { downloadText, safeFileName } from '../io/files';
 import { niceCeil } from '../plc/simulator';
 import { askConfirm, askText, Check, Field, Icon, IconButton, Menu, NumberInput, Select, TimeInput } from './ui';
 import * as F from './fileActions';
+import { rerouteWiring, wireLength } from '../circuit/realize';
+
+/** 회로 기호가 아닌 것 (글 · PLC · 공압): [실물 배선도 만들기] 를 띄울지 볼 때 뺀다 */
+const NOT_SYMBOL = new Set<PartType>(['text', 'plc', 'cyl', 'v32', 'v52', 'v52d', 'v53', 'air', 'frl', 'fc']);
 import { circuitExamples, exampleGroups } from '../circuit/examples';
 import { tr } from '../i18n';
 import { WEB_TRIAL } from '../env';
@@ -153,6 +157,15 @@ export function CircuitPanel() {
     let p: Project = { ...st.project, circuit: next };
     if (regen && autoChartOn(p)) p = applyCircuit(p);
     commit(p, mergeKey);
+  };
+  /** 기기 자리는 그대로, 전선만 가장 짧게 다시 긋는다 (연결은 그대로) */
+  const reroute = () => {
+    const r = rerouteWiring(circuit);
+    if (r.skipped) return toast(r.skipped, 'warn');
+    if (r.failed) return toast(tr(`선 ${r.failed}개를 이을 자리가 없어 그대로 두었습니다. 기기 사이를 조금 띄운 뒤 다시 해 보세요`, `${r.failed} connection(s) had no room; nothing changed. Space the devices out a little and try again`), 'warn');
+    commitCircuit(r.circuit);
+    const m = (v: number) => (v / 100).toFixed(1);
+    toast(tr(`전선을 다시 그렸습니다: 약 ${m(r.before)} m → ${m(r.after)} m (연결은 그대로)`, `Wires redrawn: about ${m(r.before)} m → ${m(r.after)} m (same connections)`), 'ok');
   };
 
   // 지워진 부품은 선택에서 뺀다
@@ -508,6 +521,16 @@ export function CircuitPanel() {
             { label: tr('새 회로도 (새 차트 탭)', 'New circuit (new chart tab)'), icon: 'plus', onClick: F.addCircuitSheet },
           ]}
         />
+        {circuit.parts.some((p) => !REAL.has(p.type) && !NOT_SYMBOL.has(p.type)) && (
+          <button type="button" className="btn small" onClick={F.makeWiringSheet} disabled={running} title={tr('이 회로도를 실물 기기로 바꿔 판넬처럼 놓고 전선을 그어 새 차트 탭으로 엽니다 (전선이 짧아지게 차례를 정함, 시뮬레이션 결과가 같음)', 'Turn this schematic into real devices laid out like a panel with every wire drawn, in a new chart tab (ordered for short wires, same simulation)')}>
+            <Icon name="circuit" size={13} /> {tr('실물 배선도 만들기', 'Make wiring diagram')}
+          </button>
+        )}
+        {circuit.parts.some((p) => REAL.has(p.type) && p.type !== 'r_panel') && circuit.wires.length > 0 && (
+          <button type="button" className="btn small" onClick={reroute} disabled={running} title={tr('기기 자리는 그대로 두고 전선을 모두 다시 긋습니다 (가장 짧게, 연결은 그대로). 기기를 실제 자리로 옮긴 뒤 누르면 전선 길이를 비교할 수 있습니다', 'Redraw every wire for the current device positions (shortest, same connections); move devices to their real places first to compare wire length')}>
+            <Icon name="wire" size={13} /> {tr('배선 다시 그리기', 'Re-route wires')}
+          </button>
+        )}
         {circuit.parts.some((p) => REAL.has(p.type) && p.type !== 'r_panel') && (
           <button type="button" className="btn small" onClick={F.makeSchematicSheet} disabled={running} title={tr('이 실물 배선도를 회로 기호로 다시 그려 새 차트 탭으로 엽니다 (조작 순서도 같이, 시뮬레이션 결과가 같음)', 'Redraw this wiring diagram as a schematic in a new chart tab (same operations, same simulation)')}>
             <Icon name="circuit" size={13} /> {tr('회로도 만들기', 'Make schematic')}
@@ -658,6 +681,8 @@ export function CircuitPanel() {
                 guide={wireGuide}
                 setGuide={setWireGuide}
                 onDone={(wired) => commitCircuit(wired.length ? { ...circuit, wired } : { ...circuit, wired: undefined }, 'wired', false)}
+                length={wireLength(circuit)}
+                onReroute={circuit.parts.some((p) => REAL.has(p.type)) ? reroute : undefined}
               />
             )}
             {side === 'power' && (
@@ -2320,7 +2345,12 @@ function WiringPane({
   setNosOn,
   guide,
   setGuide,
+  length,
+  onReroute,
 }: {
+  /** 그림의 전선 길이 합계 (칸 = cm) */
+  length: number;
+  onReroute?: () => void;
   rows: WiringRow[];
   done: string[];
   title: string;
@@ -2373,6 +2403,14 @@ function WiringPane({
         {n > 0 && (
           <button type="button" className="btn small ghost" onClick={() => onDone([])}>
             {tr('체크 지우기', 'Clear ticks')}
+          </button>
+        )}
+      </div>
+      <div className="cc-wiring-len small">
+        {tr('그림의 전선 합계', 'Wire drawn')} <b>{tr(`약 ${(length / 100).toFixed(1)} m`, `about ${(length / 100).toFixed(1)} m`)}</b> <span className="muted">{tr('(그림 1칸 = 1 cm 로 어림)', '(1 grid cell ≈ 1 cm)')}</span>
+        {onReroute && (
+          <button type="button" className="btn small ghost" onClick={onReroute} title={tr('기기를 옮긴 뒤 전선을 가장 짧게 다시 긋습니다', 'Redraw the wires shortest for the current positions')}>
+            {tr('배선 다시 그리기', 'Re-route wires')}
           </button>
         )}
       </div>

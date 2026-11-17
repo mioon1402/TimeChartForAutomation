@@ -20,6 +20,7 @@ import { circuitExamples } from '../circuit/examples';
 import { applyCircuit } from '../circuit/chart';
 import { emptyCircuit } from '../circuit/types';
 import { toSchematic } from '../circuit/schematic';
+import { toWiring } from '../circuit/realize';
 
 type FileHandle = { name: string; createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> };
 let handle: FileHandle | null = null;
@@ -100,6 +101,35 @@ export function makeSchematicSheet() {
       ? tr(`회로도를 새 차트 탭에 그렸습니다. 확인할 것: ${res.notes.join(' · ')}`, `Schematic drawn in a new chart tab. Note: ${res.notes.join(' · ')}`)
       : tr('회로도를 새 차트 탭에 그렸습니다. 같은 조작 순서로 시뮬레이션되어 타임차트가 실물 배선도와 같습니다', 'Schematic drawn in a new chart tab; it simulates to the same timing chart'),
     res.notes.length ? 'warn' : 'ok',
+  );
+}
+
+/** 회로도 (기호) → 실물 배선도: 새 차트 탭으로 (기기는 판넬처럼 줄로 놓고 전선이 짧아지게 차례를 정함) */
+export function makeWiringSheet() {
+  const cur = g().project;
+  const c = cur.circuit;
+  if (!c?.parts.length) {
+    g().toast(tr('회로도가 비어 있습니다', 'The circuit is empty'), 'warn');
+    return;
+  }
+  let res;
+  try {
+    res = toWiring(c);
+  } catch (e) {
+    g().toast(tr(`실물 배선도를 만들지 못했습니다: ${(e as Error).message}`, `Could not make the wiring diagram: ${(e as Error).message}`), 'error');
+    return;
+  }
+  const name = `${sheetName(cur)} ${tr('실물 배선', 'wiring')}`;
+  const base = inheritMeta(createProject());
+  const p = applyCircuit({ ...base, sheet: name, meta: { ...base.meta, title: `${cur.meta.title || sheetName(cur)} ${tr('실물 배선도', 'wiring diagram')}`, description: '' }, circuit: res.circuit, ...(cur.plc ? { plc: cur.plc } : {}) });
+  g().addSheet(p);
+  g().setTab('circuit');
+  const m = (res.length / 100).toFixed(1);
+  g().toast(
+    res.notes.length
+      ? tr(`실물 배선도를 새 차트 탭에 그렸습니다 (전선 약 ${m} m). 확인할 것: ${res.notes.join(' · ')}`, `Wiring diagram drawn in a new chart tab (about ${m} m of wire). Note: ${res.notes.join(' · ')}`)
+      : tr(`실물 배선도를 새 차트 탭에 그렸습니다 (전선 약 ${m} m). 기기를 실제 자리로 옮긴 뒤 [배선 다시 그리기] 로 선을 다시 그어 길이를 비교해 보세요`, `Wiring diagram drawn in a new chart tab (about ${m} m of wire). Move devices to their real places and use [Re-route wires] to compare`),
+    res.notes.length || res.failed ? 'warn' : 'ok',
   );
 }
 
