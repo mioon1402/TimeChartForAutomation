@@ -20,8 +20,12 @@ interface RowSpec {
   name: string;
   role: SignalRole;
   group: string;
-  kind: 'bit' | 'bus';
+  kind: 'bit' | 'bus' | 'analog';
   points: WavePoint[];
+  /** 아날로그 (온도): 세로 범위와 단위 */
+  analogMin?: number;
+  analogMax?: number;
+  unit?: string;
   onLabel?: string;
   offLabel?: string;
   defaultRamp?: number;
@@ -84,6 +88,10 @@ function defaultName(p: Part): string {
       return t_('3단 셀렉터', '3-position selector');
     case 'r_counter':
       return t_('카운터', 'Counter');
+    case 'r_tc':
+      return t_('온도 조절기', 'Temp. controller');
+    case 'r_thermo':
+      return t_('서모스탯', 'Thermostat');
     case 'r_ssr':
       return 'SSR';
     case 'r_estop':
@@ -105,7 +113,7 @@ function defaultName(p: Part): string {
       return t_('비상정지', 'E-stop');
     case 'ls_no':
     case 'ls_nc':
-      return p.sense === 'inductive' || p.sense === 'capacitive' || p.sense === 'photo' ? t_('근접 센서', 'Proximity sensor') : p.sense === 'reed' ? t_('리드 스위치', 'Reed switch') : p.sense === 'float' ? t_('플로트 스위치', 'Float switch') : p.sense === 'pressure' ? t_('압력 스위치', 'Pressure switch') : t_('리밋 스위치', 'Limit switch');
+      return p.sense === 'temp' ? t_('온도 스위치', 'Temp. switch') : p.sense === 'inductive' || p.sense === 'capacitive' || p.sense === 'photo' ? t_('근접 센서', 'Proximity sensor') : p.sense === 'reed' ? t_('리드 스위치', 'Reed switch') : p.sense === 'float' ? t_('플로트 스위치', 'Float switch') : p.sense === 'pressure' ? t_('압력 스위치', 'Pressure switch') : t_('리밋 스위치', 'Limit switch');
     case 'prox':
       return p.sense === 'photo' ? t_('광전 센서', 'Photo sensor') : t_('근접 센서', 'Proximity sensor');
     case 'mcb':
@@ -160,7 +168,7 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
   // 조작: 조작 순서에 나온 순서, 그 밖에 바뀐 것
   const ops = res.tracks.filter((t) => (t.kind === 'operator' || t.kind === 'selector') && (firstOp(keyTag(t)) < Infinity || tr_pts(t).length > 1));
   ops.sort((a, b) => firstOp(keyTag(a)) - firstOp(keyTag(b)) || compareTags(a.tag, b.tag));
-  const G = { plcIn: t_('PLC 입력', 'PLC inputs'), plcOut: t_('PLC 출력', 'PLC outputs'), op: t_('조작', 'Operation'), mc: t_('전자접촉기', 'Contactors'), relay: t_('릴레이', 'Relays'), timer: t_('타이머', 'Timers'), counter: t_('카운터', 'Counters'), pneu: t_('공압', 'Pneumatics'), sensor: t_('센서', 'Sensors'), out: t_('출력', 'Outputs') };
+  const G = { plcIn: t_('PLC 입력', 'PLC inputs'), plcOut: t_('PLC 출력', 'PLC outputs'), op: t_('조작', 'Operation'), mc: t_('전자접촉기', 'Contactors'), relay: t_('릴레이', 'Relays'), timer: t_('타이머', 'Timers'), counter: t_('카운터', 'Counters'), temp: t_('온도', 'Temperature'), pneu: t_('공압', 'Pneumatics'), sensor: t_('센서', 'Sensors'), out: t_('출력', 'Outputs') };
   for (const tr of ops) {
     if (tr.kind !== 'selector') {
       out.push(bit(tr, 'input', G.op));
@@ -215,6 +223,32 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     const name = nameOf(c, keyTag(tr), tr.part);
     if (tr.kind === 'counterVal') out.push({ ...bit(tr, 'counter', G.counter, { name: `${name} ${t_('센 수', 'count')} (${t_('설정', 'preset')} ${counterPreset(tr.part)})` }), kind: 'bus', points: pts(tr) });
     else out.push(bit(tr, 'counter', G.counter, { address: `${tr.tag}.Q`, name: `${name} ${t_('출력', 'output')}` }));
+  }
+
+  // 온도: 묶음마다 온도 (아날로그 선), 그 온도를 재는 기기의 출력 · 경보 · 접점
+  for (const tr of res.tracks.filter((t) => t.kind === 'tempVal')) {
+    const zone = keyTag(tr);
+    const z = res.model.tempZones.get(zone)!;
+    const p = normalize(
+      tr.points.filter((q) => q.t <= until + 1e-9),
+      'analog',
+      z.amb,
+    );
+    const defs = [...res.model.tempDef].filter(([, d]) => d.zone === zone);
+    const vs = [...p.map((q) => Number(q.v)), ...defs.map(([, d]) => d.sv)];
+    const lo = Math.floor((Math.min(...vs) - 5) / 10) * 10;
+    const hi = Math.ceil((Math.max(...vs) + 5) / 10) * 10;
+    const custom = defs.some(([, d]) => d.part.zone?.trim());
+    const name = custom ? `${z.label} ${t_('온도', 'temperature')}` : `${nameOf(c, zone, tr.part)} (PV ℃)`;
+    out.push({ ...bit(tr, 'sensor', G.temp, { address: `${tr.tag}.PV`, name }), kind: 'analog', points: p, analogMin: lo, analogMax: hi, unit: '℃' });
+    for (const [tag] of defs) {
+      for (const t of res.tracks.filter((x) => keyTag(x) === tag && (x.kind === 'tempOut' || x.kind === 'tempAlarm' || x.kind === 'tempSw'))) {
+        const n = nameOf(c, tag, t.part);
+        if (t.kind === 'tempOut') out.push(bit(t, 'internal', G.temp, { address: `${t.tag}.OUT`, name: `${n} ${t_('출력', 'output')} (OUT)` }));
+        else if (t.kind === 'tempAlarm') out.push(bit(t, 'internal', G.temp, { address: `${t.tag}.AL`, name: `${n} ${t_('경보', 'alarm')} (AL)` }));
+        else out.push(bit(t, 'sensor', G.temp, { name: `${n} ${t_('접점', 'contact')}`, onLabel: t_('닫힘', 'closed'), offLabel: t_('열림', 'open') }));
+      }
+    }
   }
 
   // 타임 스위치: 접점 (설정 시각은 이름에 넣지 않는다: 이름은 한 번 정해지면 유지되므로 설정을 바꾸면 틀려진다)
@@ -304,7 +338,7 @@ export function circuitToProject(base: Project, c: Circuit, res: ScenarioResult 
   const specs = rows(c, res);
   const signals: Signal[] = specs.map((r) => {
     const prev = existing.get(r.address);
-    if (prev && prev.kind === r.kind) return { ...prev, points: r.points };
+    if (prev && prev.kind === r.kind) return { ...prev, points: r.points, ...(r.kind === 'analog' ? { analogMin: r.analogMin, analogMax: r.analogMax } : {}) };
     return createSignal({
       name: r.name,
       address: r.address,
@@ -315,6 +349,7 @@ export function circuitToProject(base: Project, c: Circuit, res: ScenarioResult 
       points: r.points,
       ...(r.onLabel ? { onLabel: r.onLabel, offLabel: r.offLabel } : {}),
       ...(r.defaultRamp ? { defaultRamp: r.defaultRamp } : {}),
+      ...(r.kind === 'analog' ? { analogMin: r.analogMin, analogMax: r.analogMax, unit: r.unit, heightScale: 2 } : {}),
     });
   });
 

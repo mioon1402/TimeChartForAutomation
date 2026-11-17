@@ -1,9 +1,9 @@
 import type { ReactNode, JSX } from 'react';
 import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
-import { busSize, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, timerText, tswSched } from '../circuit/parts';
-import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TimerView } from '../circuit/engine';
+import { busSize, isTempDevice, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tempSetting, timerText, tswSched } from '../circuit/parts';
+import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TempView, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { BusGlyph, CounterGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { BusGlyph, CounterGlyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
@@ -38,6 +38,8 @@ export interface PartState {
   dir: 1 | -1 | 0;
   openPhase: boolean;
   timer: TimerView | null;
+  /** 온도 기기: 지금 온도 · 설정 · 출력 */
+  temp?: TempView | null;
   pos: number;
   /** 접점이 따르는 기기 종류 (타이머 한시 접점, THR 접점 표시용) */
   link?: TagKind;
@@ -99,6 +101,7 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     tsw: p.type === 'r_tsw' ? sim.tsw.get(tag) : undefined,
     sel: p.type === 'r_ss3' ? sim.selPos(tag) : undefined,
     count: p.type === 'r_counter' ? sim.counters.get(tag) : undefined,
+    temp: isTempDevice(p) ? sim.tempView(tag) : undefined,
     plcIn: p.type === 'plc' ? sim.plcIn.get(p.id) : undefined,
     plcOut: p.type === 'plc' ? sim.plcOut.get(p.id) : undefined,
   };
@@ -197,6 +200,17 @@ function actuatorFor(p: Part, st: PartState, c: CircuitColors): ReactNode {
       // 2선식 근접 센서: 접점에 마름모 (근접 감지)
       if (p.sense === 'inductive' || p.sense === 'capacitive' || p.sense === 'photo')
         return <path d="M-16,0h-2M-23,-5l5,5-5,5-5,-5z" stroke={c.ink} fill={st.act ? c.fillOn : 'none'} />;
+      // 온도 스위치: 작동부에 θ (온도)
+      if (p.sense === 'temp')
+        return (
+          <>
+            <path d="M-16,0h-2" stroke={c.ink} />
+            <rect x={-30} y={-6} width={12} height={12} stroke={c.ink} fill={st.temp?.hot ? c.fillOn : 'none'} />
+            <text x={-24} y={4} textAnchor="middle" fontSize={9} fontWeight={700} fill={c.ink} stroke="none">
+              θ
+            </text>
+          </>
+        );
       if (p.sense === 'pressure')
         return (
           <>
@@ -536,6 +550,10 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <Prox2Glyph p={p} st={st} c={c} />;
     case 'r_counter':
       return <CounterGlyph p={p} st={st} c={c} />;
+    case 'r_tc':
+      return <TcGlyph p={p} st={st} c={c} />;
+    case 'r_thermo':
+      return <ThermoGlyph p={p} st={st} c={c} />;
     case 'r_ssr':
       return <SsrGlyph p={p} st={st} c={c} />;
     case 'r_estop':
@@ -581,6 +599,7 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
   if (p.type === 'timer') lines[0] = `${p.tag} ${timerText(p).replace(/(ON|OFF) /g, '').replace(/ (?=m?s|min|h)/g, '').replace(' · ', '/')}${p.timerMode === 'off' ? ' OFF' : p.timerMode === 'flicker' ? ' FLK' : p.timerMode === 'interval' ? ' INT' : ''}`;
   if (p.type === 'cyl') lines = [[p.tag, p.name].filter(Boolean).join(' '), ...(!st.air && p.solPlus?.trim() ? [`${p.solPlus}${p.solMinus ? ` / ${p.solMinus}` : ''}`] : [])];
   if (p.type === 'fc') lines.push(`${p.speed ?? 50}%`);
+  if ((p.type === 'ls_no' || p.type === 'ls_nc') && p.sense === 'temp') lines[0] = `${p.tag} ${tempSetting(p).sv}℃`;
   let lx: number;
   let ly: number;
   let anchor: 'start' | 'middle' = 'start';
@@ -614,6 +633,11 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
           {l}
         </text>
       ))}
+      {st.temp && (p.type === 'ls_no' || p.type === 'ls_nc') && (
+        <text x={lx} y={ly + lines.length * 13} textAnchor={anchor} fontSize={11} fontWeight={700} fill={c.accent}>
+          {Math.round(st.temp.pv)}℃
+        </text>
+      )}
       {st.timer && st.timer.elapsed !== null && (
         <text x={lx} y={ly + lines.length * 13} textAnchor={anchor} fontSize={11} fontWeight={700} fill={c.accent}>
           {(st.timer.elapsed / 1000).toFixed(1)} / {(st.timer.preset / 1000).toFixed(1)}s

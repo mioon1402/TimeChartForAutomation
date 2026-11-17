@@ -63,7 +63,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (typeof q.text === 'string') p.text = q.text;
     if (optStr(q.inBase)) p.inBase = str(q.inBase);
     if (optStr(q.outBase)) p.outBase = str(q.outBase);
-    if (['inductive', 'capacitive', 'photo', 'reed', 'float', 'pressure'].includes(q.sense as string)) p.sense = q.sense as Part['sense'];
+    if (['inductive', 'capacitive', 'photo', 'reed', 'float', 'pressure', 'temp'].includes(q.sense as string)) p.sense = q.sense as Part['sense'];
     if (q.npn === true) p.npn = true;
     if (optStr(q.solA)) p.solA = str(q.solA);
     if (optStr(q.solB)) p.solB = str(q.solB);
@@ -91,6 +91,19 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (q.ac === true) p.ac = true;
     if (q.ncOut === true) p.ncOut = true;
     if (q.conn === 'din') p.conn = 'din';
+    // 온도 기기
+    const temp = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= -100 && v <= 2000;
+    if (temp(q.sv)) p.sv = q.sv as number;
+    if (typeof q.hys === 'number' && q.hys > 0 && q.hys <= 500) p.hys = q.hys;
+    if (temp(q.alarm)) p.alarm = q.alarm as number;
+    if (q.tcMode === 'heat' || q.tcMode === 'cool') p.tcMode = q.tcMode;
+    if (typeof q.zone === 'string' && q.zone.trim()) p.zone = q.zone.slice(0, 40);
+    if (typeof q.tLoad === 'string' && q.tLoad.trim()) p.tLoad = q.tLoad.slice(0, 40);
+    if (q.tLoadCool === true) p.tLoadCool = true;
+    if (temp(q.amb)) p.amb = q.amb as number;
+    if (temp(q.tmax)) p.tmax = q.tmax as number;
+    if (typeof q.rise === 'number' && q.rise > 0 && q.rise <= 1000) p.rise = q.rise;
+    if (typeof q.fall === 'number' && q.fall > 0 && q.fall <= 1000) p.fall = q.fall;
     if (optStr(q.term)) p.term = str(q.term).slice(0, 24);
     if (typeof q.w === 'number' && q.w >= 2) p.w = Math.min(400, Math.round(q.w));
     if (typeof q.h === 'number' && q.h >= 2) p.h = Math.min(400, Math.round(q.h));
@@ -121,8 +134,9 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   for (const r of Array.isArray(o.ops) ? o.ops : []) {
     if (!r || typeof r !== 'object') continue;
     const q = r as Record<string, unknown>;
-    const action = q.action === 'on' || q.action === 'off' || q.action === 'left' || q.action === 'right' ? q.action : 'press';
-    const op: OpStep = { id: str(q.id) || uid('op'), wait: Math.max(0, num(q.wait)), tag: str(q.tag), action, hold: Math.max(0, num(q.hold, 300)) };
+    const action = q.action === 'on' || q.action === 'off' || q.action === 'left' || q.action === 'right' || q.action === 'temp' ? q.action : 'press';
+    const op: OpStep = { id: str(q.id) || uid('op'), wait: Math.max(0, num(q.wait)), tag: str(q.tag), action, hold: Math.max(0, num(q.hold, action === 'temp' ? 0 : 300)) };
+    if (action === 'temp') op.value = Math.min(2000, Math.max(-100, num(q.value, 20)));
     if (optStr(q.note)) op.note = str(q.note);
     ops.push(op);
   }

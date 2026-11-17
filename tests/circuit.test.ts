@@ -1260,3 +1260,139 @@ describe('flicker with separate on and off times (twin timer)', () => {
     expect(edges(runScenario(flick()), 'load:SOL1').map((e) => [e.t, e.v])).toEqual([[0, 0], [1000, 1], [2000, 0], [3000, 1], [4000, 0], [5000, 1], [6000, 0], [7000, 1], [8000, 0], [9000, 1], [10000, 0]]);
   });
 });
+
+describe('temperature: controller, panel thermostats, temperature switch', () => {
+  const at = (res: ScenarioResult, key: string) => edges(res, key).map((e) => [e.t, e.v]);
+
+  it('heater on a temperature controller holds the set point and raises the alarm when overheated', () => {
+    const c = circuitExamples().find((e) => e.id === 'tc-heater')!.build();
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    expect(res.warnings).toEqual([]);
+    // 20℃ 에서 2℃/초로 올라 21 s 에 60℃ → OUT 꺼짐, 1℃/초로 57℃ (히스테리시스 3℃) 까지 내려가면 다시 켜짐
+    const heater = [[0, 0], [1000, 1], [21000, 0], [24000, 1], [25500, 0], [28500, 1], [30000, 0], [33000, 1], [34500, 0], [37500, 1], [39000, 0], [68000, 1], [69500, 0], [72500, 1], [74000, 0]];
+    expect(at(res, 'load:H1')).toEqual(heater);
+    expect(at(res, 'coil:MC1')).toEqual(heater);
+    expect(at(res, 'to:TC1')).toEqual(heater);
+    // 40 s 에 85℃ 로 → AL (80℃ 이상), 77℃ 로 내려가면 (80 − 3) 경보 해제
+    expect(at(res, 'ta:TC1')).toEqual([[0, 0], [40000, 1], [48000, 0]]);
+    expect(at(res, 'load:RL')).toEqual([[0, 0], [40000, 1], [48000, 0]]);
+    const pv = res.tracks.find((t) => t.key === 'tv:TC1')!.points.map((p) => [p.t, p.v]);
+    expect(pv.slice(0, 4)).toEqual([[0, 20], [1000, 20], [21000, 60], [24000, 57]]);
+    // 바로 바꾼 온도는 그 바로 앞에 지금 온도를 찍어 수직선이 된다
+    expect(pv).toContainEqual([39999.999, 59]);
+    expect(pv).toContainEqual([40000, 85]);
+    expect(pv).toContainEqual([48000, 77]);
+  });
+
+  it('the temperature becomes an analog chart row with the controller outputs under it', () => {
+    const c = circuitExamples().find((e) => e.id === 'tc-heater')!.build();
+    const p = applyCircuit(createProject({ circuit: c }));
+    const t = p.signals.find((s) => s.address === 'TC1.PV')!;
+    expect(t.kind).toBe('analog');
+    expect(t.unit).toBe('℃');
+    expect([t.analogMin, t.analogMax]).toEqual([10, 90]);
+    expect(t.points.slice(0, 3)).toEqual([{ t: 0, v: 20 }, { t: 1000, v: 20 }, { t: 21000, v: 60 }]);
+    expect(p.signals.map((s) => s.address).filter((a) => a.startsWith('TC1'))).toEqual(['TC1.PV', 'TC1.OUT', 'TC1.AL']);
+  });
+
+  it('two thermostats in one panel read the same temperature (fan NO at 35℃, heater NC at 10℃)', () => {
+    const c = circuitExamples().find((e) => e.id === 'panel-thermo')!.build();
+    expect(checkCircuit(c)).toEqual([]);
+    const res = runScenario(c);
+    expect(res.warnings).toEqual([]);
+    expect(at(res, 'load:FAN1')).toEqual([[0, 0], [11000, 1], [28000, 0]]);
+    expect(at(res, 'load:HT1')).toEqual([[0, 0], [55000, 1], [72000, 0]]);
+    expect(res.tracks.filter((t) => t.kind === 'tempVal')).toHaveLength(1);
+    // 판넬 온도: 25℃ → 40℃ (15 s 동안) → 25℃ → 0℃ → 15℃
+    const pv = res.tracks.find((t) => t.kind === 'tempVal')!.points.map((p) => [p.t, p.v]);
+    expect(pv).toEqual([[0, 25], [1000, 25], [11000, 35], [16000, 40], [18000, 40], [28000, 30], [33000, 25], [35000, 25], [55000, 5], [60000, 0], [62000, 0], [72000, 10], [77000, 15]]);
+  });
+
+  /** 온도 스위치 기호 (오르면 닫힘) → 팬, 연결 부하가 팬이면 돌 때 식는다 */
+  const fanLoop = (extra: Partial<Part> = {}, ops: Circuit['ops'] = []) => {
+    let n = 0;
+    const parts: Part[] = [];
+    const wires: Wire[] = [];
+    const P = (type: PartType, x: number, y: number, tag = '', e: Partial<Part> = {}) => parts.push({ id: `p${n++}`, type, x, y, rot: 0, tag, ...e });
+    const W = (a: [number, number], b: [number, number]) => wires.push({ id: `w${n++}`, a, b });
+    P('src', 0, 0, '', { pole: 'L' });
+    P('src', 0, 30, '', { pole: 'N' });
+    W([0, 0], [8, 0]);
+    W([0, 30], [8, 30]);
+    P('ls_no', 4, 8, 'TS1', { sense: 'temp', sv: 40, hys: 5, ...extra });
+    P('load', 4, 24, 'FAN1');
+    W([4, 0], [4, 6]);
+    W([4, 10], [4, 22]);
+    W([4, 26], [4, 30]);
+    return { parts, wires, ops, duration: 60000 } as Circuit;
+  };
+
+  it('a temperature switch with a cooling load cycles by itself; without a load only the steps move it', () => {
+    // 팬이 꺼져 있으면 1℃/초로 최고 50℃ 쪽으로, 팬이 돌면 2℃/초로 주위 20℃ 쪽으로
+    const c = fanLoop({ tLoad: 'FAN1', tLoadCool: true, amb: 20, tmax: 50, rise: 1, fall: 2 });
+    const res = runScenario(c);
+    expect(at(res, 'load:FAN1').slice(0, 5)).toEqual([[0, 0], [20000, 1], [22500, 0], [27500, 1], [30000, 0]]);
+    const still = runScenario(fanLoop({}, [{ id: 'a', wait: 1000, tag: 'TS1', action: 'temp', value: 45, hold: 0 }, { id: 'b', wait: 2000, tag: 'TS1', action: 'temp', value: 36, hold: 0 }, { id: 'c', wait: 2000, tag: 'TS1', action: 'temp', value: 34, hold: 0 }]));
+    // 40℃ 에서 닫히고, 36℃ 는 아직 (35℃ 까지 히스테리시스), 34℃ 에서 열림
+    expect(at(still, 'load:FAN1')).toEqual([[0, 0], [1000, 1], [5000, 0]]);
+  });
+
+  it('a controller needs its supply; cooling action turns OUT on above the set point', () => {
+    let n = 0;
+    const parts: Part[] = [];
+    const wires: Wire[] = [];
+    const P = (type: PartType, x: number, y: number, tag = '', e: Partial<Part> = {}) => parts.push({ id: `p${n++}`, type, x, y, rot: 0, tag, ...e });
+    const W = (a: [number, number], b: [number, number]) => wires.push({ id: `w${n++}`, a, b });
+    P('src', 0, 0, '', { pole: 'L' });
+    P('src', 0, 40, '', { pole: 'N' });
+    W([0, 0], [20, 0]);
+    W([0, 40], [20, 40]);
+    P('sw_no', 4, 4, 'S1');
+    W([4, 0], [4, 2]);
+    W([4, 6], [4, 15]);
+    W([4, 15], [5, 15]);
+    P('r_tc', 10, 10, 'TC1', { sv: 30, hys: 2, tcMode: 'cool' });
+    W([7, 15], [7, 40]);
+    W([9, 0], [9, 15]);
+    P('lamp', 11, 24, 'PL1');
+    W([11, 15], [11, 22]);
+    W([11, 26], [11, 40]);
+    const ops: Circuit['ops'] = [
+      { id: 'a', wait: 1000, tag: 'TC1', action: 'temp', value: 35, hold: 0 },
+      { id: 'b', wait: 1000, tag: 'S1', action: 'on', hold: 0 },
+      { id: 'c', wait: 1000, tag: 'TC1', action: 'temp', value: 29, hold: 0 },
+      { id: 'd', wait: 1000, tag: 'TC1', action: 'temp', value: 28, hold: 0 },
+      { id: 'e', wait: 1000, tag: 'TC1', action: 'temp', value: 40, hold: 0 },
+      { id: 'f', wait: 1000, tag: 'S1', action: 'off', hold: 0 },
+    ];
+    const res = runScenario({ parts, wires, ops, duration: 8000 });
+    // 전원 (S1) 이 들어오고서야 OUT, 28℃ (30 − 2) 에서 꺼짐, 전원이 빠지면 꺼짐
+    expect(at(res, 'load:PL1')).toEqual([[0, 0], [2000, 1], [4000, 0], [5000, 1], [6000, 0]]);
+  });
+
+  it('temperature fields and steps survive saving; steps list as "Temp. →"', () => {
+    const c = circuitExamples().find((e) => e.id === 'panel-thermo')!.build();
+    const back = sanitizeCircuit(JSON.parse(JSON.stringify(c)))!;
+    const ts2 = back.parts.find((p) => p.tag === 'TS2')!;
+    expect([ts2.type, ts2.ncOut, ts2.sv, ts2.hys, ts2.zone]).toEqual(['r_thermo', true, 10, 5, c.parts.find((p) => p.tag === 'TS2')!.zone]);
+    expect(back.ops[0]).toMatchObject({ action: 'temp', value: 40, hold: 15000 });
+    expect(opsToEvents(back.ops)[0]).toMatchObject({ t: 1000, tag: 'TS1', temp: 40, ramp: 15000 });
+    const tc = sanitizeCircuit(JSON.parse(JSON.stringify(circuitExamples().find((e) => e.id === 'tc-heater')!.build())))!.parts.find((p) => p.type === 'r_tc')!;
+    expect([tc.sv, tc.hys, tc.alarm, tc.tLoad, tc.amb, tc.rise, tc.fall]).toEqual([60, 3, 80, 'H1', 20, 2, 1]);
+    const rows = partsList(circuitExamples().find((e) => e.id === 'tc-heater')!.build());
+    expect(rows.find((r) => r.tag === 'TC1')!.spec).toContain('설정 60℃');
+    expect(partsList(c).find((r) => r.tag === 'TS2')!.spec).toContain('NC');
+  });
+
+  it('clicking a temperature device while simulating changes the temperature', () => {
+    const c = circuitExamples().find((e) => e.id === 'panel-thermo')!.build();
+    const sim = new CircuitSim(new CircuitModel(c));
+    expect(sim.tempView('TS1')!.pv).toBe(25);
+    sim.advanceTo(500);
+    expect(sim.changeTemp('TS2', 40)).toBe(true);
+    expect(sim.tempView('TS1')!.pv).toBe(40);
+    expect(sim.loadOn('FAN1')).toBe(true);
+    expect(checkCircuit({ ...c, parts: c.parts.map((p) => (p.tag === 'TS1' ? { ...p, tLoad: 'NOPE' } : p)) }).map((i) => i.msg)).toEqual(['TS1: 온도를 바꾸는 부하 NOPE 이(가) 회로에 없습니다']);
+  });
+});

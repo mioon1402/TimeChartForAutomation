@@ -353,6 +353,40 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('시뮬레이션에서는 CP-COM 이 이어지는 순간마다 하나씩 세고, 센 수와 출력이 타임차트의 카운터 칸에 나옵니다.', 'In the simulation each closing of CP-COM counts one; the count and the output appear in the chart.'),
         'counter',
       );
+    case 'r_tc':
+      return g(
+        tr('온도 조절기 (48×48) 입니다. 센서 (열전대 K) 로 잰 지금 온도 (PV) 를 설정 온도 (SV) 와 비교해서 출력 접점을 켜고 끕니다 (ON/OFF 제어). 히터 · 건조기 · 금형 온도 관리에 씁니다.', 'A 48×48 temperature controller: compares the measured temperature (PV, K thermocouple) with the set point (SV) and switches its output relay (ON/OFF control). Used for heaters, dryers and moulds.'),
+        [
+          ['A1 · A2', tr('조절기 전원 (AC 100-240V). 전원이 없으면 출력이 모두 꺼집니다', 'controller supply (AC 100-240V); without it both outputs are off')],
+          ['C1 → OUT', tr('제어 출력 (릴레이 a접점): 가열이면 온도가 낮을 때 닫힘. 히터를 바로 켜지 말고 전자접촉기 · SSR 코일을 켭니다', 'control output (NO relay): closes while too cold when heating. Drive a contactor or SSR, not the heater directly')],
+          ['C2 → AL', tr('경보 출력 (릴레이 a접점): 경보 온도 이상이면 닫힘 → 경보등 · 부저, 또는 히터 회로 차단', 'alarm output (NO relay): closes above the alarm temperature → alarm lamp, buzzer, or cut the heater circuit')],
+        ],
+        [
+          tr('L → 차단기 → A1, A2 → N 으로 전원을 줍니다', 'Feed L → breaker → A1, A2 → N'),
+          tr('L → C1, OUT → 전자접촉기 (또는 SSR) 코일 → N. 히터는 접촉기 주접점 뒤에', 'L → C1, OUT → contactor (or SSR) coil → N; the heater goes after the contactor'),
+          tr('L → C2, AL → 경보등 → N', 'L → C2, AL → alarm lamp → N'),
+          tr('속성에서 설정 온도 · 히스테리시스 · 경보 온도와 [온도를 바꾸는 부하] (히터 기호) 를 정합니다', 'Set the set point, hysteresis, alarm and the load that heats it (heater tag) in the properties'),
+          tr('단자 번호는 기종마다 다릅니다. 실물은 기기 옆면의 결선도를 따르세요', 'Terminal numbers differ by model; follow the label on your controller'),
+        ],
+        tr('히터가 켜지면 온도가 오르고 꺼지면 내려갑니다 (속도는 속성). 설정 온도에서 OUT 이 꺼지고 히스테리시스만큼 내려가면 다시 켜져서, 타임차트에 온도 선과 OUT · AL 이 함께 나옵니다. 시뮬레이션 중 기기의 왼쪽 · 오른쪽을 누르면 온도가 5℃ 내리고 오릅니다.', 'With the heater on the temperature rises, off it falls (rates in the properties). OUT turns off at the set point and back on one hysteresis lower; the chart shows the temperature line with OUT and AL. While simulating, click its left or right side to lower or raise the temperature by 5℃.'),
+        'tc-heater',
+      );
+    case 'r_thermo':
+      return g(
+        tr('판넬 서모스탯 (바이메탈) 입니다. 판넬 안 온도에 따라 접점이 바뀌어 판넬 팬이나 판넬 히터를 바로 켜고 끕니다. 전원이 필요 없습니다.', 'A bimetal panel thermostat: its contact switches with the panel temperature to run a panel fan or heater directly. Needs no supply.'),
+        [
+          ['1 · 2', tr('접점: 팬 · 히터와 직렬로 (L → 1, 2 → 팬 → N)', 'contact: in series with the fan or heater (L → 1, 2 → fan → N)')],
+          [tr('NC (빨간 다이얼)', 'NC (red dial)'), tr('히터용: 온도가 설정에 닿으면 열림, 차만큼 내려가면 닫힘', 'heater: opens at the set point, closes again one differential lower')],
+          [tr('NO (파란 다이얼)', 'NO (blue dial)'), tr('팬용: 온도가 설정에 닿으면 닫힘, 차만큼 내려가면 열림', 'fan: closes at the set point, opens again one differential lower')],
+        ],
+        [
+          tr('팬은 NO (예: 35℃), 결로 방지 히터는 NC (예: 10℃) 를 씁니다', 'Use NO for a fan (e.g. 35℃) and NC for an anti-condensation heater (e.g. 10℃)'),
+          tr('같은 판넬 안이면 속성의 [온도 묶음 이름] 을 같게 (예: 판넬) 해서 같은 온도를 재게 합니다', 'Give thermostats in one panel the same zone name (e.g. panel) so they read one temperature'),
+          tr('접점 용량보다 큰 부하는 릴레이 · 접촉기를 거쳐 켭니다', 'Switch loads above the contact rating through a relay or contactor'),
+        ],
+        tr('조작 순서의 [온도 →] 로 판넬 온도를 바꾸거나, 시뮬레이션 중 기기의 왼쪽 · 오른쪽을 눌러 5℃씩 내리고 올립니다. 팬을 [온도를 바꾸는 부하] 로 정하면 팬이 돌 때 내려갑니다.', 'Change the panel temperature with a [Temp. →] step, or click its left/right side while simulating (±5℃). Set the fan as the load that changes it and it cools while running.'),
+        'panel-thermo',
+      );
     case 'r_ssr':
       return g(
         tr('SSR (무접점 릴레이) 입니다. 직류 신호 (PLC · 온도 조절기 · 스위치) 로 교류 부하 (히터 · 램프) 를 켜고 끕니다. 접점이 닳지 않아 자주 켜고 끄는 히터에 씁니다.', 'A solid-state relay: a DC signal (PLC, temperature controller, switch) switches an AC load (heater, lamp). No contacts to wear, so it suits heaters switched often.'),
@@ -525,7 +559,7 @@ export function partGuide(type: PartType): PartGuide | null {
     case 'ls_no':
     case 'ls_nc':
       return g(
-        tr('리밋 스위치(또는 리드 · 플로트 · 압력 스위치, 2선식 근접 센서)입니다. 접점처럼 부하와 직렬로 잇습니다. 실린더 끝에 연결하면 실린더가 닿을 때 저절로 바뀝니다.', 'A limit switch (or reed, float, pressure switch, 2-wire proximity sensor) wired in series like a contact; linked to a cylinder end it operates by itself.'),
+        tr('리밋 스위치(또는 리드 · 플로트 · 압력 · 온도 스위치, 2선식 근접 센서)입니다. 접점처럼 부하와 직렬로 잇습니다. 실린더 끝에 연결하면 실린더가 닿을 때 저절로 바뀝니다. 온도 스위치는 설정 온도에 닿으면 바뀝니다 (온도는 조작 순서의 [온도 →] 나 연결 부하로).', 'A limit switch (or reed, float, pressure or temperature switch, 2-wire proximity sensor) wired in series like a contact; linked to a cylinder end it operates by itself. A temperature switch changes at its set point (temperature from [Temp. →] steps or a linked load).'),
         [[tr('위 · 아래', 'top, bottom'), tr('선 중간에 직렬로', 'in series')]],
         [tr('속성에서 [실린더 연결]과 전진단/후진단을 고릅니다', 'Choose the cylinder and its end in the properties'), tr('연결하지 않으면 손으로 누르는 스위치입니다', 'Unlinked, you click it by hand')],
         tr('실린더에 연결하면 자동, 아니면 누를 때마다 바뀝니다.', 'Automatic when linked, otherwise click to toggle.'),

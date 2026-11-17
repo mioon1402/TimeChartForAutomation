@@ -4708,6 +4708,8 @@ button.seq-kpi {
 
 .cc-op-bot {
   margin-top: 4px;
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .cc-op .input {
@@ -4765,7 +4767,8 @@ button.seq-kpi {
 }
 
 .cc-op-bot > .input {
-  flex: 1;
+  flex: 1 1 90px;
+  min-width: 90px;
 }
 
 .cc-row-btns {

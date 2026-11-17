@@ -1,6 +1,6 @@
 import type { Circuit, Part, PartType, Rot, Wire } from './types';
 import { CircuitModel, type Conductor } from './engine';
-import { PARTS, POLE_SYSTEM, partPins, partPoles, PROX_TYPES, REAL } from './parts';
+import { PARTS, POLE_SYSTEM, partPins, partPoles, PROX_TYPES, REAL, tempSetting } from './parts';
 import { tr } from '../i18n';
 
 /**
@@ -330,6 +330,7 @@ const UNSUPPORTED: Partial<Record<PartType, string>> = {
   plc: 'PLC',
   r_tsw: tr('타임 스위치', 'time switch'),
   r_counter: tr('카운터', 'counter'),
+  r_tc: tr('온도 조절기', 'temperature controller'),
   r_kepco: tr('한전 수전점', 'utility supply'),
   r_vcb: 'VCB',
   r_tr3: tr('변압기', 'transformer'),
@@ -339,6 +340,8 @@ const UNSUPPORTED: Partial<Record<PartType, string>> = {
   v53: tr('공압 밸브', 'pneumatic valve'),
   air: tr('공압원', 'air supply'),
 };
+/** 온도 기기의 온도 변화 설정 (묶음 · 연결 부하 · 속도) */
+const TEMP_KEYS = ['zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'rise', 'fall'] as const;
 /** 선과 같은 것 (단자대 · 바 · 전류계) */
 const WIRE_LIKE = new Set<PartType>(['r_tb', 'r_nbar', 'r_am']);
 
@@ -370,6 +373,8 @@ function contactSym(k: Conductor): Sym | null {
       return { type: nc ? 'ls_nc' : 'ls_no', tag, extra: keep('cyl', 'end') };
     case 'r_float':
       return { type: nc ? 'ls_nc' : 'ls_no', tag, extra: { sense: 'float' } };
+    case 'r_thermo':
+      return { type: nc ? 'ls_nc' : 'ls_no', tag, extra: { sense: 'temp', sv: tempSetting(p).sv, hys: tempSetting(p).hys, ...keep('name', ...TEMP_KEYS) } };
     case 'r_prox2':
       return { type: nc ? 'ls_nc' : 'ls_no', tag, extra: { sense: p.sense ?? 'inductive', ...keep('cyl', 'end') } };
     case 'r_psw':
@@ -401,7 +406,7 @@ function contactSym(k: Conductor): Sym | null {
     case 'nc':
     case 'mcb':
     case 'fuse':
-      return { type: p.type, tag, extra: keep('color', 'sense', 'cyl', 'end', 'inst13', 'sel', 'pos3') };
+      return { type: p.type, tag, extra: keep('color', 'sense', 'cyl', 'end', 'inst13', 'sel', 'pos3', 'sv', 'hys', ...TEMP_KEYS) };
     default:
       return null;
   }
