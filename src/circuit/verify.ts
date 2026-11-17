@@ -66,7 +66,7 @@ const COLOR_NAME: Record<WireColor, [string, string]> = {
 /** 기기에 적힌 정격 전압: 교류 · 직류와 전압 범위 (없으면 null) */
 export function ratedVoltage(p: Part): { kind: 'ac' | 'dc' | 'any'; lo: number; hi: number; text: string } | null {
   // 덮개에 AC 220V 가 적혀 나오는 기기는 사양을 비워도 그 전압으로 본다
-  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' ? 'DC 24V' : '';
+  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' ? 'DC 24V' : '';
   const text = p.spec?.trim() || shown;
   if (text) {
     const m = /(\d+(?:\.\d+)?)\s*(?:[~\-–]\s*(\d+(?:\.\d+)?))?\s*V/i.exec(text);

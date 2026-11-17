@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Circuit, Part, Rot, Wire, WireColor } from '../circuit/types';
 import { autoWireColor } from '../circuit/wires';
-import { busSize, OPERATOR, panelSize, partBox, partPins, partWires, pinPositions, rotate, stripSize, tbSize, type PaletteItem } from '../circuit/parts';
+import { busSize, isTempDevice, OPERATOR, panelSize, partBox, partPins, partWires, pinPositions, rotate, stripSize, tbSize, type PaletteItem } from '../circuit/parts';
 import { tagKey, type CircuitModel, type CircuitSim } from '../circuit/engine';
 import { onWireInterior } from '../circuit/netlist';
 import { uid } from '../model/wave';
@@ -283,6 +283,8 @@ export function CircuitCanvas(props: CanvasProps) {
   };
   const operable = (p: Part) => {
     const kind = model.tagKind.get(tagKey(p));
+    // 온도 기기는 눌러서 온도를 바꾼다 (왼쪽 −5℃, 오른쪽 +5℃)
+    if (kind === 'temp') return isTempDevice(p);
     return (kind === 'operator' || kind === 'thr') && (OPERATOR.has(p.type) || p.type === 'no' || p.type === 'nc');
   };
 

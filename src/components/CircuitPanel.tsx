@@ -7,7 +7,7 @@ import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, trImpedance, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
 import { changeSocketLayout } from '../circuit/socket';
-import { busSize, circuitWires, REAL, counterPreset, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, REAL, counterPreset, isTempDevice, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -90,7 +90,11 @@ function actionsToOps(actions: OpEvent[], model: CircuitModel): OpStep[] {
     if (momentary && !a.on) continue;
     const t = r10(a.t);
     const op: OpStep = { id: uid('op'), wait: Math.max(0, t - prev), tag: model.label(a.tag), action: 'press', hold: 300 };
-    if (a.pos !== undefined) op.action = a.pos < 0 ? 'left' : a.pos > 0 ? 'right' : 'off';
+    if (a.temp !== undefined) {
+      op.action = 'temp';
+      op.value = a.temp;
+      op.hold = 0;
+    } else if (a.pos !== undefined) op.action = a.pos < 0 ? 'left' : a.pos > 0 ? 'right' : 'off';
     else if (momentary) {
       const up = actions.slice(i + 1).find((b) => b.tag === a.tag && !b.on);
       op.hold = Math.max(10, r10((up?.t ?? a.t + 300) - a.t));
@@ -238,6 +242,14 @@ export function CircuitPanel() {
     if (!r) return;
     const t = simTime(performance.now());
     r.sim.advanceTo(t);
+    // 온도 기기: 왼쪽을 누르면 5℃ 내리고, 오른쪽을 누르면 5℃ 올린다
+    if (model.tempDef.has(tag)) {
+      if (phase !== 'down') return;
+      const v = Math.round((r.sim.tempView(tag)?.pv ?? 0) / 5) * 5 + 5 * (side ?? 1);
+      if (r.sim.changeTemp(tag, v)) r.actions.push({ t, tag, on: false, temp: v });
+      setTick((x) => x + 1);
+      return;
+    }
     // 3단 셀렉터: 누른 쪽으로 돌리고, 이미 그쪽이면 가운데로
     if (model.sel3.has(tag)) {
       if (phase !== 'down') return;
@@ -373,7 +385,13 @@ export function CircuitPanel() {
     const r = runRef.current;
     if (!running || !r) return null;
     const t = r.sim.t;
-    const res: ScenarioResult = { model, tracks: r.sim.tracks.map((x) => ({ ...x, points: [...x.points] })), end: t, lastChange: t, warnings: [], times: [] };
+    // 온도는 사건 사이에도 바뀌므로 지금 시각의 값을 끝에 붙인다
+    const tracks = r.sim.tracks.map((x) => {
+      const points = [...x.points];
+      if (x.kind === 'tempVal' && t > (points[points.length - 1]?.t ?? 0)) points.push({ t, v: Math.round(r.sim.zoneTemp(x.key.slice(3)) * 100) / 100 });
+      return { ...x, points };
+    });
+    const res: ScenarioResult = { model, tracks, end: t, lastChange: t, warnings: [], times: [] };
     return circuitToProject({ ...project, signals: [], annotations: [] }, { ...circuit, ops: [], duration: niceCeil(Math.max(5000, t + 500)) }, res);
   }, [liveTick, running]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -983,6 +1001,7 @@ function PropsPane({
               <p className="small muted">{tr('A1 · A2 전원 · CP-COM 사이가 이어질 때마다 1 셈 (무전압 접점 입력) · RST-COM 이 이어지면 0 · 설정 수에 닿으면 C-NO 닫힘, C-NC 열림 (리셋까지 유지). 단자 번호는 기종마다 다르니 기기 옆면 결선도를 따르세요', 'Power A1/A2 · counts each time CP closes to COM (dry contact) · RST to COM resets · at the preset C-NO closes and C-NC opens until reset. Terminal numbers differ by model; follow the label on yours')}</p>
             </>
           )}
+          {isTempDevice(p) && <TempProps p={p} circuit={circuit} set={set} />}
           {p.type === 'r_ss3' && (
             <>
               <Field label={tr('자리 이름 (왼쪽 / 가운데 / 오른쪽)', 'Position names (left / centre / right)')} wide>
@@ -1092,10 +1111,10 @@ function PropsPane({
           )}
           {(p.type === 'ls_no' || p.type === 'ls_nc') && (
             <Field label={tr('스위치 종류', 'Switch type')} wide>
-              <Select value={p.sense ?? ''} onChange={(v) => set({ sense: (v || undefined) as Part['sense'] })} options={[{ value: '', label: tr('리밋 스위치 (롤러)', 'Limit switch (roller)') }, { value: 'inductive', label: tr('근접 센서 (2선식)', 'Proximity sensor (2-wire)') }, { value: 'reed', label: tr('리드 스위치 (실린더 센서)', 'Reed switch') }, { value: 'float', label: tr('플로트 스위치 (수위)', 'Float switch') }, { value: 'pressure', label: tr('압력 스위치', 'Pressure switch') }]} />
+              <Select value={p.sense ?? ''} onChange={(v) => set({ sense: (v || undefined) as Part['sense'] })} options={[{ value: '', label: tr('리밋 스위치 (롤러)', 'Limit switch (roller)') }, { value: 'inductive', label: tr('근접 센서 (2선식)', 'Proximity sensor (2-wire)') }, { value: 'reed', label: tr('리드 스위치 (실린더 센서)', 'Reed switch') }, { value: 'float', label: tr('플로트 스위치 (수위)', 'Float switch') }, { value: 'pressure', label: tr('압력 스위치', 'Pressure switch') }, { value: 'temp', label: tr('온도 스위치', 'Temperature switch') }]} />
             </Field>
           )}
-          {(p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'r_ls' || p.type === 'r_prox2' || PROX_TYPES.has(p.type)) && (
+          {(p.type === 'ls_no' || p.type === 'ls_nc' || p.type === 'r_ls' || p.type === 'r_prox2' || PROX_TYPES.has(p.type)) && p.sense !== 'temp' && (
             <div className="grid2">
               <Field label={tr('실린더 연결', 'Cylinder')} hint={tr('비우면 시뮬레이션에서 눌러서 조작', 'Empty: operate by clicking')}>
                 <Select value={p.cyl ?? ''} onChange={(v) => set({ cyl: v || undefined })} options={[{ value: '', label: tr('(손으로 조작)', '(manual)') }, ...cylTags.map((t) => ({ value: t, label: t }))]} />
@@ -1640,18 +1659,93 @@ function Tips() {
 
 // ───────────────────────── 조작 순서 ─────────────────────────
 
+/** 온도 기기 속성: 설정 · 히스테리시스 · 경보 · 동작, 온도가 바뀌는 방식 (묶음 · 연결 부하 · 속도) */
+function TempProps({ p, circuit, set }: { p: Part; circuit: Circuit; set: (patch: Partial<Part>) => void }) {
+  const { sv, hys } = tempSetting(p);
+  const loads = [...new Set(circuit.parts.filter((q) => PARTS[q.type].load && !PARTS[q.type].selfCoil && q.type !== 'coil' && q.type !== 'timer' && q.type !== 'r_tc' && q.type !== 'r_counter' && q.tag.trim()).map((q) => q.tag.trim()))];
+  const tc = p.type === 'r_tc';
+  return (
+    <>
+      <div className="grid2">
+        <Field label={tr('설정 온도 (℃)', 'Set point (℃)')}>
+          <NumberInput value={sv} min={-100} max={2000} step={1} onChange={(v) => v !== undefined && set({ sv: v })} />
+        </Field>
+        <Field label={tr('히스테리시스 (℃)', 'Hysteresis (℃)')} hint={tr('설정에서 이만큼 내려가야 되돌아갑니다', 'Returns once it drops this far below the set point')}>
+          <NumberInput value={hys} min={0.1} max={500} step={1} onChange={(v) => v !== undefined && set({ hys: v })} />
+        </Field>
+        {tc && (
+          <>
+            <Field label={tr('제어 동작', 'Control action')}>
+              <Select value={p.tcMode ?? 'heat'} onChange={(v: 'heat' | 'cool') => set({ tcMode: v === 'cool' ? 'cool' : undefined })} options={[{ value: 'heat', label: tr('가열 (설정보다 낮으면 OUT)', 'Heating (OUT below set)') }, { value: 'cool', label: tr('냉각 (설정 이상이면 OUT)', 'Cooling (OUT above set)') }]} />
+            </Field>
+            <Field label={tr('경보 온도 AL (℃)', 'Alarm AL (℃)')} hint={tr('이 온도 이상이면 C2-AL 닫힘. 비우면 경보 없음', 'C2-AL closes at or above this. Empty = no alarm')}>
+              <NumberInput value={p.alarm} allowEmpty placeholder={tr('없음', 'none')} min={-100} max={2000} step={1} onChange={(v) => set({ alarm: v })} />
+            </Field>
+          </>
+        )}
+        {p.type === 'r_thermo' && (
+          <Field label={tr('접점', 'Contact')} wide>
+            <Select value={p.ncOut ? 'nc' : 'no'} onChange={(v) => set({ ncOut: v === 'nc' || undefined })} options={[{ value: 'nc', label: tr('NC: 오르면 열림 (히터 · 난방)', 'NC: opens on rise (heater)') }, { value: 'no', label: tr('NO: 오르면 닫힘 (팬 · 냉방)', 'NO: closes on rise (fan)') }]} />
+          </Field>
+        )}
+      </div>
+      <p className="small muted">
+        {tc
+          ? tr(`A1 · A2 전원. ${p.tcMode === 'cool' ? `${sv}℃ 이상이면 C1-OUT 닫힘, ${sv - hys}℃ 이하로 내려가면 열림` : `${sv - hys}℃ 이하이면 C1-OUT 닫힘 (히터 켜짐), ${sv}℃ 에 닿으면 열림`}. 단자 번호는 기종마다 다르니 기기 옆면 결선도를 따르세요`, `Power A1/A2. ${p.tcMode === 'cool' ? `C1-OUT closes at ${sv}℃ and opens at ${sv - hys}℃` : `C1-OUT closes at ${sv - hys}℃ and opens at ${sv}℃`}. Terminal numbers differ by model`)
+          : tr(`${sv}℃ 에 닿으면 접점이 바뀌고 ${sv - hys}℃ 까지 내려가야 되돌아갑니다. 전원이 필요 없는 무전압 접점입니다`, `Switches at ${sv}℃ and back at ${sv - hys}℃. Dry contact, no supply needed`)}
+      </p>
+      <div className="field-label" style={{ marginTop: 8 }}>
+        {tr('시뮬레이션의 온도', 'Temperature in the simulation')}
+      </div>
+      <div className="grid2">
+        <Field label={tr('온도를 바꾸는 부하', 'Load that changes it')} hint={tr('비우면 조작 순서 (온도 →) 나 시뮬레이션 중 기기를 눌러서만 바뀜', 'Empty: only operation steps or clicks change it')}>
+          <Select value={p.tLoad ?? ''} onChange={(v) => set({ tLoad: v || undefined })} options={[{ value: '', label: tr('(없음)', '(none)') }, ...loads.map((t) => ({ value: t, label: t }))]} />
+        </Field>
+        {p.tLoad && (
+          <Field label={tr('그 부하가', 'That load')}>
+            <Select value={p.tLoadCool ? 'cool' : 'heat'} onChange={(v) => set({ tLoadCool: v === 'cool' || undefined })} options={[{ value: 'heat', label: tr('데운다 (히터)', 'heats (heater)') }, { value: 'cool', label: tr('식힌다 (팬 · 냉방)', 'cools (fan)') }]} />
+          </Field>
+        )}
+        <Field label={tr('처음 · 주위 온도 (℃)', 'Start / ambient (℃)')}>
+          <NumberInput value={p.amb ?? 20} min={-100} max={2000} step={1} onChange={(v) => v !== undefined && set({ amb: v })} />
+        </Field>
+        {p.tLoad && (
+          <>
+            <Field label={tr('최고 온도 (℃)', 'Maximum (℃)')} hint={tr('비우면 설정 + 20℃', 'Empty: set point + 20℃')}>
+              <NumberInput value={p.tmax} allowEmpty placeholder={tr('자동', 'auto')} min={-100} max={2000} step={1} onChange={(v) => set({ tmax: v })} />
+            </Field>
+            <Field label={tr('오르는 속도 (℃/초)', 'Rise (℃/s)')}>
+              <NumberInput value={p.rise ?? 1} min={0.001} max={1000} step={0.1} onChange={(v) => v !== undefined && set({ rise: v })} />
+            </Field>
+            <Field label={tr('내리는 속도 (℃/초)', 'Fall (℃/s)')}>
+              <NumberInput value={p.fall ?? 0.5} min={0.001} max={1000} step={0.1} onChange={(v) => v !== undefined && set({ fall: v })} />
+            </Field>
+          </>
+        )}
+        <Field label={tr('온도 묶음 이름', 'Zone name')} hint={tr('같은 이름의 온도 기기는 같은 온도를 잽니다 (예: 판넬). 비우면 이 기기만', 'Devices with the same name read the same temperature')}>
+          <TagInput value={p.zone ?? ''} onChange={(v) => set({ zone: v || undefined })} placeholder={tr('(이 기기만)', '(this one)')} />
+        </Field>
+      </div>
+    </>
+  );
+}
+
 function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: CircuitModel; res: ScenarioResult | null; onChange: (c: Circuit, key?: string) => void }) {
   const ops = circuit.ops;
   const devices = model.operable().map((t) => {
     const p = model.mainPart.get(t)!;
     const name = circuit.parts.find((q) => tagKey(q) === t && q.name)?.name;
-    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: PARTS[p.type].operate === 'momentary', sel3: p.type === 'r_ss3' ? p : undefined };
+    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: PARTS[p.type].operate === 'momentary', sel3: p.type === 'r_ss3' ? p : undefined, temp: model.tagKind.get(t) === 'temp' ? p : undefined };
   });
   const setOps = (next: OpStep[]) => onChange({ ...circuit, ops: next });
   const setOp = (i: number, patch: Partial<OpStep>) => setOps(ops.map((o, k) => (k === i ? { ...o, ...patch } : o)));
   const add = () => {
     const used = new Set(ops.map((o) => normTag(o.tag)));
     const d = devices.find((x) => !used.has(normTag(x.value))) ?? devices[0];
+    if (d?.temp) {
+      setOps([...ops, { id: uid('op'), wait: ops.length ? 2000 : 500, tag: d.value, action: 'temp', value: tempSetting(d.temp).sv + 5, hold: 0 }]);
+      return;
+    }
     setOps([...ops, { id: uid('op'), wait: ops.length ? 2000 : 500, tag: d?.value ?? '', action: d?.sel3 ? 'right' : d && !d.momentary ? 'on' : 'press', hold: 300 }]);
   };
   const move = (i: number, dir: -1 | 1) => {
@@ -1672,11 +1766,22 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
           {ops.map((o, i) => {
             const known = devices.some((d) => normTag(d.value) === normTag(o.tag));
             const sel3 = devices.find((d) => normTag(d.value) === normTag(o.tag))?.sel3;
+            const tempDev = devices.find((d) => normTag(d.value) === normTag(o.tag))?.temp;
             return (
               <div className="cc-op" key={o.id}>
                 <div className="cc-op-top">
                   <span className="cc-op-n">{i + 1}</span>
-                  <select className={`input ${known ? '' : 'bad'}`} value={o.tag} onChange={(e) => setOp(i, { tag: e.target.value })} aria-label={tr('기기', 'Device')}>
+                  <select
+                    className={`input ${known ? '' : 'bad'}`}
+                    value={o.tag}
+                    onChange={(e) => {
+                      // 온도 기기로 바꾸면 동작도 온도로 (반대로도)
+                      const d = devices.find((x) => x.value === e.target.value);
+                      if (d?.temp) setOp(i, { tag: e.target.value, action: 'temp', value: o.value ?? tempSetting(d.temp).sv + 5, hold: o.action === 'temp' ? o.hold : 0 });
+                      else setOp(i, { tag: e.target.value, ...(o.action === 'temp' ? { action: d?.sel3 ? 'right' : d && !d.momentary ? 'on' : 'press', hold: 300, value: undefined } : {}) });
+                    }}
+                    aria-label={tr('기기', 'Device')}
+                  >
                     {!devices.some((d) => d.value === o.tag) && <option value={o.tag}>{o.tag || '—'} ?</option>}
                     {devices.map((d) => (
                       <option key={d.value} value={d.value}>
@@ -1685,7 +1790,9 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                     ))}
                   </select>
                   <select className="input cc-op-act" value={o.action} onChange={(e) => setOp(i, { action: e.target.value as OpStep['action'] })} aria-label={tr('동작', 'Action')}>
-                    {sel3 ? (
+                    {tempDev ? (
+                      <option value="temp">{tr('온도 →', 'Temp. →')}</option>
+                    ) : sel3 ? (
                       <>
                         <option value="left">{opActionLabel('left', sel3)}</option>
                         <option value="off">{opActionLabel('off', sel3)}</option>
@@ -1716,6 +1823,16 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                     <label title={tr('누르고 있는 시간', 'How long it is held')}>
                       {tr('누름', 'Hold')} <TimeInput value={o.hold} onChange={(v) => v !== undefined && setOp(i, { hold: v })} />
                     </label>
+                  )}
+                  {o.action === 'temp' && (
+                    <>
+                      <label title={tr('바꿀 온도', 'Target temperature')}>
+                        ℃ <NumberInput value={o.value ?? 20} min={-100} max={2000} step={1} onChange={(v) => v !== undefined && setOp(i, { value: v })} />
+                      </label>
+                      <label title={tr('이 시간 동안 일정하게 바뀜 (0 = 바로)', 'Changes evenly over this time (0 = at once)')}>
+                        {tr('걸림', 'Over')} <TimeInput value={o.hold} onChange={(v) => v !== undefined && setOp(i, { hold: v })} />
+                      </label>
+                    </>
                   )}
                   <TagInput value={o.note ?? ''} onChange={(v) => setOp(i, { note: v || undefined })} placeholder={tr('메모 (스텝 이름)', 'Note (step)')} />
                   <span className="cc-row-btns">

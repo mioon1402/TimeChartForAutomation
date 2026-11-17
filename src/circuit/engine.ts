@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { ALWAYS_ON, counterPreset, isLinkedSensor, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
+import { ALWAYS_ON, counterPreset, isLinkedSensor, isTempDevice, tempSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import { poleLive } from './supply';
 import type { PlcConfig, SimSettings } from '../plc/types';
@@ -20,7 +20,7 @@ import type { PlcRuntime } from '../plc/runtime';
  *  - 타이머 만료, 실린더 도착 시각을 다음 사건으로 잡아서 시간을 건너뛴다.
  */
 
-export type TagKind = 'coil' | 'timer' | 'tsw' | 'counter' | 'thr' | 'sensor' | 'operator';
+export type TagKind = 'coil' | 'timer' | 'tsw' | 'counter' | 'temp' | 'thr' | 'sensor' | 'operator';
 
 const DAY = 86400000;
 
@@ -54,6 +54,42 @@ export interface Conductor {
   sel?: -1 | 1;
   /** 직류 2선식 센서: a = 갈색, b = 파랑. 파랑이 + 쪽이거나 갈색이 0V 쪽이면 (거꾸로 이으면) 켜지지 않는다 */
   dc2?: boolean;
+  /** 온도 조절기의 경보 출력 (AL) */
+  al?: boolean;
+}
+
+/** 온도 기기 하나: 묶음 (같은 온도를 재는 기기끼리), 설정 · 히스테리시스 · 경보, 온도 조절기면 출력 동작 */
+export interface TempDef {
+  part: Part;
+  zone: string;
+  /** 온도 조절기 (전원 A1 · A2, 출력 OUT · AL) */
+  tc: boolean;
+  sv: number;
+  hys: number;
+  alarm: number | null;
+  /** 냉각 동작: 설정 이상이면 OUT */
+  cool: boolean;
+}
+
+/** 온도 묶음: 처음 · 주위 온도, 최고 온도, 오르는 · 내리는 속도 (℃/s), 온도를 바꾸는 부하 */
+export interface TempZone {
+  label: string;
+  amb: number;
+  tmax: number;
+  rise: number;
+  fall: number;
+  load: string;
+  loadCool: boolean;
+}
+
+export interface TempView {
+  pv: number;
+  sv: number;
+  hot: boolean;
+  out: boolean;
+  al: boolean;
+  /** 온도가 바뀌는 중: 1 오름, -1 내림, 0 그대로 */
+  dir: -1 | 0 | 1;
 }
 
 /** 공압 포트 상태: P = 압력, E = 배기(대기), X = 막힘 */
@@ -80,7 +116,7 @@ export interface PlcBlock {
   outName: string[];
 }
 
-export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut';
+export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut';
 
 export interface Track {
   key: string;
@@ -111,6 +147,9 @@ export class CircuitModel {
   readonly counterDef = new Map<string, { part: Part; cp: number; rst: number; com: number; preset: number }>();
   /** 3단 셀렉터 기호 */
   readonly sel3 = new Set<string>();
+  /** 온도 기기 (온도 조절기 · 서모스탯 · 온도 스위치) 와 온도 묶음 */
+  readonly tempDef = new Map<string, TempDef>();
+  readonly tempZones = new Map<string, TempZone>();
   /** 릴레이 · 타이머 코일이 붙고 떨어지는 데 걸리는 시간 (ms, 0 = 바로) */
   readonly relayMs: number;
   readonly cylDef = new Map<string, Part>();
@@ -147,7 +186,8 @@ export class CircuitModel {
   ) {
     this.net = buildNetlist(circuit);
     this.relayMs = Math.min(1000, Math.max(0, circuit.relayMs ?? 0));
-    const rank: Record<TagKind, number> = { coil: 5, timer: 5, tsw: 5, counter: 5, thr: 4, sensor: 3, operator: 2 };
+    const rank: Record<TagKind, number> = { coil: 5, timer: 5, tsw: 5, counter: 5, temp: 5, thr: 4, sensor: 3, operator: 2 };
+    const zoneParts = new Map<string, Part[]>();
     const setKind = (tag: string, k: TagKind, p: Part) => {
       const cur = this.tagKind.get(tag);
       if (!cur || rank[k] > rank[cur]) {
@@ -172,6 +212,14 @@ export class CircuitModel {
         setKind(tag, 'counter', p);
         const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
         if (!this.counterDef.has(tag)) this.counterDef.set(tag, { part: p, cp: pn(2), rst: pn(3), com: pn(4), preset: counterPreset(p) });
+      } else if (isTempDevice(p)) {
+        setKind(tag, 'temp', p);
+        if (!this.tempDef.has(tag)) {
+          const s = tempSetting(p);
+          const zone = normTag(p.zone ?? '') || tag;
+          this.tempDef.set(tag, { part: p, zone, tc: p.type === 'r_tc', sv: s.sv, hys: s.hys, alarm: p.type === 'r_tc' && typeof p.alarm === 'number' ? p.alarm : null, cool: p.tcMode === 'cool' });
+          zoneParts.set(zone, [...(zoneParts.get(zone) ?? []), p]);
+        }
       } else if (p.type === 'r_tsw') {
         setKind(tag, 'tsw', p);
         if (!this.tswDef.has(tag)) this.tswDef.set(tag, { part: p, l: this.net.pinNet.get(`${p.id}:0`)!, n: this.net.pinNet.get(`${p.id}:1`)!, sched: tswSched(p) });
@@ -200,7 +248,11 @@ export class CircuitModel {
         poles.forEach(([i, j], k) => {
           const a = this.net.pinNet.get(`${p.id}:${i}`)!;
           const b = this.net.pinNet.get(`${p.id}:${j}`)!;
-          this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: def.polesNc?.[k] ?? !!def.nc, always, inst: (p.type === 'r_timer8' && !!p.inst13 && k < 2) || ((p.type === 'no' || p.type === 'nc') && !!p.inst13), ...(p.type === 'r_ss3' ? { sel: k === 0 ? (-1 as const) : (1 as const) } : p.type === 'sw_no' && p.sel ? { sel: p.sel } : {}) });
+          if (p.type === 'r_tc' && k === 1) {
+            this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: false, always: false, al: true });
+            return;
+          }
+          this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: p.type === 'r_thermo' ? !!p.ncOut : def.polesNc?.[k] ?? !!def.nc, always, inst: (p.type === 'r_timer8' && !!p.inst13 && k < 2) || ((p.type === 'no' || p.type === 'nc') && !!p.inst13), ...(p.type === 'r_ss3' ? { sel: k === 0 ? (-1 as const) : (1 as const) } : p.type === 'sw_no' && p.sel ? { sel: p.sel } : {}) });
         });
       }
       // 전원 계통에 없는 극 (3상 3선식의 N, 단상의 L3 …) 은 전압이 없다
@@ -229,6 +281,23 @@ export class CircuitModel {
         if (p.type === 'fc') this.flowCtrls.push({ part: p, net: pin(0), speed: Math.min(100, Math.max(5, p.speed ?? 50)) });
       } else if (VALVES.has(p.type)) this.valves.push({ part: p, ports: def.pins.map((_, i) => pin(i)), solA: normTag(p.solA ?? ''), solB: normTag(p.solB ?? '') });
       else if (p.type === 'cyl' && p.tag.trim() && !this.cylPorts.has(tag)) this.cylPorts.set(tag, { cap: pin(0), rod: pin(1), capTubed: tubed(pin(0)), rodTubed: tubed(pin(1)) });
+    }
+    // 온도 묶음: 값마다 그 값을 처음 적은 기기의 것을 쓴다 (부하 · 속도 · 주위 온도)
+    for (const [zone, ps] of zoneParts) {
+      const first = <K extends keyof Part>(k: K) => ps.find((q) => q[k] !== undefined && q[k] !== '')?.[k];
+      const amb = (first('amb') as number | undefined) ?? 20;
+      const defs = [...this.tempDef.values()].filter((d) => d.zone === zone);
+      const top = Math.max(amb + 10, ...defs.map((d) => d.sv + 20), ...defs.map((d) => (d.alarm ?? -Infinity) + 10));
+      const owner = ps.find((q) => q.tLoad?.trim()) ?? ps[0];
+      this.tempZones.set(zone, {
+        label: ps[0].zone?.trim() || this.tagLabel.get(zone) || zone,
+        amb,
+        tmax: Math.max(amb, (first('tmax') as number | undefined) ?? top),
+        rise: Math.max(0.001, (first('rise') as number | undefined) ?? 1),
+        fall: Math.max(0.001, (first('fall') as number | undefined) ?? 0.5),
+        load: normTag(owner.tLoad ?? ''),
+        loadCool: !!owner.tLoadCool,
+      });
     }
     // PLC: 입력은 단자 넷의 극으로 읽고, 출력은 공통 C ↔ Qn 접점
     const blocks = circuit.parts.filter((p) => p.type === 'plc');
@@ -275,8 +344,9 @@ export class CircuitModel {
   }
 
   /** 사람이 조작하는 기호 (조작 순서에서 고를 수 있는 것) */
+  /** 조작 순서에 쓸 수 있는 기호 (버튼 · 스위치 · THR, 온도 기기는 온도를 바꾼다) */
   operable(): string[] {
-    return [...this.tagKind].filter(([, k]) => k === 'operator' || k === 'thr').map(([t]) => t);
+    return [...this.tagKind].filter(([, k]) => k === 'operator' || k === 'thr' || k === 'temp').map(([t]) => t);
   }
 
   label(tag: string): string {
@@ -322,6 +392,13 @@ export class CircuitSim {
   readonly sel = new Map<string, -1 | 0 | 1>();
   /** 카운터: 센 수, 출력, 입력 (CP · RST) 이 들어와 있나 */
   readonly counters = new Map<string, { n: number; out: boolean; cp: boolean; rst: boolean }>();
+  /**
+   * 온도 묶음: since 시각의 온도, 바뀌는 속도 (℃/ms), 향하는 온도 (닿으면 멈춤),
+   * forced = 조작 순서로 바꾸는 중 (부하와 상관없이 goal 까지)
+   */
+  readonly zones = new Map<string, { pv: number; since: number; rate: number; goal: number; forced: boolean }>();
+  /** 온도 기기: 설정 온도 이상 (hot, 히스테리시스), 경보 온도 이상, 제어 출력 · 경보 출력 */
+  readonly temps = new Map<string, { hot: boolean; alHot: boolean; out: boolean; al: boolean }>();
   /** 넷마다 이어진 묶음 (닫힌 접점까지 따라간 것) */
   private root: Int32Array = new Int32Array(0);
   /** 릴레이 동작 시간이 있을 때: 코일 · 타이머가 바뀔 예정 (c:태그 · t:태그) */
@@ -367,6 +444,8 @@ export class CircuitSim {
     for (const [tag, d] of m.tswDef) this.tsw.set(tag, { dial: this.clock0, out: schedOn(d.sched, this.clock0), run: false });
     for (const tag of m.sel3) this.sel.set(tag, 0);
     for (const tag of m.counterDef.keys()) this.counters.set(tag, { n: 0, out: false, cp: false, rst: false });
+    for (const [z, d] of m.tempZones) this.zones.set(z, { pv: d.amb, since: 0, rate: 0, goal: d.amb, forced: false });
+    for (const tag of m.tempDef.keys()) this.temps.set(tag, { hot: false, alHot: false, out: false, al: false });
     for (const tag of m.cylDef.keys()) this.cyl.set(tag, { pos: 0, target: 0, atPlus: false, atMinus: true, hold: false });
     for (const v of m.valves) this.valvePos.set(v.part.id, v.part.type === 'v53' ? 'c' : 'b');
     for (const b of m.plcs) {
@@ -442,6 +521,10 @@ export class CircuitSim {
         return this.tsw.get(tag)?.out ?? false;
       case 'counter':
         return this.counters.get(tag)?.out ?? false;
+      case 'temp': {
+        const st = this.temps.get(tag);
+        return !!st && (this.m.tempDef.get(tag)!.tc ? st.out : st.hot);
+      }
       case 'thr':
       case 'operator':
         return this.act.get(tag) ?? false;
@@ -460,7 +543,7 @@ export class CircuitSim {
   closed(p: Part): boolean {
     if (p.type === 'fuse' || p.type === 'fuse3' || p.type === 'r_tb') return true;
     if (p.type === 'sw_no' && p.sel) return this.selPos(tagKey(p)) === p.sel;
-    if (p.type === 'r_prox2') return this.on(tagKey(p)) !== !!p.ncOut;
+    if (p.type === 'r_prox2' || p.type === 'r_thermo') return this.on(tagKey(p)) !== !!p.ncOut;
     if ((p.type === 'no' || p.type === 'nc') && p.inst13) return !!this.timers.get(tagKey(p))?.coil !== (p.type === 'nc');
     const v = this.on(tagKey(p));
     return PARTS[p.type].nc ? !v : v;
@@ -468,6 +551,74 @@ export class CircuitSim {
 
   loadOn(tag: string): boolean {
     return (this.m.loadParts.get(tag) ?? []).some((id) => this.energized.has(id));
+  }
+
+  /** 온도 묶음의 지금 온도 (℃) */
+  zoneTemp(zone: string): number {
+    const s = this.zones.get(zone);
+    if (!s) return 0;
+    if (!s.rate) return s.pv;
+    const v = s.pv + s.rate * (this.t - s.since);
+    return s.rate > 0 ? Math.min(s.goal, v) : Math.max(s.goal, v);
+  }
+
+  tempView(tag: string): TempView | null {
+    const d = this.m.tempDef.get(tag);
+    const st = this.temps.get(tag);
+    const z = d && this.zones.get(d.zone);
+    if (!d || !st || !z) return null;
+    return { pv: this.zoneTemp(d.zone), sv: d.sv, hot: st.hot, out: st.out, al: st.al, dir: z.rate > 0 ? 1 : z.rate < 0 ? -1 : 0 };
+  }
+
+  /** 온도 기기가 재는 온도를 value 로 바꾼다 (ramp ms 동안 일정하게, 0 이면 바로) */
+  private setTemp(tag: string, value: number, ramp: number): boolean {
+    const d = this.m.tempDef.get(tag);
+    const s = d && this.zones.get(d.zone);
+    if (!d || !s) return false;
+    s.pv = this.zoneTemp(d.zone);
+    s.since = this.t;
+    if (ramp > 0 && Math.abs(value - s.pv) > 1e-6) {
+      s.forced = true;
+      s.goal = value;
+      s.rate = (value - s.pv) / ramp;
+    } else {
+      // 바로 바꾸면 차트에 수직선이 되도록 바로 앞 (0.001 ms) 에 지금 온도를 찍어 둔다
+      const tr = this.tracks.find((x) => x.key === `tv:${d.zone}`);
+      const t0 = Math.round((this.t - 0.001) * 1000) / 1000;
+      if (tr && Math.abs(value - s.pv) > 1e-6 && t0 > (tr.points[tr.points.length - 1]?.t ?? 0)) tr.points.push({ t: t0, v: Math.round(s.pv * 100) / 100 });
+      s.pv = value;
+      s.goal = value;
+      s.rate = 0;
+      s.forced = false;
+    }
+    return true;
+  }
+
+  /** 시뮬레이션 중 온도를 바꾼다 (온도 기기를 눌러서) */
+  changeTemp(tag: string, value: number, ramp = 0): boolean {
+    if (!this.setTemp(tag, value, ramp)) return false;
+    this.settle();
+    this.record();
+    return true;
+  }
+
+  /** 부하 (히터 · 팬) 상태에 따라 온도가 향하는 곳과 속도를 다시 정한다 */
+  private retarget(): void {
+    for (const [z, s] of this.zones) {
+      if (s.forced) continue;
+      const d = this.m.tempZones.get(z)!;
+      s.pv = this.zoneTemp(z);
+      s.since = this.t;
+      if (!d.load) {
+        s.rate = 0;
+        s.goal = s.pv;
+        continue;
+      }
+      // 가열 부하가 켜졌거나, 식히는 부하 (팬) 가 꺼졌으면 최고 온도 쪽으로
+      const heating = this.loadOn(d.load) !== d.loadCool;
+      s.goal = heating ? d.tmax : d.amb;
+      s.rate = s.pv < s.goal - 1e-6 ? d.rise / 1000 : s.pv > s.goal + 1e-6 ? -d.fall / 1000 : 0;
+    }
   }
 
   timerView(tag: string): TimerView | null {
@@ -507,9 +658,13 @@ export class CircuitSim {
   }
 
   /** 같은 순간의 조작을 한꺼번에 바꾸고 한 번만 자리 잡는다 (두 버튼을 동시에 누름 · 뗌) */
-  applyAll(list: { tag: string; on: boolean; pos?: -1 | 0 | 1 }[]): void {
+  applyAll(list: { tag: string; on: boolean; pos?: -1 | 0 | 1; temp?: number; ramp?: number }[]): void {
     let changed = false;
     for (const e of list) {
+      if (e.temp !== undefined) {
+        changed = this.setTemp(e.tag, e.temp, e.ramp ?? 0) || changed;
+        continue;
+      }
       if (this.m.sel3.has(e.tag)) {
         const pos = e.pos ?? (e.on ? 1 : 0);
         if ((this.sel.get(e.tag) ?? 0) === pos) continue;
@@ -543,6 +698,7 @@ export class CircuitSim {
   /** 이 접점 (극) 이 지금 통하는가 */
   conductorClosed(c: Conductor): boolean {
     if (c.sel !== undefined) return (this.sel.get(c.tag) ?? 0) === c.sel;
+    if (c.al) return !!this.temps.get(c.tag)?.al;
     const closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || (c.inst ? !!this.timers.get(c.tag)?.coil : this.on(c.tag)) !== c.nc;
     return closed && !(c.power && !this.powered.get(c.power));
   }
@@ -744,6 +900,20 @@ export class CircuitSim {
         return true;
       }
     }
+    // 온도 기기: 설정 온도에 닿으면 동작, 히스테리시스만큼 내려가야 되돌아감. 온도 조절기는 전원 (A1 · A2) 이 있어야 출력
+    for (const [tag, d] of this.m.tempDef) {
+      const st = this.temps.get(tag)!;
+      const pv = this.zoneTemp(d.zone);
+      const hot = st.hot ? pv > d.sv - d.hys + 1e-6 : pv >= d.sv - 1e-6;
+      const alHot = d.alarm !== null && (st.alHot ? pv > d.alarm - d.hys + 1e-6 : pv >= d.alarm - 1e-6);
+      const pw = !d.tc || this.energized.has(d.part.id);
+      const out = d.tc ? pw && (d.cool ? hot : !hot) : hot;
+      const al = d.tc && pw && alHot;
+      if (hot !== st.hot || alHot !== st.alHot || out !== st.out || al !== st.al) {
+        Object.assign(st, { hot, alHot, out, al });
+        return true;
+      }
+    }
     // 카운터: 전원 (A1 · A2) 이 있을 때 CP 가 COM 과 이어지는 순간마다 하나씩 센다. RST 가 이어지면 0 으로
     for (const [tag, d] of this.m.counterDef) {
       const st = this.counters.get(tag)!;
@@ -915,6 +1085,7 @@ export class CircuitSim {
     for (let i = 0; i < 400; i++) {
       this.evaluate();
       if (!this.stepOnce()) {
+        this.retarget();
         // 한 번에 한 줄로: 아직 알리지 않은 코일만 모아서
         const keys = [...flips].filter(([key, k]) => k >= 2 && !this.warned.has(`pulse:${key}`)).map(([key]) => key);
         if (keys.length) {
@@ -930,6 +1101,7 @@ export class CircuitSim {
       for (const [key, v] of now) if (last.get(key) !== v) flips.set(key, (flips.get(key) ?? 0) + 1);
       last = now;
     }
+    this.retarget();
     this.warn(`${formatTime(this.t, 's')}: 릴레이가 계속 켜졌다 꺼졌다 합니다 (발진)`, 'osc');
   }
 
@@ -937,6 +1109,18 @@ export class CircuitSim {
   nextEvent(withScan = true): number | null {
     let best = withScan && this.nextScan !== null ? this.nextScan : Infinity;
     for (const pd of this.pending.values()) best = Math.min(best, pd.at);
+    // 온도: 향하는 온도, 설정 · 경보 온도 (오를 때) 와 되돌아가는 온도 (내릴 때) 에 닿는 시각
+    for (const [z, s] of this.zones) {
+      if (!s.rate) continue;
+      const pv = this.zoneTemp(z);
+      const marks = [s.goal];
+      for (const d of this.m.tempDef.values()) {
+        if (d.zone !== z) continue;
+        if (s.rate > 0) marks.push(d.sv, ...(d.alarm !== null ? [d.alarm] : []));
+        else marks.push(d.sv - d.hys, ...(d.alarm !== null ? [d.alarm - d.hys] : []));
+      }
+      for (const m of marks) if (s.rate > 0 ? m > pv + 1e-6 : m < pv - 1e-6) best = Math.min(best, this.t + (m - pv) / s.rate);
+    }
     for (const [tag, st] of this.timers) {
       const def = this.m.timerDef.get(tag)!;
       if ((def.mode === 'on' && st.coil && !st.out) || (def.mode === 'off' && !st.coil && st.out) || (def.mode === 'flicker' && st.coil && def.preset > 0) || (def.mode === 'interval' && st.coil && st.out)) best = Math.min(best, st.since + timerSpan(def, st.out));
@@ -973,6 +1157,20 @@ export class CircuitSim {
       else if (st.pos <= 1 - SENSOR_BAND + EPS) st.atPlus = false;
       if (st.pos <= EPS) st.atMinus = true;
       else if (st.pos >= SENSOR_BAND - EPS) st.atMinus = false;
+    }
+    for (const s of this.zones.values()) {
+      if (!s.rate) {
+        s.since = Math.max(s.since, t2);
+        continue;
+      }
+      const v = s.pv + s.rate * (t2 - s.since);
+      s.pv = s.rate > 0 ? Math.min(s.goal, v) : Math.max(s.goal, v);
+      s.since = t2;
+      if (Math.abs(s.pv - s.goal) < 1e-6) {
+        s.pv = s.goal;
+        s.rate = 0;
+        s.forced = false;
+      }
     }
     if (dt > 0) {
       for (const [tag, st] of this.tsw) {
@@ -1048,11 +1246,22 @@ export class CircuitSim {
       else if (k === 'counter') {
         add(`cv:${tag}`, tag, 'counterVal');
         add(`cq:${tag}`, tag, 'counterOut');
+      } else if (k === 'temp') {
+        const d = m.tempDef.get(tag)!;
+        if (d.tc) {
+          add(`to:${tag}`, tag, 'tempOut');
+          if (d.alarm !== null) add(`ta:${tag}`, tag, 'tempAlarm');
+        } else add(`tt:${tag}`, tag, 'tempSw');
       }
+    }
+    // 온도 묶음마다 온도 (아날로그)
+    for (const [z, d] of m.tempZones) {
+      const first = [...m.tempDef.values()].find((x) => x.zone === z)!;
+      this.tracks.push({ key: `tv:${z}`, tag: d.label, kind: 'tempVal', part: first.part, points: [], last: null });
     }
     for (const [tag, ids] of m.loadParts) {
       const k = m.tagKind.get(tag);
-      if (k === 'coil' || k === 'timer' || k === 'counter') continue;
+      if (k === 'coil' || k === 'timer' || k === 'counter' || k === 'temp') continue;
       const types = new Set(ids.map((id) => m.circuit.parts.find((p) => p.id === id)!.type));
       const motor = types.has('motor3') || types.has('motor') || types.has('r_motor3');
       const t = this.tracks.length;
@@ -1094,6 +1303,18 @@ export class CircuitSim {
         return String(this.counters.get(tag)?.n ?? 0);
       case 'counterOut':
         return this.counters.get(tag)?.out ? 1 : 0;
+      case 'tempVal':
+        return Math.round(this.zoneTemp(tag) * 100) / 100;
+      case 'tempOut':
+        return this.temps.get(tag)?.out ? 1 : 0;
+      case 'tempAlarm':
+        return this.temps.get(tag)?.al ? 1 : 0;
+      case 'tempSw': {
+        // 서모스탯 · 온도 스위치: 접점이 닫혀 있나 (NC 는 차가울 때 닫힘)
+        const p = tr.part;
+        const nc = p.type === 'r_thermo' ? !!p.ncOut : p.type === 'ls_nc';
+        return this.on(tag) !== nc ? 1 : 0;
+      }
       case 'load':
         return this.loadOn(tag) ? 1 : 0;
       case 'motor': {
@@ -1114,7 +1335,9 @@ export class CircuitSim {
     const t = Math.round(this.t * 1000) / 1000;
     for (const tr of this.tracks) {
       const v = this.trackValue(tr);
-      if (tr.last !== null && tr.last === v) continue;
+      // 온도는 값이 같아도 바뀌는 속도가 달라지면 점을 찍는다 (그래야 차트의 선이 그 자리에서 꺾인다)
+      const key = tr.kind === 'tempVal' ? `${v}|${this.zones.get(tr.key.slice(3))?.rate ?? 0}` : v;
+      if (tr.last !== null && tr.last === key) continue;
       const pt: WavePoint = { t, v };
       if (tr.kind === 'cyl') {
         const tag = tr.key.slice(4);
@@ -1124,7 +1347,7 @@ export class CircuitSim {
       }
       tr.points.push(pt);
       if (tr.last !== null) this.lastChangeT = Math.max(this.lastChangeT, t);
-      tr.last = v;
+      tr.last = key;
     }
     this.onRecord?.();
   }
@@ -1138,6 +1361,9 @@ export interface OpEvent {
   on: boolean;
   /** 3단 셀렉터 자리 (-1 왼쪽, 0 가운데, 1 오른쪽) */
   pos?: -1 | 0 | 1;
+  /** 온도 기기: 바꿀 온도 (℃) 와 걸리는 시간 (ms) */
+  temp?: number;
+  ramp?: number;
 }
 
 /** 조작 순서의 각 줄 시각 (앞 줄 조작 시각 + 대기) */
@@ -1156,7 +1382,8 @@ export function opsToEvents(ops: OpStep[]): OpEvent[] {
     if (o.action === 'press') {
       ev.push({ t, tag, on: true });
       ev.push({ t: t + Math.max(0, o.hold), tag, on: false });
-    } else if (o.action === 'left' || o.action === 'right') ev.push({ t, tag, on: true, pos: o.action === 'left' ? -1 : 1 });
+    } else if (o.action === 'temp') ev.push({ t, tag, on: false, temp: o.value ?? 0, ramp: Math.max(0, o.hold || 0) });
+    else if (o.action === 'left' || o.action === 'right') ev.push({ t, tag, on: true, pos: o.action === 'left' ? -1 : 1 });
     else ev.push({ t, tag, on: o.action === 'on' });
   });
   return ev.map((e, i) => ({ e, i })).sort((a, b) => a.e.t - b.e.t || a.i - b.i).map((x) => x.e);
@@ -1198,7 +1425,7 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
     for (; i < events.length && events[i].t <= t + EPS; i++) {
       const ev = events[i];
       const k = model.tagKind.get(ev.tag);
-      if (k !== 'operator' && k !== 'thr') {
+      if (ev.temp !== undefined ? k !== 'temp' : k !== 'operator' && k !== 'thr') {
         missing.add(ev.tag);
         continue;
       }
@@ -1225,6 +1452,8 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
       sim.advanceTo(next);
     }
   }
+  // 온도는 사건 사이에도 바뀌므로 끝 시각의 값을 한 번 더 찍는다
+  if (model.tempZones.size) sim.record();
   let last = lastOp;
   for (const tr of sim.tracks) {
     const p = tr.points[tr.points.length - 1];

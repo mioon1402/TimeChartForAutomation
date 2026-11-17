@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, counterPreset, LAMP_HEX, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, timerText, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, counterPreset, LAMP_HEX, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, tempSetting, timerText, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -1452,6 +1452,117 @@ export function CounterGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitC
       <Label x={104} y={-100} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
       {p.name && <Label x={104} y={-87} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
       {st.count && !st.on && <Label x={104} y={p.name ? -74 : -87} text={tr('전원 없음', 'No power')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+    </g>
+  );
+}
+
+/** 온도 표시 (정수, 7세그먼트처럼) */
+function tempText(v: number): string {
+  return String(Math.round(v));
+}
+
+/**
+ * 온도 조절기 (48×48): 앞면에 현재 온도 PV (빨강) · 설정 온도 SV (초록), OUT · AL 램프. 아래 단자 A1 · A2 (전원), C1-OUT, C2-AL.
+ * 시뮬레이션 중에는 왼쪽 · 오른쪽을 눌러 온도를 5℃ 내리고 올린다
+ */
+export function TcGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const t = st.temp;
+  const sv = tempSetting(p).sv;
+  const powered = !t || st.on;
+  const bottom = [
+    [-100, 'A1', 'orange'],
+    [-60, 'A2', 'orange'],
+    [-20, 'C1', 'grey'],
+    [20, 'OUT', 'green'],
+    [60, 'C2', 'grey'],
+    [100, 'AL', 'yellow'],
+  ] as const;
+  const led = (x: number, on: boolean, color: string, text: string) => (
+    <g>
+      <circle cx={x} cy={44} r={4.5} fill={on ? color : '#475569'} />
+      <Label x={x + 8} y={47} text={text} anchor="start" fill={on ? '#f8fafc' : '#94a3b8'} size={7.5} weight={800} />
+    </g>
+  );
+  return (
+    <g>
+      <rect x={-116} y={-104} width={232} height={220} rx={7} fill={BODY} stroke={BODY_EDGE} />
+      <rect x={-116} y={72} width={232} height={44} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      {bottom.map(([x, label, ring]) => (
+        <g key={label}>
+          <Screw x={x} y={100} ring={ring} />
+          <Label x={x} y={86} text={label} size={8.5} weight={800} />
+        </g>
+      ))}
+      <rect x={-72} y={-98} width={144} height={164} rx={5} fill="#111827" stroke="#030712" />
+      <rect x={-62} y={-88} width={124} height={52} rx={3} fill="#0b1120" />
+      <Label x={-56} y={-76} text="PV" anchor="start" fill="#64748b" size={7} weight={700} />
+      <Label x={54} y={-44} text={powered ? tempText(t ? t.pv : sv) : ''} anchor="end" fill="#f87171" size={30} weight={800} />
+      <rect x={-62} y={-30} width={124} height={34} rx={3} fill="#0b1120" />
+      <Label x={-56} y={-18} text="SV" anchor="start" fill="#64748b" size={7} weight={700} />
+      <Label x={54} y={-4} text={powered ? tempText(sv) : ''} anchor="end" fill="#4ade80" size={20} weight={800} />
+      {led(-54, !!t?.out, '#22c55e', 'OUT')}
+      {led(-2, !!t?.al, '#ef4444', 'AL')}
+      <Label x={64} y={47} text="℃" anchor="end" fill="#94a3b8" size={9} weight={700} />
+      {[-36, 0, 36].map((x, i) => (
+        <rect key={x} x={x - 12} y={54} width={24} height={8} rx={2} fill="#374151" stroke="none">
+          <title>{['MODE', '▼', '▲'][i]}</title>
+        </rect>
+      ))}
+      <Label x={-108} y={-90} text={tr('센서', 'Sensor')} anchor="start" fill="#64748b" size={7} weight={700} />
+      <Label x={-108} y={-80} text="K (CA)" anchor="start" fill="#475569" size={7.5} weight={800} />
+      {t && (
+        <>
+          <Label x={-94} y={-28} text="−5" fill="#2563eb" size={9} weight={800} />
+          <Label x={94} y={-28} text="+5" fill="#dc2626" size={9} weight={800} />
+        </>
+      )}
+      <Label x={124} y={-90} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={124} lines={[p.name, `SV ${sv}℃${typeof p.alarm === 'number' ? ` · AL ${p.alarm}℃` : ''}`, p.tcMode === 'cool' ? tr('냉각 동작', 'cooling') : tr('가열 동작', 'heating')]} c={c} />
+      {t && !st.on && <Label x={124} y={40} text={tr('전원 없음', 'No power')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+    </g>
+  );
+}
+
+/**
+ * 판넬 서모스탯 (바이메탈, 레일 장착): 설정 다이얼, 아래 단자 1 · 2. NC (빨간 다이얼, 히터: 오르면 열림) · NO (파란 다이얼, 팬: 오르면 닫힘).
+ * 시뮬레이션 중에는 왼쪽 · 오른쪽을 눌러 온도를 5℃ 내리고 올린다
+ */
+export function ThermoGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const t = st.temp;
+  const { sv } = tempSetting(p);
+  const nc = !!p.ncOut;
+  const ring = nc ? '#dc2626' : '#2563eb';
+  // 다이얼 눈금 0 ~ 60℃ (270°)
+  const ang = (v: number) => {
+    const a = ((-135 + 270 * Math.min(1, Math.max(0, v / 60))) * Math.PI) / 180;
+    return [16 * Math.sin(a), -26 - 16 * Math.cos(a)];
+  };
+  const [px, py] = ang(sv);
+  return (
+    <g>
+      <rect x={-44} y={-76} width={88} height={146} rx={6} fill="#f8fafc" stroke={BODY_EDGE} />
+      <rect x={-44} y={34} width={88} height={36} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <circle cx={0} cy={-26} r={24} fill="#ffffff" stroke={ring} strokeWidth={3} />
+      {[0, 10, 20, 30, 40, 50, 60].map((v) => {
+        const [x, y] = ang(v);
+        return <circle key={v} cx={x * 1.3} cy={-26 + (y + 26) * 1.3} r={1.2} fill="#64748b" />;
+      })}
+      <path d={`M0,-26L${px},${py}`} stroke="#111827" strokeWidth={3} strokeLinecap="round" />
+      <circle cx={0} cy={-26} r={4} fill="#334155" />
+      <Label x={0} y={12} text={`${sv}℃`} fill="#111827" size={11} weight={800} />
+      <Label x={0} y={26} text={nc ? tr('NC 히터', 'NC heater') : tr('NO 팬', 'NO fan')} fill={ring} size={8} weight={800} />
+      <Screw x={-20} y={58} ring="grey" />
+      <Screw x={20} y={58} ring="grey" />
+      <Label x={-34} y={50} text="1" size={8.5} weight={800} />
+      <Label x={34} y={50} text="2" size={8.5} weight={800} />
+      {t && (
+        <>
+          <Label x={-36} y={-58} text="−5" fill="#2563eb" size={9} weight={800} />
+          <Label x={36} y={-58} text="+5" fill="#dc2626" size={9} weight={800} />
+        </>
+      )}
+      <Label x={52} y={-62} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={52} lines={[p.name, t && `${tempText(t.pv)}℃ · ${st.closed ? tr('닫힘', 'closed') : tr('열림', 'open')}`]} c={c} />
     </g>
   );
 }

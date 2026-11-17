@@ -421,6 +421,23 @@ export const PARTS: Record<PartType, PartDef> = {
     box: [-5, -6, 5, 6],
     prefix: 'C',
   },
+  // 온도 조절기 (48×48): 아래 단자 A1 · A2 (전원), C1-OUT (제어 출력 a접점), C2-AL (경보 출력 a접점). 센서 (열전대 · 측온저항체) 는 그림만
+  r_tc: {
+    type: 'r_tc',
+    cat: 'relay',
+    pins: [pin(-5, 5, 'A1'), pin(-3, 5, 'A2'), pin(-1, 5, 'C1'), pin(1, 5, 'OUT'), pin(3, 5, 'C2'), pin(5, 5, 'AL')],
+    poles: [
+      [2, 3],
+      [4, 5],
+    ],
+    polesNc: [false, false],
+    load: true,
+    loadPins: [0, 1],
+    box: [-6, -5.4, 6, 6],
+    prefix: 'TC',
+  },
+  // 판넬 서모스탯 (바이메탈): 아래 단자 1 · 2. NC 는 온도가 오르면 열리고 (히터), NO 는 닫힌다 (팬)
+  r_thermo: { type: 'r_thermo', cat: 'switch', pins: [pin(-1, 3, '1'), pin(1, 3, '2')], poles: [[0, 1]], box: [-2.4, -4, 2.4, 3.6], prefix: 'TS' },
   // SSR: 위 1 · 2 출력 (교류 부하), 아래 3 (+) · 4 (-) 입력 (직류)
   r_ssr: { type: 'r_ssr', cat: 'relay', pins: [pin(-1, -3, '1'), pin(1, -3, '2'), pin(-1, 3, '3+'), pin(1, 3, '4-')], poles: [[0, 1]], selfCoil: [2, 3], load: true, box: [-2.6, -4.2, 2.6, 4.2], prefix: 'SSR' },
   r_estop: { type: 'r_estop', cat: 'switch', pins: [pin(-1, 0, '11'), pin(1, 0, '12'), pin(-1, 2, '23'), pin(1, 2, '24')], poles: PB_POLES, polesNc: [true, false], operate: 'toggle', box: [-2.6, -4.4, 2.6, 3], prefix: 'EMS' },
@@ -498,7 +515,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -585,12 +602,23 @@ export function pos3Labels(p: Pick<Part, 'pos3'>): [string, string, string] {
 }
 
 /** 조작 순서의 동작 이름 (3단 셀렉터는 자리 이름) */
-export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right', part?: Part): string {
+export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp', part?: Part, op?: { value?: number; hold?: number }): string {
+  if (action === 'temp') return `${tr('온도', 'Temp.')} → ${op?.value ?? 0}℃${op?.hold ? ` (${formatTime(op.hold, 's')})` : ''}`;
   if (part?.type === 'r_ss3') {
     const [l, m, r] = pos3Labels(part);
     return action === 'left' ? `← ${l}` : action === 'right' || action === 'on' ? `${r} →` : m;
   }
   return action === 'press' ? tr('누름 → 뗌', 'Press') : action === 'on' ? 'ON' : action === 'off' ? 'OFF' : action === 'left' ? tr('왼쪽', 'Left') : tr('오른쪽', 'Right');
+}
+
+/** 온도 기기인가: 온도 조절기 · 판넬 서모스탯 · 온도 스위치 기호 */
+export function isTempDevice(p: Pick<Part, 'type' | 'sense'>): boolean {
+  return p.type === 'r_tc' || p.type === 'r_thermo' || ((p.type === 'ls_no' || p.type === 'ls_nc') && p.sense === 'temp');
+}
+
+/** 온도 기기의 설정 온도 · 히스테리시스 (℃) */
+export function tempSetting(p: Pick<Part, 'sv' | 'hys' | 'type'>): { sv: number; hys: number } {
+  return { sv: typeof p.sv === 'number' ? p.sv : p.type === 'r_tc' ? 60 : 40, hys: Math.max(0.1, typeof p.hys === 'number' ? p.hys : p.type === 'r_tc' ? 2 : 5) };
 }
 
 /** 카운터 설정 수 */
@@ -850,6 +878,10 @@ export function partKindName(type: PartType): string {
       return tr('3단 셀렉터 스위치 (2a)', '3-position selector (2 NO)');
     case 'r_counter':
       return tr('프리셋 카운터', 'Preset counter');
+    case 'r_tc':
+      return tr('온도 조절기', 'Temperature controller');
+    case 'r_thermo':
+      return tr('판넬 서모스탯', 'Panel thermostat');
     case 'r_ssr':
       return tr('SSR (무접점 릴레이)', 'Solid-state relay');
     case 'r_estop':
@@ -937,6 +969,7 @@ export function palette(): PaletteGroup[] {
         it('r_timer8', tr('플리커 (점멸) 타이머', 'Flicker timer'), { sock: 'pf', timerMode: 'flicker', preset: 1000 }, 'rt8-flk'),
         it('r_timer8', tr('인터벌 (원샷) 타이머', 'Interval (one-shot) timer'), { sock: 'pf', timerMode: 'interval', preset: 3000 }, 'rt8-int'),
         it('r_counter', tr('카운터 (프리셋)', 'Counter (preset)'), { count: 5 }),
+        it('r_tc', tr('온도 조절기 (48×48)', 'Temperature controller (48×48)'), { sv: 60, hys: 2, alarm: 80 }),
         it('r_ssr', tr('SSR (무접점 릴레이)', 'SSR (solid-state relay)')),
         it('r_tsw', tr('24시간 타임 스위치', '24-h time switch'), { sched: [[18 * 3600000, 23 * 3600000]] }),
         it('r_sol', tr('솔레노이드 밸브', 'Solenoid valve')),
@@ -971,6 +1004,8 @@ export function palette(): PaletteGroup[] {
         it('r_prox2', tr('근접 센서 AC 2선식', 'Proximity AC 2-wire'), { sense: 'inductive', ac: true }, 'rprox2-ac'),
         it('r_float', tr('플로트 스위치 (수위)', 'Float switch')),
         it('r_psw', tr('압력 스위치', 'Pressure switch')),
+        it('r_thermo', tr('판넬 서모스탯 (히터 · NC)', 'Panel thermostat (heater, NC)'), { ncOut: true, sv: 10, hys: 5 }, 'rthermo-nc'),
+        it('r_thermo', tr('판넬 서모스탯 (팬 · NO)', 'Panel thermostat (fan, NO)'), { sv: 35, hys: 5 }, 'rthermo-no'),
       ],
     },
     {
@@ -1065,6 +1100,8 @@ export function palette(): PaletteGroup[] {
         it('ls_no', tr('리드 스위치 (실린더 센서)', 'Reed switch (cylinder)'), { sense: 'reed' }, 'reed', 'RS'),
         it('ls_no', tr('플로트 스위치', 'Float switch'), { sense: 'float' }, 'float', 'FLS'),
         it('ls_no', tr('압력 스위치', 'Pressure switch'), { sense: 'pressure' }, 'press', 'PS'),
+        it('ls_no', tr('온도 스위치 (오르면 닫힘)', 'Temperature switch (closes on rise)'), { sense: 'temp', sv: 40, hys: 5 }, 'temp-no', 'TS'),
+        it('ls_nc', tr('온도 스위치 (오르면 열림)', 'Temperature switch (opens on rise)'), { sense: 'temp', sv: 10, hys: 5 }, 'temp-nc', 'TS'),
       ],
     },
     {

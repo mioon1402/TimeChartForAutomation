@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, counterPreset, pos3Labels, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isTempDevice, pos3Labels, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
@@ -90,6 +90,8 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_ss: 6,
   r_ss3: 6,
   r_counter: 4,
+  r_tc: 4,
+  r_thermo: 6,
   r_ssr: 3,
   r_estop: 6,
   r_tb: 12,
@@ -138,7 +140,7 @@ export function socketText(p: Part): string {
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
 function mainOf(parts: Part[]): Part {
   const rank = (p: Part) =>
-    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw' || p.type === 'r_counter' || p.type === 'r_ssr'
+    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw' || p.type === 'r_counter' || p.type === 'r_ssr' || p.type === 'r_tc' || p.type === 'r_thermo'
       ? 0
       : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'r_vcb'
         ? 1
@@ -176,6 +178,10 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('비상정지 스위치', 'Emergency stop'), spec: ab };
     case 'ls_no':
     case 'ls_nc': {
+      if (p.sense === 'temp') {
+        const { sv, hys } = tempSetting(p);
+        return { kind: tr('온도 스위치', 'Temperature switch'), spec: [tr(`설정 ${sv}℃, 차 ${hys}℃`, `set ${sv}℃, diff. ${hys}℃`), ab].join(', ') };
+      }
       const kind =
         p.sense === 'inductive' || p.sense === 'capacitive' || p.sense === 'photo'
           ? tr('근접 센서 (2선식)', 'Proximity sensor (2-wire)')
@@ -291,6 +297,24 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('프리셋 카운터', 'Preset counter'), spec: tr(`설정 ${counterPreset(p)}, 무전압 입력, 출력 1c, AC 220V`, `preset ${counterPreset(p)}, dry-contact input, 1 c/o output, AC 220V`) };
     case 'r_ssr':
       return { kind: tr('SSR (무접점 릴레이)', 'Solid-state relay'), spec: tr('입력 DC 4-32V, 출력 AC 220V', 'in DC 4-32V, out AC 220V') };
+    case 'r_tc': {
+      const { sv, hys } = tempSetting(p);
+      return {
+        kind: tr('온도 조절기 (48×48)', 'Temperature controller (48×48)'),
+        spec: [
+          tr('전원 AC 100-240V', 'AC 100-240V'),
+          tr(`ON/OFF ${p.tcMode === 'cool' ? '냉각' : '가열'} 제어, 설정 ${sv}℃, 히스테리시스 ${hys}℃`, `ON/OFF ${p.tcMode === 'cool' ? 'cooling' : 'heating'}, set ${sv}℃, hysteresis ${hys}℃`),
+          typeof p.alarm === 'number' ? tr(`경보 ${p.alarm}℃`, `alarm ${p.alarm}℃`) : '',
+          tr('릴레이 출력 OUT · AL, 센서 K (CA)', 'relay outputs OUT, AL, K thermocouple'),
+        ]
+          .filter(Boolean)
+          .join(', '),
+      };
+    }
+    case 'r_thermo': {
+      const { sv, hys } = tempSetting(p);
+      return { kind: tr('판넬 서모스탯 (바이메탈)', 'Panel thermostat (bimetal)'), spec: tr(`${p.ncOut ? 'NC (히터용, 오르면 열림)' : 'NO (팬용, 오르면 닫힘)'}, 설정 ${sv}℃, 차 ${hys}℃, AC 250V`, `${p.ncOut ? 'NC (heater, opens on rise)' : 'NO (fan, closes on rise)'}, set ${sv}℃, diff. ${hys}℃, AC 250V`) };
+    }
     case 'r_estop':
       return { kind: tr('비상정지 스위치', 'Emergency stop'), spec: [tr('적색 버섯, 잠김', 'red mushroom, latching'), ab].join(', ') };
     case 'r_tb':
@@ -427,6 +451,12 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
     }
     if ((p.type === 'ls_no' || p.type === 'ls_nc') && p.cyl && !model.cylDef.has(normTag(p.cyl))) {
       out.push({ level: 'error', msg: tr(`${p.tag || 'LS'}: 실린더 ${p.cyl} 이(가) 없습니다`, `${p.tag || 'LS'}: cylinder ${p.cyl} not found`), partIds: [p.id] });
+    }
+    if (isTempDevice(p) && p.tLoad?.trim() && !model.loadParts.has(normTag(p.tLoad))) {
+      out.push({ level: 'error', msg: tr(`${p.tag || 'TC'}: 온도를 바꾸는 부하 ${p.tLoad} 이(가) 회로에 없습니다`, `${p.tag || 'TC'}: load ${p.tLoad} not in the circuit`), partIds: [p.id] });
+    }
+    if (p.type === 'r_tc' && typeof p.alarm === 'number' && p.alarm <= tempSetting(p).sv && p.tcMode !== 'cool') {
+      out.push({ level: 'warn', msg: tr(`${p.tag || 'TC'}: 경보 온도 ${p.alarm}℃ 가 설정 ${tempSetting(p).sv}℃ 이하라 평소 운전에서도 경보가 납니다`, `${p.tag || 'TC'}: alarm ${p.alarm}℃ is not above the set point`), partIds: [p.id] });
     }
     if (p.type === 'cyl') {
       if (!p.tag.trim()) out.push({ level: 'error', msg: tr('기호가 없는 실린더가 있습니다', 'A cylinder has no tag'), partIds: [p.id] });

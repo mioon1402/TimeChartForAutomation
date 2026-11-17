@@ -34,6 +34,11 @@ class Builder {
     this.ops.push({ id: uid('op'), wait, tag, action, hold, ...(note ? { note } : {}) });
   }
 
+  /** 온도 기기의 온도를 value ℃ 로 (over ms 동안 일정하게, 0 이면 바로) */
+  temp(wait: number, tag: string, value: number, over = 0, note = ''): void {
+    this.ops.push({ id: uid('op'), wait, tag, action: 'temp', value, hold: over, ...(note ? { note } : {}) });
+  }
+
   done(): Circuit {
     return { parts: this.parts, wires: this.wires, ops: this.ops };
   }
@@ -876,6 +881,80 @@ function ssrHeater(): Circuit {
 }
 
 /**
+ * 히터 온도 제어: 운전 스위치 S1 → 온도 조절기 TC1 (A1 · A2 전원), C1-OUT → 전자접촉기 MC1 코일 → 주접점 → 히터 H1 (2 kW).
+ * 경보 C2-AL → 과열 경보등 RL. 히터가 켜지면 2℃/초로 오르고 꺼지면 1℃/초로 내려간다 (설정 60℃, 히스테리시스 3℃).
+ */
+function tcHeater(): Circuit {
+  const b = new Builder();
+  b.part('r_term', 2, 0, '', { pole: 'L' });
+  b.part('r_term', 4, 0, '', { pole: 'N' });
+  b.part('r_mcb2', 3, 6, 'MCB1', { name: tr('히터 전원', 'Heater supply'), spec: 'AC/20A' });
+  b.part('r_sw', 9, 18, 'S1', { name: tr('운전', 'Run') });
+  b.part('r_tc', 20, 18, 'TC1', { name: tr('히터 온도', 'Heater temp.'), sv: 60, hys: 3, alarm: 80, tLoad: 'H1', amb: 20, rise: 2, fall: 1 });
+  b.part('r_mc', 36, 20, 'MC1', { name: tr('히터 개폐', 'Heater contactor') });
+  b.part('r_load1', 34, 34, 'H1', { name: tr('히터', 'Heater'), watt: 2000, pf: 1 });
+  b.part('r_lamp', 27, 32, 'RL', { name: tr('과열 경보', 'Overheat'), color: 'red' });
+  b.cable('brown', [2, 0], [2, 2]);
+  b.cable('blue', [4, 0], [4, 2]);
+  // L: 차단기 → S1, 차단기 → MC1 1/L1 → 2/T1 → 히터
+  b.cable('brown', [2, 10], [2, 12], [2, 26], [8, 26], [8, 20]);
+  b.cable('brown', [2, 12], [33, 12], [33, 16]);
+  b.cable('brown', [33, 24], [33, 31]);
+  // S1 뒤: 조절기 전원 A1, 출력 공통 C1 · C2
+  b.cable('brown', [10, 20], [10, 27], [23, 27], [23, 23]);
+  b.cable('brown', [15, 27], [15, 23]);
+  b.cable('brown', [19, 27], [19, 23]);
+  // OUT → MC1 코일 A1
+  b.cable('brown', [21, 23], [21, 28], [29, 28], [29, 11], [34, 11], [34, 14]);
+  // AL → 경보등
+  b.cable('brown', [25, 23], [25, 35], [26, 35], [26, 33]);
+  // N: 조절기 A2, MC1 A2, 히터, 경보등
+  b.cable('blue', [4, 10], [4, 38], [38, 38], [38, 26]);
+  b.cable('blue', [17, 23], [17, 38]);
+  b.cable('blue', [28, 33], [28, 38]);
+  b.cable('blue', [35, 31], [35, 38]);
+  b.part('text', 0, -4, '', { text: tr('히터 온도 제어: 온도 조절기 OUT 이 전자접촉기를 켜고 끄며 60℃ 를 유지, 80℃ 이상이면 AL 로 과열 경보', 'Heater control: the controller OUT switches the contactor to hold 60℃; AL lights the overheat lamp at 80℃') });
+  b.op(1000, 'S1', 'on', tr('운전', 'Run'));
+  b.temp(39000, 'TC1', 85, 0, tr('과열 시험 (85℃)', 'Overheat test (85℃)'));
+  return { ...b.done(), duration: 75000 };
+}
+
+/**
+ * 판넬 온도 관리: 같은 판넬 안의 서모스탯 두 개 (온도 묶음 '판넬').
+ *  - TS1 (NO, 35℃): 오르면 닫혀 판넬 팬 FAN1 운전, 30℃ 로 내려가면 정지
+ *  - TS2 (NC, 10℃): 5℃ 로 내려가면 닫혀 결로 방지 히터 HT1, 10℃ 가 되면 정지
+ * 판넬 온도는 조작 순서의 [온도 →] 로 여름 낮 · 겨울 밤처럼 천천히 바꾼다
+ */
+function panelThermo(): Circuit {
+  const b = new Builder();
+  const zone = tr('판넬', 'Panel');
+  b.part('r_term', 2, 0, '', { pole: 'L' });
+  b.part('r_term', 4, 0, '', { pole: 'N' });
+  b.part('r_mcb2', 3, 6, 'MCB1', { name: tr('판넬 팬 · 히터', 'Panel fan, heater'), spec: 'AC/10A' });
+  b.part('r_thermo', 12, 10, 'TS1', { name: tr('팬 온도', 'Fan thermostat'), sv: 35, hys: 5, zone, amb: 25 });
+  b.part('r_thermo', 30, 10, 'TS2', { name: tr('히터 온도', 'Heater thermostat'), ncOut: true, sv: 10, hys: 5, zone });
+  b.part('r_fan', 20, 22, 'FAN1', { name: tr('판넬 팬', 'Panel fan') });
+  b.part('r_load1', 38, 22, 'HT1', { name: tr('결로 방지 히터', 'Anti-condensation heater'), watt: 100, pf: 1 });
+  b.cable('brown', [2, 0], [2, 2]);
+  b.cable('blue', [4, 0], [4, 2]);
+  // L → 서모스탯 1 번 단자
+  b.cable('brown', [2, 10], [2, 16], [29, 16], [29, 13]);
+  b.cable('brown', [11, 16], [11, 13]);
+  // 서모스탯 2 번 → 팬 · 히터
+  b.cable('brown', [13, 13], [13, 27], [19, 27], [19, 25]);
+  b.cable('brown', [31, 13], [31, 14], [37, 14], [37, 19]);
+  // N
+  b.cable('blue', [4, 10], [4, 29], [43, 29], [43, 17], [39, 17], [39, 19]);
+  b.cable('blue', [21, 25], [21, 29]);
+  b.part('text', 0, -4, '', { text: tr('판넬 온도 관리: 35℃ 면 팬 (NO 서모스탯), 5℃ 면 결로 방지 히터 (NC 서모스탯). 두 서모스탯은 같은 판넬 온도를 잰다', 'Panel climate: fan at 35℃ (NO thermostat), anti-condensation heater at 5℃ (NC thermostat); both read the same panel temperature') });
+  b.temp(1000, 'TS1', 40, 15000, tr('여름 낮', 'Summer day'));
+  b.temp(17000, 'TS1', 25, 15000, tr('저녁', 'Evening'));
+  b.temp(17000, 'TS1', 0, 25000, tr('겨울 밤', 'Winter night'));
+  b.temp(27000, 'TS1', 15, 15000, tr('아침', 'Morning'));
+  return { ...b.done(), duration: 80000 };
+}
+
+/**
  * 2선식 근접 센서: 갈색 · 파랑 두 선을 부하와 직렬로 (스위치처럼).
  *  - 직류 (왼쪽): +24V → PX1 갈색, 파랑 → 램프 PL1 → 0V
  *  - 교류 (오른쪽): L → 차단기 → PX2 → 램프 PL2 → N (교류용은 극성 없음)
@@ -1430,6 +1509,8 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'ssr-heater': 'panel',
   prox2: 'panel',
   'sensor-oneshot': 'basic',
+  'tc-heater': 'panel',
+  'panel-thermo': 'panel',
   'pump-float': 'motor',
   panel: 'panel',
   'relay-socket': 'panel',
@@ -1477,6 +1558,8 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'sol-alternate', name: tr('솔레노이드 밸브 2개 교번 (플리커 타이머)', 'Two solenoid valves alternating (flicker timer)'), desc: tr('플리커 타이머의 a접점과 b접점이 1초마다 번갈아 밸브 A · B 를 여자', 'A flicker timer energises valve A and valve B in turn'), build: solAlternate },
     { id: 'counter', name: tr('생산 수량 카운터 (완료등 · 리셋)', 'Production counter (done lamp, reset)'), desc: tr('리밋 스위치가 3번 눌리면 완료등, 리셋 버튼으로 0. 카운터의 무전압 입력 CP · COM · RST 와 출력 C · NO · NC', 'Three counts light the done lamp; reset button. Dry-contact inputs and the c/o output'), build: counterBasic },
     { id: 'prox2', name: tr('2선식 근접 센서 (DC · AC)', '2-wire proximity sensors (DC, AC)'), desc: tr('갈색 · 파랑 두 선을 램프와 직렬로. 직류는 갈색이 + 쪽, 교류는 극성 없음', 'Brown and blue in series with a lamp; DC brown on +, AC unpolarised'), build: prox2Wire },
+    { id: 'tc-heater', name: tr('히터 온도 제어 (온도 조절기 · 전자접촉기)', 'Heater temperature control (controller, contactor)'), desc: tr('온도 조절기 OUT 이 접촉기로 히터를 켜고 꺼서 60℃ 유지, 80℃ 이상이면 과열 경보', 'The controller OUT switches the heater contactor to hold 60℃; overheat alarm at 80℃'), build: tcHeater },
+    { id: 'panel-thermo', name: tr('판넬 온도 관리 (서모스탯: 팬 · 히터)', 'Panel climate (thermostats: fan, heater)'), desc: tr('35℃ 면 판넬 팬, 5℃ 면 결로 방지 히터. 판넬 온도를 여름 · 겨울처럼 바꿔 봄', 'Fan at 35℃, anti-condensation heater at 5℃; the panel temperature follows summer and winter'), build: panelThermo },
     { id: 'ssr-heater', name: tr('SSR 로 히터 켜기', 'Heater on an SSR'), desc: tr('DC 24V 스위치로 SSR 입력 (3 + · 4 -) 을 넣어 교류 히터 2 kW 를 개폐', 'A 24 V DC switch drives the SSR input; the SSR switches a 2 kW AC heater'), build: ssrHeater },
     { id: 'lamp-delay', name: tr('타이머 지연 점등 (표시등)', 'Delayed lamp on a timer'), desc: tr('스위치를 켜고 3초 뒤에 표시등이 켜진다. 8핀 타이머의 전원 2-7 과 한시 a접점 8-6', 'The lamp lights 3 s after the switch; 8-pin timer power 2-7 and timed NO 8-6'), build: lampDelay },
     { id: 'home-outlet', name: tr('주거 배선: 누전차단기 · 스위치 · 전등 · 콘센트', 'Home wiring: ELB, switch, light, outlet'), desc: tr('누전차단기에서 스위치 → 전등, 콘센트. 중성선 바와 접지 바에서 회로마다 한 가닥씩', 'ELB to switch, light and outlet; neutral and earth bars'), build: homeOutlet },

@@ -1385,7 +1385,7 @@ function circuitBlocks(project: Project, o: ReportOpts): Block[] {
           <td className="mono">
             <b>{op.tag}</b> {c.parts.find((p) => p.tag === op.tag && p.name)?.name ?? ''}
           </td>
-          <td>{opActionLabel(op.action, c.parts.find((p) => p.tag.trim().toUpperCase() === op.tag.trim().toUpperCase() && p.type === 'r_ss3'))}</td>
+          <td>{opActionLabel(op.action, c.parts.find((p) => p.tag.trim().toUpperCase() === op.tag.trim().toUpperCase() && p.type === 'r_ss3'), op)}</td>
           <td className="mono">{op.action === 'press' ? formatTime(op.hold, u) : ''}</td>
           <td>{op.note ?? ''}</td>
         </tr>

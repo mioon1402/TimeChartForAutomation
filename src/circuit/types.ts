@@ -91,6 +91,8 @@ export type PartType =
   | 'r_ss3' // 3단 셀렉터 스위치 (수동 · 정지 · 자동): 왼쪽 13-14 a, 오른쪽 23-24 a
   | 'r_counter' // 프리셋 카운터: 전원 A1 · A2, 무전압 입력 CP · RST · COM, 출력 C → NO · NC
   | 'r_ssr' // SSR (무접점 릴레이): 입력 3(+) · 4(-) DC, 출력 1-2 AC
+  | 'r_tc' // 온도 조절기 (48×48): 전원 A1 · A2, 제어 출력 C1-OUT, 경보 출력 C2-AL (릴레이 a접점)
+  | 'r_thermo' // 판넬 서모스탯 (바이메탈): 1-2 접점. NC = 난방 (오르면 열림), NO = 냉방 · 팬 (오르면 닫힘)
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
@@ -132,7 +134,7 @@ export interface Part {
   inBase?: string;
   outBase?: string;
   /** 센서 종류: 3선식(inductive 유도형 · capacitive 정전용량형 · photo 광전), 리밋 스위치(reed 리드 · float 플로트 · pressure 압력) */
-  sense?: 'inductive' | 'capacitive' | 'photo' | 'reed' | 'float' | 'pressure';
+  sense?: 'inductive' | 'capacitive' | 'photo' | 'reed' | 'float' | 'pressure' | 'temp';
   /** 3선식 센서 출력: NPN (기본 PNP) */
   npn?: boolean;
   /** 밸브: 14쪽(왼쪽) · 12쪽(오른쪽) 솔레노이드 기호 */
@@ -191,6 +193,27 @@ export interface Part {
   conn?: 'din';
   /** 회로 기호의 단자 번호를 실물 기기 번호로 ('1-3', 'A1-A2' …). 회로도 자동 생성에서 쓴다 */
   term?: string;
+  /** 온도 기기 (온도 조절기 · 서모스탯 · 온도 스위치): 설정 온도 (℃) */
+  sv?: number;
+  /** 히스테리시스 (℃): 설정 온도에서 이만큼 내려가야 되돌아간다 */
+  hys?: number;
+  /** 온도 조절기: 경보 온도 (℃, 이 온도 이상이면 AL). 없으면 경보 없음 */
+  alarm?: number;
+  /** 온도 조절기 제어 출력: heat = 가열 (설정보다 낮으면 OUT), cool = 냉각 (설정 이상이면 OUT) */
+  tcMode?: 'heat' | 'cool';
+  /** 온도 묶음 이름: 같은 이름의 온도 기기는 같은 온도를 잰다 (없으면 기기 기호) */
+  zone?: string;
+  /** 이 온도를 바꾸는 부하의 기호 (히터 · 팬). 없으면 조작 순서로만 바뀐다 */
+  tLoad?: string;
+  /** 연결 부하가 식히는 것 (팬 · 냉방): 켜지면 주위 온도로 내려가고 꺼지면 최고 온도로 오른다 */
+  tLoadCool?: boolean;
+  /** 처음 · 주위 온도 (℃) */
+  amb?: number;
+  /** 최고 온도 (℃, 가열이 계속되면 여기서 멈춤) */
+  tmax?: number;
+  /** 오르는 · 내리는 속도 (℃/s) */
+  rise?: number;
+  fall?: number;
 }
 
 /** 전선 색: 갈색 L1, 검정 L2, 회색 L3, 파랑 N, 녹황 PE, 그 밖 제어선 */
@@ -235,9 +258,14 @@ export interface OpStep {
   id: string;
   wait: number;
   tag: string;
-  /** press = 눌렀다 뗌 (hold 동안), on = 켬·누른 채 유지, off = 끔·뗌 (3단 셀렉터는 가운데), left · right = 3단 셀렉터를 왼쪽 · 오른쪽으로 */
-  action: 'press' | 'on' | 'off' | 'left' | 'right';
+  /**
+   * press = 눌렀다 뗌 (hold 동안), on = 켬·누른 채 유지, off = 끔·뗌 (3단 셀렉터는 가운데), left · right = 3단 셀렉터를 왼쪽 · 오른쪽으로,
+   * temp = 온도 기기의 온도를 value (℃) 로 (hold 동안 일정하게 바뀜, 0 이면 바로)
+   */
+  action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp';
   hold: number;
+  /** temp: 바꿀 온도 (℃) */
+  value?: number;
   /** 적으면 타임차트의 공정 스텝 이름이 된다 */
   note?: string;
 }
