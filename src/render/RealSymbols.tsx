@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, counterPreset, LAMP_HEX, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, tempSetting, timerText, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, counterPreset, hmiCells, LAMP_HEX, plcAddresses, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, tempSetting, timerText, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -1625,6 +1625,140 @@ export function Prox2Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitCol
       <Label x={24} y={-66} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
       <Label x={24} y={-53} text={`${tr('2선식', '2-wire')} · ${p.ac ? 'AC 100-240V' : 'DC 12-24V'} · ${p.ncOut ? 'NC' : 'NO'}`} anchor="start" size={8.5} weight={600} fill={c.muted} />
       {p.name && <Label x={24} y={-41} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/**
+ * PLC (실물, 입력 16 · 릴레이 출력 16): 위 단자대 + · − · FG · COM · 입력, 아래 단자대 COM0 · 출력 0~7 · COM1 · 출력 8~15.
+ * 입력 · 출력 LED, 앞면 PWR · RUN 램프
+ */
+export function RPlcGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const { ins, outs } = plcAddresses(p);
+  const run = !!st.plcRun;
+  const x0 = -470;
+  const x1 = 410;
+  const ix = (n: number) => (-13 + 2 * n) * 20;
+  const ox = (n: number) => (n < 8 ? -13 + 2 * n : 5 + 2 * (n - 8)) * 20;
+  return (
+    <g>
+      <rect x={x0} y={-120} width={x1 - x0} height={240} rx={8} fill="#d1d5db" stroke={BODY_EDGE} />
+      <rect x={x0} y={-120} width={x1 - x0} height={44} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={x0} y={76} width={x1 - x0} height={44} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      {/* 위 단자대: 전원 · 입력 */}
+      {[
+        [-440, '+', 'orange'],
+        [-400, '−', 'orange'],
+        [-360, 'FG', 'green'],
+        [-300, 'COM', 'grey'],
+      ].map(([x, t, ring]) => (
+        <g key={t as string}>
+          <Screw x={x as number} y={-100} ring={ring as Ring} />
+          <Label x={x as number} y={-80} text={t as string} size={8} weight={800} />
+        </g>
+      ))}
+      <Label x={-400} y={-64} text="DC 24V" size={7.5} weight={700} fill="#475569" />
+      {ins.map((a, n) => (
+        <g key={a}>
+          <Screw x={ix(n)} y={-100} ring="grey" />
+          <Label x={ix(n)} y={-80} text={a} size={7} weight={700} />
+          <rect x={ix(n) - 6} y={-70} width={12} height={7} rx={1.5} fill={st.plcIn?.[n] ? '#22c55e' : '#94a3b8'} stroke={st.plcIn?.[n] ? '#15803d' : '#64748b'} strokeWidth={0.8} />
+        </g>
+      ))}
+      {/* 아래 단자대: 출력 공통과 출력 */}
+      {[
+        [-300, 'COM0'],
+        [60, 'COM1'],
+      ].map(([x, t]) => (
+        <g key={t}>
+          <Screw x={x as number} y={100} ring="grey" />
+          <Label x={x as number} y={86} text={t as string} size={7.5} weight={800} />
+        </g>
+      ))}
+      {outs.map((a, n) => (
+        <g key={a}>
+          <Screw x={ox(n)} y={100} ring="grey" />
+          <Label x={ox(n)} y={86} text={a} size={7} weight={700} />
+          <rect x={ox(n) - 6} y={63} width={12} height={7} rx={1.5} fill={st.plcOut?.[n] ? '#f59e0b' : '#94a3b8'} stroke={st.plcOut?.[n] ? '#b45309' : '#64748b'} strokeWidth={0.8} />
+        </g>
+      ))}
+      {/* 앞면: CPU · 상태 램프 */}
+      <rect x={-458} y={-54} width={150} height={108} rx={5} fill="#334155" stroke="#1e293b" />
+      <Label x={-446} y={-32} text={p.tag || 'PLC'} anchor="start" fill="#f8fafc" size={14} weight={800} />
+      <Label x={-446} y={-16} text={p.name || 'CPU'} anchor="start" fill="#cbd5e1" size={8.5} weight={600} />
+      {[
+        ['PWR', !!st.powered, '#22c55e'],
+        ['RUN', run, '#22c55e'],
+        ['ERR', !!st.plcErr, '#ef4444'],
+      ].map(([t, on, col], k) => (
+        <g key={t as string}>
+          <circle cx={-440 + 44 * k} cy={10} r={6} fill={on ? (col as string) : '#475569'} stroke="#0f172a" />
+          <Label x={-440 + 44 * k} y={28} text={t as string} fill="#cbd5e1" size={7.5} weight={700} />
+        </g>
+      ))}
+      <Label x={-446} y={46} text={tr('입력 16 · 릴레이 출력 16', '16 in · 16 relay out')} anchor="start" fill="#94a3b8" size={7} weight={600} />
+      <rect x={-290} y={-54} width={690} height={108} rx={4} fill="#e5e7eb" stroke="#cbd5e1" />
+      <Label x={-280} y={-38} text={tr('입력 (COM 과 반대 극이 닿으면 ON)', 'Inputs (ON when the opposite pole of COM is applied)')} anchor="start" fill="#64748b" size={7.5} weight={700} />
+      <Label x={-280} y={46} text={tr('릴레이 출력 (COM0: 0~7 · COM1: 8~15, 접점 2A)', 'Relay outputs (COM0: 0–7 · COM1: 8–15, 2 A contacts)')} anchor="start" fill="#64748b" size={7.5} weight={700} />
+      {st.plcIn && !st.powered && <Label x={60} y={6} text={tr('전원 없음 (정지)', 'No power (stopped)')} fill="#dc2626" size={12} weight={800} />}
+      <path d={`M${x1 - 6},-20v40`} stroke={c.muted} strokeWidth={0.8} />
+    </g>
+  );
+}
+
+/** HMI (터치 판넬): 화면 버튼 · 스위치 · 램프, 아래 전원 단자 + · − · FG */
+export function HmiGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const items = p.hmi ?? [];
+  const h = st.hmi;
+  const online = !h || h.online;
+  return (
+    <g>
+      <rect x={-180} y={-150} width={360} height={290} rx={10} fill="#1f2937" stroke="#111827" />
+      <rect x={-172} y={-146} width={344} height={26} rx={4} fill="#0f172a" />
+      <Label x={-162} y={-128} text={`${p.tag || 'HMI'}${p.name ? `  ${p.name}` : ''}`} anchor="start" fill="#e2e8f0" size={10} weight={800} />
+      <Label x={162} y={-128} text={!h ? 'HMI' : h.online ? tr('통신 정상', 'Online') : h.powered ? tr('통신 이상', 'No PLC') : tr('전원 없음', 'No power')} anchor="end" fill={!h || h.online ? '#4ade80' : '#f87171'} size={8.5} weight={700} />
+      <rect x={-172} y={-114} width={344} height={212} rx={4} fill={h && !h.powered ? '#0b1120' : '#e2e8f0'} stroke="#475569" />
+      {hmiCells(p).map((cell) => {
+        const it = items[cell.n];
+        const x = cell.x * 20;
+        const y = cell.y * 20;
+        const w = cell.w * 20;
+        const hh = cell.h * 20;
+        const bit = h?.bits[cell.n] ?? false;
+        const pressed = h?.pressed[cell.n] ?? false;
+        if (h && !h.powered) return null;
+        if (it.kind === 'lamp') {
+          const col = LAMP_HEX[it.color ?? 'green'];
+          return (
+            <g key={cell.n}>
+              <circle cx={x + 16} cy={y + hh / 2} r={10} fill={bit && online ? col : '#cbd5e1'} stroke="#475569" />
+              <Label x={x + 32} y={y + hh / 2 + 4} text={it.label} anchor="start" size={9} weight={700} fill="#0f172a" />
+            </g>
+          );
+        }
+        const lit = it.kind === 'sw' ? bit && online : pressed;
+        const col = LAMP_HEX[it.color ?? (it.kind === 'sw' ? 'green' : 'blue')];
+        return (
+          <g key={cell.n}>
+            <rect x={x} y={y} width={w} height={hh} rx={6} fill={lit ? col : '#f8fafc'} stroke={pressed ? '#0f172a' : '#64748b'} strokeWidth={pressed ? 2.4 : 1.2} />
+            <rect x={x + 2} y={y + hh - 5} width={w - 4} height={3} rx={1.5} fill={pressed ? 'none' : '#cbd5e1'} />
+            <Label x={x + w / 2} y={y + hh / 2 + 4} text={it.label} size={9.5} weight={800} fill={lit ? '#fff' : '#0f172a'} />
+          </g>
+        );
+      })}
+      {!items.length && <Label x={0} y={-10} text={tr('속성에서 버튼 · 램프를 넣으세요', 'Add buttons and lamps in Properties')} size={9} fill="#64748b" />}
+      <rect x={-70} y={104} width={140} height={34} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      {[
+        [-40, '+', 'orange'],
+        [0, '−', 'orange'],
+        [40, 'FG', 'green'],
+      ].map(([x, t, ring]) => (
+        <g key={t as string}>
+          <Screw x={x as number} y={120} ring={ring as Ring} />
+          <Label x={(x as number) + 13} y={112} text={t as string} anchor="start" size={7} weight={800} />
+        </g>
+      ))}
+      <Label x={-76} y={124} text="DC 24V" anchor="end" fill={c.muted} size={7.5} weight={700} />
     </g>
   );
 }

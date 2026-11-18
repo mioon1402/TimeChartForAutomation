@@ -167,9 +167,17 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
 
   // 조작: 조작 순서에 나온 순서, 그 밖에 바뀐 것
   const ops = res.tracks.filter((t) => (t.kind === 'operator' || t.kind === 'selector') && (firstOp(keyTag(t)) < Infinity || tr_pts(t).length > 1));
-  ops.sort((a, b) => firstOp(keyTag(a)) - firstOp(keyTag(b)) || compareTags(a.tag, b.tag));
+  // HMI 화면 버튼은 실물 조작 기기 뒤에 한 묶음으로
+  const isHmi = (t: Track) => res.model.hmiDef.has(keyTag(t));
+  ops.sort((a, b) => Number(isHmi(a)) - Number(isHmi(b)) || firstOp(keyTag(a)) - firstOp(keyTag(b)) || compareTags(a.tag, b.tag));
   const G = { plcIn: t_('PLC 입력', 'PLC inputs'), plcOut: t_('PLC 출력', 'PLC outputs'), op: t_('조작', 'Operation'), mc: t_('전자접촉기', 'Contactors'), relay: t_('릴레이', 'Relays'), timer: t_('타이머', 'Timers'), counter: t_('카운터', 'Counters'), temp: t_('온도', 'Temperature'), pneu: t_('공압', 'Pneumatics'), sensor: t_('센서', 'Sensors'), out: t_('출력', 'Outputs') };
   for (const tr of ops) {
+    // HMI 화면 버튼: 이름 = 버튼 글
+    const hmi = res.model.hmiDef.get(keyTag(tr));
+    if (hmi) {
+      out.push(bit(tr, 'input', t_('HMI 조작', 'HMI'), { name: `HMI ${hmi.label}` }));
+      continue;
+    }
     if (tr.kind !== 'selector') {
       out.push(bit(tr, 'input', G.op));
       continue;
@@ -305,7 +313,7 @@ function opSteps(c: Circuit, res: ScenarioResult, until: number): Step[] {
 
 /** 회로가 바뀌었는지 보는 서명 (차트에 영향을 주는 것만) */
 export function circuitSig(c: Circuit, plcSource = ''): string {
-  const plc = c.parts.some((p) => p.type === 'plc') ? plcSource : '';
+  const plc = c.parts.some((p) => p.type === 'plc' || p.type === 'r_plc') ? plcSource : '';
   // 시작 시각 · 전원 계통은 있을 때만 넣는다 (예전 회로의 서명이 바뀌지 않게). 계통에 없는 극은 전압이 없어 동작이 바뀐다
   const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc, ...(c.clock ? [c.clock] : []), ...(c.system ? [c.system] : []), ...(c.relayMs ? [`relay${c.relayMs}`] : [])]);
   let h = 0x811c9dc5;

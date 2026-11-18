@@ -1,9 +1,9 @@
 import type { ReactNode, JSX } from 'react';
 import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
-import { busSize, isTempDevice, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tempSetting, timerText, tswSched } from '../circuit/parts';
+import { busSize, isPlcPart, isTempDevice, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tempSetting, timerText, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TempView, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { BusGlyph, CounterGlyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
@@ -60,6 +60,11 @@ export interface PartState {
   mode?: 'Y' | 'D';
   /** 3단 셀렉터 자리 (-1 왼쪽, 0 가운데, 1 오른쪽) */
   sel?: -1 | 0 | 1;
+  /** 실물 PLC: 도는 중, 프로그램 오류 */
+  plcRun?: boolean;
+  plcErr?: boolean;
+  /** HMI 화면 */
+  hmi?: { powered: boolean; online: boolean; pressed: boolean[]; bits: boolean[] };
   /** 카운터: 센 수, 출력 */
   count?: { n: number; out: boolean };
   /** 타임 스위치: 다이얼 시각, 접점, 시계가 도는 중 */
@@ -102,8 +107,11 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     sel: p.type === 'r_ss3' ? sim.selPos(tag) : undefined,
     count: p.type === 'r_counter' ? sim.counters.get(tag) : undefined,
     temp: isTempDevice(p) ? sim.tempView(tag) : undefined,
-    plcIn: p.type === 'plc' ? sim.plcIn.get(p.id) : undefined,
-    plcOut: p.type === 'plc' ? sim.plcOut.get(p.id) : undefined,
+    plcIn: isPlcPart(p) ? sim.plcIn.get(p.id) : undefined,
+    plcOut: isPlcPart(p) ? sim.plcOut.get(p.id) : undefined,
+    plcRun: p.type === 'r_plc' ? sim.plcRunning(p.id) && sim.hasPlc : undefined,
+    plcErr: p.type === 'r_plc' ? !!sim.powered.get(p.id) && (!sim.hasPlc || model.plcIssues.length > 0) : undefined,
+    hmi: p.type === 'r_hmi' ? sim.hmiView(p) : undefined,
   };
 }
 
@@ -550,6 +558,10 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <Prox2Glyph p={p} st={st} c={c} />;
     case 'r_counter':
       return <CounterGlyph p={p} st={st} c={c} />;
+    case 'r_plc':
+      return <RPlcGlyph p={p} st={st} c={c} />;
+    case 'r_hmi':
+      return <HmiGlyph p={p} st={st} c={c} />;
     case 'r_tc':
       return <TcGlyph p={p} st={st} c={c} />;
     case 'r_thermo':

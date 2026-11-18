@@ -126,6 +126,7 @@ CADe SIMU 처럼 푸시버튼·릴레이·타이머·전자접촉기·전동기�
 | 전원 · 계측기 | **SMPS (DC 24V)**, **전압계**, **전류계** (시뮬레이션 중 값이 나옴) |
 | 배선 자재 | 단자대, **중성선 바 (N) · 접지 바 (PE)**, **배선 덕트**, **DIN 레일** |
 | 수전 · 분전반 | 한전 수전 · VCB · 변압기, 분전반 테두리 · 부스바 · 부하 |
+| PLC · HMI (제어반) | **PLC** (CPU 일체형, 입력 16 · 릴레이 출력 16: 전원 + · − · FG, 입력 공통 COM, 출력 공통 COM0 · COM1), **HMI (터치 판넬)** (전원 + · − · FG, 화면 버튼 · 스위치 · 램프가 PLC 디바이스와 통신) |
 
 - **배선이 실물처럼 보입니다**: 나사 단자에 물리는 선 끝에 압착 단자가 그려지고, 이어지지 않고 엇갈리는 선은 작은 다리 (반원) 로 넘어갑니다. 덕트를 놓으면 선이 덕트 안으로 지나가는 모양이 되고, DIN 레일은 기기 밑에 깔립니다 (둘 다 손잡이를 끌어 길이 조절, 전기적으로는 아무것도 하지 않음).
 - 3단 셀렉터는 시뮬레이션 중에 손잡이의 왼쪽 · 오른쪽을 눌러 돌리고, 같은 쪽을 한 번 더 누르면 가운데로 돌아옵니다. 조작 순서표에서는 동작을 `← 수동` · `정지` · `자동 →` 으로 고르고, 타임차트에는 자리 이름으로 나옵니다.
@@ -133,6 +134,9 @@ CADe SIMU 처럼 푸시버튼·릴레이·타이머·전자접촉기·전동기�
 - **온도 조절기 (48×48)**: A1 · A2 전원, C1-OUT 제어 출력, C2-AL 경보 출력 (릴레이 a접점). 앞면에 지금 온도 PV (빨강) 와 설정 온도 SV (초록), OUT · AL 램프. 속성에서 설정 온도 · 히스테리시스 · 경보 온도와 가열 / 냉각 동작을 정합니다. 가열이면 `설정 − 히스테리시스` 이하에서 OUT 이 닫히고 설정 온도에서 열립니다. OUT 으로 전자접촉기 · SSR 코일을 켜서 히터를 개폐합니다
 - **판넬 서모스탯 (바이메탈)**: 단자 1 · 2 뿐인 무전압 접점. NC (빨간 다이얼) 는 히터용으로 온도가 설정에 닿으면 열리고, NO (파란 다이얼) 는 팬용으로 닫힙니다. 회로 기호에는 **온도 스위치** (오르면 닫힘 / 열림, 작동부에 θ) 가 있습니다
 - **시뮬레이션의 온도**: 속성의 [온도를 바꾸는 부하] 에 히터 (또는 팬) 기호를 고르면, 히터가 켜져 있는 동안 [오르는 속도] 로 오르고 꺼지면 [내리는 속도] 로 주위 온도까지 내려갑니다 (팬은 반대: 돌면 식음). 조작 순서에는 `온도 →` 동작이 있어서 "판넬 온도 → 40℃, 15초 동안" 처럼 바꿀 수 있고 (0 초면 바로), 시뮬레이션 중에는 기기의 왼쪽 · 오른쪽을 눌러 5℃씩 내리고 올립니다. [온도 묶음 이름] 이 같은 기기는 같은 온도를 잽니다 (한 판넬 안의 서모스탯 두 개). 타임차트에는 온도가 선 (아날로그) 으로, 그 아래에 OUT · AL · 서모스탯 접점이 나옵니다
+- **PLC (실물)**: DC 24V 가 + · − 에 들어와야 돌고 (PWR · RUN 램프), 전원이 끊겼다 들어오면 처음부터 다시 돕니다 (자기유지가 풀림). 입력은 COM 과 반대 극이 닿으면 ON (COM = 0V 면 싱크, +24V 면 소스), 출력은 COM0 (0~7) · COM1 (8~15) 과 이어지는 릴레이 접점입니다. 주소 (P00000 / X0 …) 는 속성에서 정하고 단자 이름도 그 주소로 나옵니다. 프로그램은 PLC 시뮬레이션 탭 (니모닉 · 래더) 의 것을 스캔마다 실행합니다
+- **HMI (터치 판넬)**: 속성에서 화면 칸 (최대 12) 을 버튼 (누르는 동안 1) · 스위치 (누를 때마다 1 ↔ 0) · 램프 (디바이스가 1 이면 켜짐) 로 정하고 PLC 디바이스 (M00100 …) 를 적습니다. 선은 전원만 잇고 PLC 와는 통신으로 이어집니다. 시뮬레이션 중에 화면 버튼을 누르면 PLC 가 다음 스캔에 읽고, 조작 순서표에서는 `HMI1-1`, `HMI1-2` … (칸 번호) 를 고릅니다. HMI 전원이 없거나 PLC 가 멈추면 "통신 이상" 이 되어 버튼이 듣지 않습니다
+- **PLC 가 상하지 않게 [검사] 가 보는 것**: 입력에 교류 (AC 220V) 가 닿음 (DC 24V 입력이 탐) · 입력 공통 COM 빠짐 · 출력 공통에 퓨즈 · 차단기가 없음 (출력 쪽 단락 때 접점이 녹아 붙음) · 출력 접점으로 전자접촉기 코일 · 전동기 · 교류 솔레노이드를 바로 켬 (돌입 전류 · 서지 → DC 24V 보조 릴레이를 거치라고 알림) · HMI 버튼이 PLC 입력 주소에 씀. PLC · HMI 의 FG 접지 빠짐, DC 24V 정격과 다른 전원도 함께 봅니다
 - 아직 없는 것: 인버터, EOCR, 플로트리스 릴레이 (전극식), 전력량계 · 변류기. 필요하면 알려 주세요.
 
 ### 회로도 → 실물 배선도 자동 생성 (배치 · 배선 길이)
@@ -184,9 +188,22 @@ CADe SIMU 처럼 푸시버튼·릴레이·타이머·전자접촉기·전동기�
 `예제 회로` 메뉴는 종류별 **폴더**로 나뉘어 있습니다. 폴더를 누르면 그 자리에서 펼쳐지고 (한 번에 하나, 다시 열면 마지막 폴더가 펼쳐진 채로), 창이 작아 다 안 보이면 메뉴 안에서 스크롤됩니다. 모두 [검사] 문제 없이 동작하는 완성 회로이고, 열면 조작 순서와 타임차트가 함께 들어옵니다.
 
 - **전동기 제어 (실물 배선)**: 조그 (인칭) 운전 · **조그 + 연속 운전** (보조 릴레이가 기동을 기억, 조그는 누르는 동안만) · 표시등 부착 자기유지 (운전 · 정지 · 과부하등) · 2개소 (다점) 제어 · **리밋 스위치 자동 정지** (끝에 닿으면 LS b접점이 자기유지를 끊음) · **정 · 역 운전 이중 인터록** (버튼 b접점 + 접촉기 b접점, L1 · L3 을 바꿔 역회전) · **자동 Y-Δ 기동** (접촉기 3개 · 타이머 · 인터록, 6단자 전동기) · 급수 펌프 (플로트 스위치 자동 / 수동) · **급수 펌프 수동 · 정지 · 자동** (3단 셀렉터: 수동은 버튼 자기유지, 자동은 플로트) · 기동 · 정지
-- **제어반 · 릴레이 · 센서**: 제어반 실물 배선 (단자대) · 릴레이 소켓 배선 · **직류 24V (SMPS → 근접 센서 → 릴레이 → 솔레노이드 밸브 · 부저)** · **솔레노이드 밸브 2개 교번** (플리커 타이머의 a · b 접점이 1초마다 번갈아) · **생산 수량 카운터** (리밋 스위치 3번 → 완료등, 리셋 버튼) · **SSR 로 히터 켜기** (DC 24V 스위치 → SSR → 교류 히터 2 kW) · **2선식 근접 센서** (DC: +24V → 갈색, 파랑 → 램프 → 0V · AC: L → 차단기 → 센서 → 램프 → N) · **히터 온도 제어** (온도 조절기 OUT → 전자접촉기 → 히터 2 kW 로 60℃ 유지, 85℃ 로 올린 과열 시험에서 AL 경보등) · **판넬 온도 관리** (35℃ 면 팬 · 5℃ 면 결로 방지 히터, 판넬 온도를 여름 낮 · 겨울 밤처럼 천천히 바꿔 봄)
+- **제어반 · 릴레이 · 센서**: **PLC 제어반: 펌프 2대 (로컬 · HMI)** (아래 설명) · 제어반 실물 배선 (단자대) · 릴레이 소켓 배선 · **직류 24V (SMPS → 근접 센서 → 릴레이 → 솔레노이드 밸브 · 부저)** · **솔레노이드 밸브 2개 교번** (플리커 타이머의 a · b 접점이 1초마다 번갈아) · **생산 수량 카운터** (리밋 스위치 3번 → 완료등, 리셋 버튼) · **SSR 로 히터 켜기** (DC 24V 스위치 → SSR → 교류 히터 2 kW) · **2선식 근접 센서** (DC: +24V → 갈색, 파랑 → 램프 → 0V · AC: L → 차단기 → 센서 → 램프 → N) · **히터 온도 제어** (온도 조절기 OUT → 전자접촉기 → 히터 2 kW 로 60℃ 유지, 85℃ 로 올린 과열 시험에서 AL 경보등) · **판넬 온도 관리** (35℃ 면 팬 · 5℃ 면 결로 방지 히터, 판넬 온도를 여름 낮 · 겨울 밤처럼 천천히 바꿔 봄)
 - **전등 · 주거**: 타임 스위치 전등 · 3로 스위치 계단등 · **타이머 지연 점등** (8핀 타이머 한시 a접점, 스위치를 켜고 3초 뒤) · **주거 배선 (누전차단기 · 스위치 · 전등 · 콘센트, 중성선 바 · 접지 바)**
 - **분전반 · 계통 해석**, **기호 회로 (시퀀스 · 공압 · PLC)**: 기호 회로에는 **센서 감지 → 솔밸브 3초만** (인터벌 타이머: 계속 감지해도 3초 뒤 꺼짐, 감지가 짧으면 그때 꺼짐) 도 있습니다
+
+### PLC 제어반 예제: 급수 펌프 2대 (로컬 · HMI 원격)
+
+실제로 설계하듯 그린 제어반입니다 (예제 회로 → 제어반 · 릴레이 · 센서 → **PLC 제어반**). PLC 프로그램은 LS XGK 니모닉이고 PLC 탭에서 래더로 열립니다.
+
+- **주회로**: 3상 380V → 주 차단기 MCCB → 펌프마다 MCB → 전자접촉기 MC → 열동 계전기 THR → 전동기, 접지는 접지 바 PEB 의 나사 하나에 기기 하나씩
+- **조작 전원**: CB1 (2P, AC 220V) → SMPS (DC 24V) → 퓨즈 F1 (PLC · HMI 전원) · F2 (입력 · 현장 신호) · F3 (출력 공통 COM0). 전선 색은 주회로 L1 갈색 · L2 검정 · L3 회색, N · 0V 파랑, AC 조작 노랑, DC 24V 빨강, 접지 녹황
+- **PLC 를 지키는 배선**: 입력은 모두 DC 24V (싱크, COM = 0V). PLC 출력은 퓨즈를 거친 COM0 에서 **DC 24V 보조 릴레이 RY1 · RY2 (인터포징, 다이오드 내장)** 와 LED 램프 · 부저만 켜고, AC 220V 전자접촉기 코일은 릴레이 접점이 켭니다
+- **PLC 가 고장 나도 멈추게**: 비상정지 EMG (11-12) 와 THR (95-96) 이 MC 코일 회로를 직접 끊습니다. PLC 는 EMG 23-24 · THR 97-98 · MC 보조 13-14 로 상태만 읽습니다 (타임차트에서 MC 가 먼저 떨어지고 PLC 지령은 한 스캔 뒤에 꺼지는 것이 보임)
+- **운전 장소**: 문의 COS (로컬 · 정지 · 원격). 로컬이면 문 버튼으로만, 원격이면 HMI 로만 기동하고, **정지는 어디서나** (문 정지 버튼은 b접점으로 받아 선이 끊겨도 정지 쪽). COS 를 정지에 두면 모두 멈춥니다
+- **고장 처리**: 과부하 · 비상정지 · MC 이상 (지령 뒤 2초 안에 MC 보조 접점이 안 들어옴) 을 기억하고 고장등을 0.5초 점멸 · 부저. 리셋 (문 버튼 · HMI) 은 원인이 남아 있으면 부저만 끄고, 원인이 없어진 고장만 풉니다. 비상정지를 풀어도 다시 돌지 않고 리셋 뒤 기동해야 합니다
+- **HMI 화면**: P1 · P2 기동 / 정지, 고장 리셋 버튼과 운전 · 원격 · 고장 · 비상정지 · 과부하 램프
+- 조작 순서는 로컬 운전 → 로컬에서 HMI 기동 (무시됨) → 원격으로 HMI 운전 → P2 과부하 · 리셋 → 비상정지 · 리셋 → COS 정지까지 23초를 보여 줍니다. [검사] 탭은 문제가 없고, 일부러 PLC 출력으로 MC 코일을 바로 켜 보면 경고가 나옵니다
 
 ### 부품 쓰는 법이 궁금할 때
 
@@ -554,7 +571,7 @@ PLC 시뮬레이션 탭에서 PLC 종류를 **미쓰비시** 또는 **LS** 로 �
 | 3상 전동기 정역 · 결상 | O | O |
 | 공압 실린더 · 솔레노이드 · 리밋 스위치 | O (밸브·배관까지) | O (공압원·FRL·3/2·5/2 편솔/양솔·5/3 밸브·속도 제어, 배관으로 공기 흐름 시뮬레이션) |
 | 센서 | O | O (근접 유도형·정전용량형, 광전 3선식 PNP/NPN, 근접 2선식 DC/AC, 리드·플로트·압력·온도 스위치) |
-| 회로 안의 PLC | O (LOGO!, S7-1200/1500, 래더·FBD·Grafcet 편집) | O (PLC 블록 입력 8·릴레이 출력 8, PLC 탭의 미쓰비시·LS·지멘스 STL·ST 프로그램을 스캔 실행. 미쓰비시·LS 는 래더 편집기 + 시뮬레이션 중 래더 모니터, FBD 는 없음) |
+| 회로 안의 PLC | O (LOGO!, S7-1200/1500, 래더·FBD·Grafcet 편집) | O (기호 PLC 입력 8 · 출력 8, 실물 PLC 입력 16 · 릴레이 출력 16 (전원 · COM · 출력 공통) + HMI 터치 판넬, PLC 탭의 미쓰비시·LS·지멘스 STL·ST 프로그램을 스캔 실행. 미쓰비시·LS 는 래더 편집기 + 시뮬레이션 중 래더 모니터, FBD 는 없음) |
 | PC_SIMU(가상 설비) · 아두이노 연결 | O | — |
 | 조작 순서 → 타임차트 자동 생성 | — | O |
 | 부품 리스트 · 접점 수 · 수량 집계 · CSV | — | O |
@@ -628,6 +645,7 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 - **Use it now:** https://mioon1402.github.io/TimeChartForAutomation/ (no install, no sign-up). For offline PCs, download [TimeChartStudio.html](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html) and double-click it.
 - **Circuit tab (like CADe SIMU):** draw relay, contactor, timer, overload, motor and pneumatic circuits on a grid and run them by clicking buttons; live wires are coloured by pole, motors spin forward/reverse, cylinders move, shorts and open phases are flagged. Write the operator actions (or record them while simulating) and the timing chart is generated; the parts list (tags, item, spec, contacts used, quantities) comes straight from the drawing and prints in the report.
 - **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
+- **PLC panel devices**: a real-wiring PLC (16 in / 16 relay out with supply, input COM and output commons; restarts after a power loss) and an HMI touch panel whose buttons and lamps read and write PLC devices; the wiring check warns about AC on DC inputs, unfused output commons and contactor coils switched straight from PLC outputs. Example: a two-pump panel with local / HMI operation, interposing relays and a hardwired E-stop.
 - **Ladder (LD) editor** for Mitsubishi and LS programs with GX Works / XG5000-style keys (F3 NO, F4 NC, F5 line, F6 vertical, F9 coil); existing mnemonics open as ladder, the drawing compiles to mnemonics, and a live ladder monitor shows ON contacts while the circuit with the PLC block runs.
 - **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.
 - **Sequence tab** following real design practice on one page: machine spec → moving devices and motion times → I/O list with PLC addresses → sequence (after / together with previous) → live preview with cycle time and interlock checks. The tables work like a spreadsheet (type, arrow keys, Ctrl+C/V with Excel); paste an Excel sequence table or I/O list and columns are matched by their headers.

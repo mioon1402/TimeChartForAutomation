@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType, WireColor } from './types';
-import { circuitWires, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL, solAc } from './parts';
+import { circuitWires, hmiTag, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL, RPLC, solAc } from './parts';
 import { onWireInterior } from './netlist';
 import type { CircuitModel } from './engine';
 import { nominalVolt, poleLive, systemVolts } from './supply';
@@ -66,7 +66,7 @@ const COLOR_NAME: Record<WireColor, [string, string]> = {
 /** 기기에 적힌 정격 전압: 교류 · 직류와 전압 범위 (없으면 null) */
 export function ratedVoltage(p: Part): { kind: 'ac' | 'dc' | 'any'; lo: number; hi: number; text: string } | null {
   // 덮개에 AC 220V 가 적혀 나오는 기기는 사양을 비워도 그 전압으로 본다
-  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' ? 'DC 24V' : '';
+  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' || p.type === 'r_plc' || p.type === 'r_hmi' ? 'DC 24V' : '';
   const text = p.spec?.trim() || shown;
   if (text) {
     const m = /(\d+(?:\.\d+)?)\s*(?:[~\-–]\s*(\d+(?:\.\d+)?))?\s*V/i.exec(text);
@@ -359,5 +359,99 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       for (const b of bad.values()) out.push({ level: b.level, msg: `${b.msg} ${tr(`${b.wires.length}가닥`, `(${b.wires.length})`)}`, partIds: [], wireIds: b.wires });
     }
   }
+  out.push(...plcChecks(model, { allPoles, bare, sources, wired, name, pinNet }));
+  return out;
+}
+
+/** 전자접촉기 코일 · 전동기처럼 PLC 출력 접점으로 바로 켜면 안 되는 부하 */
+const HEAVY: ReadonlySet<PartType> = new Set(['r_mc', 'r_motor3', 'r_motor6', 'motor', 'motor3', 'r_load1', 'r_load3', 'load', 'r_fan']);
+
+/**
+ * PLC 가 상하지 않게: 입력에 교류, 입력 공통 · 출력 공통이 빠짐, 출력 공통에 퓨즈 없음,
+ * 출력 접점으로 전자접촉기 코일 · 전동기 · 교류 솔레노이드를 바로 켬, HMI 버튼이 PLC 입력에 씀
+ */
+function plcChecks(
+  model: CircuitModel,
+  h: { allPoles: (x: number) => Set<string>; bare: Groups; sources: { net: number; id: string }[]; wired: (x: number) => boolean; name: (p: Part) => string; pinNet: (p: Part, i: number) => number },
+): WiringIssue[] {
+  const out: WiringIssue[] = [];
+  const { allPoles, bare, sources, wired, name, pinNet } = h;
+  const ac = (x: number) => [...allPoles(x)].filter((id) => POLE_SYSTEM[id] === 'ac');
+  // 출력에서 부하까지: PLC 출력 접점은 빼고 다른 접점 · 선 · 단자대를 따라가되, 전원이 직접 닿은 넷에서는 멈춘다
+  const adj = new Map<number, number[]>();
+  for (const k of model.conductors) {
+    if (k.plcOut !== undefined) continue;
+    adj.set(k.a, [...(adj.get(k.a) ?? []), k.b]);
+    adj.set(k.b, [...(adj.get(k.b) ?? []), k.a]);
+  }
+  const srcNets = new Set(sources.map((s) => s.net));
+  const loadsAt = new Map<number, Part[]>();
+  for (const p of model.loads) {
+    const def = PARTS[p.type];
+    const idx = def.selfCoil ?? def.loadPins ?? (p.type === 'r_motor3' || p.type === 'r_motor6' || p.type === 'r_load3' || p.type === 'motor3' ? [0, 1, 2] : [0, 1]);
+    for (const i of idx) {
+      const x = pinNet(p, i);
+      if (x !== undefined) loadsAt.set(x, [...(loadsAt.get(x) ?? []), p]);
+    }
+  }
+  const driven = (start: number): Part[] => {
+    const seen = new Set([start]);
+    const todo = [start];
+    const found: Part[] = [];
+    while (todo.length) {
+      const x = todo.pop()!;
+      for (const p of loadsAt.get(x) ?? []) if (!found.includes(p)) found.push(p);
+      if (srcNets.has(x)) continue;
+      for (const y of adj.get(x) ?? []) if (!seen.has(y)) seen.add(y), todo.push(y);
+    }
+    return found;
+  };
+  const heavy = (p: Part) => HEAVY.has(p.type) || (p.type === 'coil' && /^(MC|KM)/i.test(p.tag.trim())) || ((p.type === 'r_sol' || p.type === 'sol') && ac(pinNet(p, 0)).length > 0);
+  for (const b of model.plcs) {
+    const p = b.part;
+    if (p.type !== 'r_plc') continue;
+    // 입력: DC 24V 전용
+    const acIn = b.inNets.map((x, i) => (wired(x) && ac(x).length ? b.inAddr[i] : '')).filter(Boolean);
+    if (acIn.length)
+      out.push({ level: 'error', msg: tr(`${name(p)}: 입력 ${acIn.join(' · ')} 에 교류 (${[...new Set(b.inNets.flatMap(ac))].join(' · ')}) 가 닿을 수 있습니다. 이 PLC 입력은 DC 24V 용이라 입력 회로가 탑니다 → 교류 신호는 보조 릴레이 접점으로 바꿔 DC 24V 로 받습니다`, `${name(p)}: inputs ${acIn.join(', ')} can see AC; these are 24 V DC inputs and burn — convert AC signals through a relay contact`), partIds: [p.id] });
+    const com = b.com!;
+    if (b.inNets.some(wired) && !wired(com)) out.push({ level: 'warn', msg: tr(`${name(p)}: 입력 공통 COM 이 이어지지 않아 입력이 들어오지 않습니다. 싱크 입력이면 COM 을 0V 에 잇습니다`, `${name(p)}: input COM is not wired, so no input turns on; for sink inputs connect COM to 0 V`), partIds: [p.id] });
+    else if (wired(com) && ac(com).length) out.push({ level: 'error', msg: tr(`${name(p)}: 입력 공통 COM 에 교류가 닿습니다. COM 은 DC 24V 전원 (0V 또는 +24V) 에 잇습니다`, `${name(p)}: input COM sees AC; tie it to the 24 V DC supply`), partIds: [p.id] });
+    // 출력 공통: 그룹마다 이어졌는가, 퓨즈 · 차단기를 거치는가
+    for (const [g, ci] of [
+      [0, RPLC.com0],
+      [1, RPLC.com1],
+    ] as const) {
+      const outs = b.outAddr.map((a, n) => ({ a, n })).filter(({ n }) => (n < 8 ? 0 : 1) === g && wired(pinNet(p, RPLC.out0 + n)));
+      if (!outs.length) continue;
+      const cn = pinNet(p, ci);
+      const label = g === 0 ? 'COM0' : 'COM1';
+      if (!wired(cn)) {
+        out.push({ level: 'warn', msg: tr(`${name(p)}: 출력 공통 ${label} 이 이어지지 않아 ${outs.map((o) => o.a).join(' · ')} 이(가) 아무것도 켜지 못합니다`, `${name(p)}: output common ${label} is not wired, so ${outs.map((o) => o.a).join(', ')} switch nothing`), partIds: [p.id] });
+        continue;
+      }
+      const direct = sources.filter((s) => bare.find(s.net) === bare.find(cn)).map((s) => s.id);
+      if (direct.length)
+        out.push({ level: 'warn', msg: tr(`${name(p)}: 출력 공통 ${label} 이 퓨즈 · 차단기 없이 전원 (${[...new Set(direct)].join(' · ')}) 에 바로 물려 있습니다. 출력 쪽이 단락되면 PLC 출력 접점이 녹아 붙습니다 → 공통마다 퓨즈 (2~4A) 를 넣습니다`, `${name(p)}: output common ${label} is fed straight from ${[...new Set(direct)].join(', ')} with no fuse; a short welds the PLC contacts — fuse each common (2–4 A)`), partIds: [p.id] });
+      // 출력 접점이 바로 켜는 부하
+      for (const o of outs) {
+        const big = driven(pinNet(p, RPLC.out0 + o.n)).filter((q) => q.id !== p.id && heavy(q));
+        if (big.length)
+          out.push({
+            level: 'warn',
+            msg: tr(
+              `${name(p)}: 출력 ${o.a} 이 ${big.map(name).join(' · ')} 을(를) 바로 켭니다. 전자접촉기 코일 · 전동기 · 교류 솔레노이드는 돌입 전류와 끊을 때의 서지가 커서 PLC 출력 접점 (보통 2A) 이 녹아 붙거나 탑니다 → DC 24V 보조 릴레이 (인터포징 릴레이) 를 거쳐 움직이세요`,
+              `${name(p)}: output ${o.a} switches ${big.map(name).join(', ')} directly; contactor coils, motors and AC solenoids have inrush and switch-off surges that weld or burn the PLC contact (typically 2 A) — drive them through 24 V DC interposing relays`,
+            ),
+            partIds: [p.id, ...big.map((q) => q.id)],
+          });
+      }
+    }
+  }
+  // HMI 버튼이 PLC 입력 주소에 쓰면 다음 스캔에 단자 값으로 덮어써진다
+  const inputs = new Set(model.plcs.flatMap((b) => b.inDev));
+  for (const [tag, hb] of model.hmiDef)
+    if (inputs.has(hb.dev))
+      out.push({ level: 'warn', msg: tr(`${hmiTag(hb.part, hb.n)} (${hb.label}): PLC 입력 ${hb.dev} 에 씁니다. 입력은 PLC 가 스캔마다 단자 값으로 덮어쓰니 내부 릴레이 (M) 를 쓰세요`, `${tag} (${hb.label}) writes PLC input ${hb.dev}, which the PLC overwrites from its terminals every scan; use an internal relay (M)`), partIds: [hb.part.id] });
   return out;
 }

@@ -3,6 +3,8 @@ import { uid } from '../model/wave';
 import { tr } from '../i18n';
 import { defaultSimSettings, type PlcConfig } from '../plc/types';
 import { ilToLadder } from '../plc/ladder';
+import { partPins } from './parts';
+import { routeAll, type RouteDev } from './realize';
 
 /** 예제 회로를 좌표로 적기 위한 도우미 */
 class Builder {
@@ -1482,6 +1484,323 @@ function plcSelfHoldProgram(): PlcConfig {
   return { dialect: 'mitsubishi', source, comments, sim: { ...defaultSimSettings(), watch: ['X0', 'X1', 'Y0', 'T0', 'Y1'] }, view: 'ladder', ladder: ilToLadder(source, 'mitsubishi').ladder };
 }
 
+// ───────────────────── PLC 제어반: 급수 펌프 2대 (로컬 · HMI 원격) ─────────────────────
+
+/** 라우터가 그은 선 (그림은 늘 같으므로 한 번만 긋고, 부를 때마다 새 id 로) */
+let plcPanelWires: Omit<Wire, 'id'>[] | null = null;
+
+/**
+ * 실제 설계처럼 그린 PLC 제어반 (펌프 2대).
+ *  - 주회로: 주 차단기 MCCB → 펌프마다 MCB → MC → THR → 전동기
+ *  - 조작 전원: CB1 (2P, AC 220V) → SMPS (DC 24V) → 퓨즈 F1 (PLC · HMI 전원) · F2 (입력 · 현장 신호) · F3 (출력 공통 COM0)
+ *  - PLC 를 지키는 배선: 입력은 DC 24V 만 (정지 · 과부하는 접점으로), 출력은 퓨즈 F3 를 거친 공통에서
+ *    DC 24V 보조 릴레이 RY1 · RY2 (인터포징) 만 켜고, AC 220V 전자접촉기 코일은 릴레이 접점이 켠다
+ *  - PLC 가 고장 나도 멈추게: 비상정지 EMG (11-12) 와 THR (95-96) 이 MC 코일 회로를 직접 끊는다 (PLC 는 상태만 읽음)
+ *  - 운전 장소: 문의 COS (로컬 · 정지 · 원격). 로컬 = 문 버튼, 원격 = HMI. 정지는 어디서나
+ */
+function plcPanel(): Circuit {
+  const b = new Builder();
+  const T = (pole: 'L1' | 'L2' | 'L3' | 'N' | 'PE', x: number) => b.part('r_term', x, 0, '', { pole });
+  const tL1 = T('L1', 4);
+  const tL2 = T('L2', 6);
+  const tL3 = T('L3', 8);
+  const tN = T('N', 10);
+  const tPE = T('PE', 12);
+  // 주회로
+  const mccb = b.part('r_mcb3', 6, 6, 'MCCB', { name: tr('주 차단기', 'Main breaker'), spec: 'AC 380V 50A' });
+  const branch = (k: 1 | 2, x: number) => ({
+    mcb: b.part('r_mcb3', x, 18, `MCB${k}`, { name: tr(`P${k} 차단기`, `P${k} breaker`), spec: 'AC 380V 20A' }),
+    mc: b.part('r_mc', x + 1, 30, `MC${k}`, { name: tr(`P${k} 운전`, `P${k} run`), spec: tr('코일 AC 220V, 서지킬러 (CR) 부착', 'coil AC 220V with RC surge suppressor') }),
+    thr: b.part('r_thr', x, 41, `THR${k}`, { name: tr(`P${k} 과부하`, `P${k} overload`) }),
+    m: b.part('r_motor3', x, 51, `M${k}`, { name: tr(`급수 펌프 P${k}`, `Feed pump P${k}`), spec: 'AC 380V 3.7kW' }),
+  });
+  const p1 = branch(1, 6);
+  const p2 = branch(2, 18);
+  // 조작 전원 · DC 24V
+  const cb1 = b.part('r_mcb2', 31, 6, 'CB1', { name: tr('조작 전원', 'Control supply'), spec: 'AC 220V 10A' });
+  const smps = b.part('r_smps', 40, 6, 'SMPS', { name: 'DC 24V 5A' });
+  const f1 = b.part('r_fuse', 48, 6, 'F1', { name: tr('PLC · HMI 전원', 'PLC & HMI supply'), amps: 2 });
+  const f2 = b.part('r_fuse', 51, 6, 'F2', { name: tr('입력 · 현장 신호', 'Inputs & field signals'), amps: 2 });
+  const f3 = b.part('r_fuse', 54, 6, 'F3', { name: tr('출력 공통 COM0', 'Output common COM0'), amps: 4 });
+  // 문: 운전 선택 · 버튼 · 비상정지 (입력은 PLC 위 단자로)
+  const ss1 = b.part('r_ss3', 52, 16, 'SS1', { name: tr('운전 선택 (COS)', 'Mode (COS)'), pos3: tr('로컬/정지/원격', 'Local/Off/Remote') });
+  const pb11 = b.part('r_pb', 57, 16, 'PB11', { name: tr('P1 기동', 'P1 start'), color: 'green' });
+  const pb10 = b.part('r_pb', 62, 16, 'PB10', { name: tr('P1 정지', 'P1 stop'), color: 'red' });
+  const pb21 = b.part('r_pb', 67, 16, 'PB21', { name: tr('P2 기동', 'P2 start'), color: 'green' });
+  const pb20 = b.part('r_pb', 72, 16, 'PB20', { name: tr('P2 정지', 'P2 stop'), color: 'red' });
+  const pbr = b.part('r_pb', 77, 16, 'PBR', { name: tr('고장 리셋', 'Fault reset'), color: 'yellow' });
+  const emg = b.part('r_estop', 84, 16, 'EMG', { name: tr('비상정지', 'E-stop') });
+  // PLC · 보조 릴레이 · 표시
+  const plc = b.part('r_plc', 62, 32, 'PLC', { name: 'CPU 32점 (DC 24V)', inBase: 'P00000', outBase: 'P00040' });
+  const ry1 = b.part('r_my2', 50, 46, 'RY1', { name: tr('P1 운전 지령', 'P1 run command'), spec: tr('코일 DC 24V (다이오드 내장)', 'coil DC 24V with diode') });
+  const ry2 = b.part('r_my2', 57, 46, 'RY2', { name: tr('P2 운전 지령', 'P2 run command'), spec: tr('코일 DC 24V (다이오드 내장)', 'coil DC 24V with diode') });
+  const gl1 = b.part('r_lamp', 66, 46, 'GL1', { name: tr('P1 운전', 'P1 run'), color: 'green', spec: 'LED DC 24V', watt: 0.5 });
+  const gl2 = b.part('r_lamp', 70, 46, 'GL2', { name: tr('P2 운전', 'P2 run'), color: 'green', spec: 'LED DC 24V', watt: 0.5 });
+  const rl = b.part('r_lamp', 74, 46, 'RL', { name: tr('고장 (점멸)', 'Fault (flashing)'), color: 'red', spec: 'LED DC 24V', watt: 0.5 });
+  const bz = b.part('r_buzzer', 78, 46, 'BZ', { name: tr('경보', 'Alarm'), spec: 'DC 24V', watt: 1.5 });
+  const hmi = b.part('r_hmi', 94, 30, 'HMI1', {
+    name: tr('운전 화면', 'Main screen'),
+    hmi: [
+      { kind: 'btn', label: tr('P1 기동', 'P1 start'), dev: 'M00100', color: 'green' },
+      { kind: 'btn', label: tr('P1 정지', 'P1 stop'), dev: 'M00101', color: 'red' },
+      { kind: 'lamp', label: tr('P1 운전', 'P1 run'), dev: 'P00008', color: 'green' },
+      { kind: 'btn', label: tr('P2 기동', 'P2 start'), dev: 'M00102', color: 'green' },
+      { kind: 'btn', label: tr('P2 정지', 'P2 stop'), dev: 'M00103', color: 'red' },
+      { kind: 'lamp', label: tr('P2 운전', 'P2 run'), dev: 'P0000A', color: 'green' },
+      { kind: 'btn', label: tr('고장 리셋', 'Reset'), dev: 'M00104', color: 'yellow' },
+      { kind: 'lamp', label: tr('원격', 'Remote'), dev: 'P00001', color: 'blue' },
+      { kind: 'lamp', label: tr('고장', 'Fault'), dev: 'M00020', color: 'red' },
+      { kind: 'lamp', label: tr('비상정지', 'E-stop'), dev: 'M00012', color: 'red' },
+      { kind: 'lamp', label: tr('P1 과부하', 'P1 OL'), dev: 'P00009', color: 'yellow' },
+      { kind: 'lamp', label: tr('P2 과부하', 'P2 OL'), dev: 'P0000B', color: 'yellow' },
+    ],
+  });
+  const peBar = b.part('r_nbar', 30, 56, 'PEB', { n: 6, pole: 'PE', name: tr('접지 바', 'Earth bar') });
+  b.part('text', 0, -5, '', { text: tr('PLC 제어반: 급수 펌프 2대 (COS 로컬 = 문 버튼 · 원격 = HMI, 비상정지 · THR 은 MC 코일을 직접 끊음)', 'PLC panel: two feed pumps (COS local = door buttons, remote = HMI; E-stop and THR break the MC coils directly)') });
+  b.part('text', 0, 61, '', { text: tr('전선 색: 주회로 L1 갈색 · L2 검정 · L3 회색 / N · 0V 파랑 / AC 220V 조작 노랑 / DC 24V 빨강 / 접지 녹황', 'Wire colours: L1 brown · L2 black · L3 grey / N and 0 V blue / 220 V AC control yellow / 24 V DC red / earth green-yellow') });
+  b.part('text', 0, 63, '', { text: tr('PLC 보호: 입력 DC 24V 만 · 출력 공통 COM0 퓨즈 F3 · 출력은 DC 24V 보조 릴레이 RY1 · RY2 만 켜고 MC 는 릴레이 접점이 켬 · PLC · HMI 전원 퓨즈 F1 · FG 접지', 'PLC protection: 24 V DC inputs only · fused output common (F3) · outputs drive 24 V DC interposing relays only · PLC/HMI supply fused (F1) · FG earthed') });
+
+  if (!plcPanelWires) {
+    // 넷: [색, 단자 …]. 단자는 [기기, 단자 이름]
+    const nets: [WireColor, [Part, string][]][] = [];
+    const net = (color: WireColor, ...pins: [Part, string][]) => nets.push([color, pins]);
+    const PH: WireColor[] = ['brown', 'black', 'grey'];
+    const MAIN = ['1', '3', '5'];
+    const LOADSIDE = ['2', '4', '6'];
+    const MCL = ['1/L1', '3/L2', '5/L3'];
+    const MCT = ['2/T1', '4/T2', '6/T3'];
+    [tL1, tL2, tL3].forEach((t, k) => net(PH[k], [t, ''], [mccb, MAIN[k]]));
+    [0, 1, 2].forEach((k) => net(PH[k], [mccb, LOADSIDE[k]], [p1.mcb, MAIN[k]], [p2.mcb, MAIN[k]], ...(k === 0 ? ([[cb1, '1']] as [Part, string][]) : [])));
+    net('blue', [tN, ''], [cb1, '3']);
+    for (const q of [p1, p2]) {
+      [0, 1, 2].forEach((k) => {
+        net(PH[k], [q.mcb, LOADSIDE[k]], [q.mc, MCL[k]]);
+        net(PH[k], [q.mc, MCT[k]], [q.thr, MCL[k]]);
+        net(PH[k], [q.thr, MCT[k]], [q.m, ['U', 'V', 'W'][k]]);
+      });
+    }
+    // AC 220V 조작 회로: CB1 → (SMPS) · 비상정지 11-12 → RY 접점 9-5 → THR 95-96 → MC 코일 → N
+    net('yellow', [cb1, '2'], [smps, 'L'], [emg, '11']);
+    net('blue', [cb1, '4'], [smps, 'N'], [p1.mc, 'A2'], [p2.mc, 'A2']);
+    net('yellow', [emg, '12'], [ry1, '9'], [ry2, '9']);
+    net('yellow', [ry1, '5'], [p1.thr, '95']);
+    net('yellow', [p1.thr, '96'], [p1.mc, 'A1']);
+    net('yellow', [ry2, '5'], [p2.thr, '95']);
+    net('yellow', [p2.thr, '96'], [p2.mc, 'A1']);
+    // DC 24V
+    net('red', [smps, '+V'], [f1, '1'], [f2, '1'], [f3, '1']);
+    net('red', [f1, '2'], [plc, '+'], [hmi, '+']);
+    net('red', [f2, '2'], [ss1, '13'], [ss1, '23'], [pb11, '23'], [pb10, '11'], [pb21, '23'], [pb20, '11'], [pbr, '23'], [emg, '23'], [p1.mc, '13NO'], [p1.thr, '97'], [p2.mc, '13NO'], [p2.thr, '97']);
+    net('red', [f3, '2'], [plc, 'COM0']);
+    net('blue', [smps, '-V'], [plc, '−'], [plc, 'COM'], [ry1, '14'], [ry2, '14'], [gl1, 'X2'], [gl2, 'X2'], [rl, 'X2'], [bz, 'X2'], [hmi, '−']);
+    // PLC 입력 (싱크: COM = 0V, 신호 = +24V)
+    const IN: [Part, string][] = [
+      [ss1, '14'],
+      [ss1, '24'],
+      [pb11, '24'],
+      [pb10, '12'],
+      [pb21, '24'],
+      [pb20, '12'],
+      [pbr, '24'],
+      [emg, '24'],
+      [p1.mc, '14NO'],
+      [p1.thr, '98'],
+      [p2.mc, '14NO'],
+      [p2.thr, '98'],
+    ];
+    IN.forEach((pin, n) => net('red', pin, [plc, `P0000${n.toString(16).toUpperCase()}`]));
+    // PLC 출력 → 보조 릴레이 코일 · 램프 · 부저
+    const OUT: [Part, string][] = [
+      [ry1, '13'],
+      [ry2, '13'],
+      [gl1, 'X1'],
+      [gl2, 'X1'],
+      [rl, 'X1'],
+      [bz, 'X1'],
+    ];
+    OUT.forEach((pin, n) => net('red', [plc, `P0004${n}`], pin));
+    // 접지: 기기마다 접지 바의 나사 하나씩
+    [
+      [tPE, ''],
+      [p1.m, 'PE'],
+      [p2.m, 'PE'],
+      [smps, 'FG'],
+      [plc, 'FG'],
+      [hmi, 'FG'],
+    ].forEach((pin, k) => net('gy', pin as [Part, string], [peBar, String(k + 1)]));
+
+    const devs = new Map<string, RouteDev>();
+    const colors: WireColor[] = [];
+    nets.forEach(([color, pins], id) => {
+      colors[id] = color;
+      for (const [part, label] of pins) {
+        const i = partPins(part).findIndex((q) => q.label === label);
+        if (i < 0) throw new Error(`plcPanel: ${part.tag} 에 ${label} 단자가 없습니다`);
+        const d = devs.get(part.id) ?? { part, pins: new Map<number, number>() };
+        d.pins.set(i, id);
+        devs.set(part.id, d);
+      }
+    });
+    const r = routeAll([...devs.values()], (n) => colors[n]);
+    plcPanelWires = r.wires.map(({ id: _id, ...w }) => w);
+  }
+  for (const w of plcPanelWires) b.wires.push({ ...w, id: uid('cw') });
+
+  // 조작 순서: 로컬 운전 → HMI 는 막힘 → 원격 (HMI) → 과부하 · 리셋 → 비상정지 · 리셋
+  b.op(500, 'SS1', 'left', tr('로컬 (문 버튼)', 'Local (door buttons)'));
+  b.op(500, 'PB11', 'press', tr('P1 기동 (문)', 'P1 start (door)'));
+  b.op(1500, 'PB21', 'press', tr('P2 기동 (문)', 'P2 start (door)'));
+  b.op(1500, 'PB10', 'press', tr('P1 정지 (문)', 'P1 stop (door)'));
+  b.op(1500, 'HMI1-1', 'press', tr('로컬에서 HMI 기동 → 무시', 'HMI start in local → ignored'));
+  b.op(1500, 'SS1', 'right', tr('원격 (HMI)', 'Remote (HMI)'));
+  b.op(1000, 'HMI1-1', 'press', tr('P1 기동 (HMI)', 'P1 start (HMI)'));
+  b.op(1500, 'THR2', 'on', tr('P2 과부하 트립', 'P2 overload trip'));
+  b.op(2000, 'HMI1-7', 'press', tr('리셋 → 부저만 꺼짐', 'Reset → buzzer off only'));
+  b.op(1500, 'THR2', 'off', tr('THR2 복귀', 'THR2 reset'));
+  b.op(1000, 'HMI1-7', 'press', tr('리셋 → 고장 풀림', 'Reset → fault cleared'));
+  b.op(1500, 'EMG', 'on', tr('비상정지', 'E-stop'));
+  b.op(2000, 'EMG', 'off', tr('비상정지 해제 (재기동 안 함)', 'E-stop released (no restart)'));
+  b.op(1000, 'PBR', 'press', tr('리셋 (문)', 'Reset (door)'));
+  b.op(1000, 'HMI1-1', 'press', tr('P1 기동 (HMI)', 'P1 start (HMI)'));
+  b.op(1000, 'HMI1-4', 'press', tr('P2 기동 (HMI)', 'P2 start (HMI)'));
+  b.op(1500, 'HMI1-5', 'press', tr('P2 정지 (HMI)', 'P2 stop (HMI)'));
+  b.op(1500, 'SS1', 'off', tr('COS 정지 → 모두 정지', 'COS off → all stop'));
+  return b.done();
+}
+
+/** PLC 제어반 프로그램 (LS XGK 니모닉, 래더로 열림) */
+function plcPanelProgram(): PlcConfig {
+  const source = [
+    '; 운전 장소: COS 로컬 (P00000) = 문 버튼, 원격 (P00001) = HMI. 기동은 고른 곳에서만, 정지는 어디서나',
+    'LOAD P00000',
+    'AND P00002',
+    'LOAD P00001',
+    'AND M00100',
+    'OR LOAD',
+    'OR P00040',
+    'LOAD P00000',
+    'OR P00001',
+    'AND LOAD',
+    'AND P00003',
+    'AND NOT M00101',
+    'AND NOT M00010',
+    'AND NOT M00012',
+    'OUT P00040',
+    '; P2 운전 지령 (P1 과 같은 꼴)',
+    'LOAD P00000',
+    'AND P00004',
+    'LOAD P00001',
+    'AND M00102',
+    'OR LOAD',
+    'OR P00041',
+    'LOAD P00000',
+    'OR P00001',
+    'AND LOAD',
+    'AND P00005',
+    'AND NOT M00103',
+    'AND NOT M00011',
+    'AND NOT M00012',
+    'OUT P00041',
+    '; 지령을 냈는데 2초 안에 MC 보조 접점이 안 들어오면 MC 이상',
+    'LOAD P00040',
+    'AND NOT P00008',
+    'TON T0001 20',
+    'LOAD P00041',
+    'AND NOT P0000A',
+    'TON T0002 20',
+    '; 고장 기억: 과부하 · MC 이상 · 비상정지',
+    'LOAD P00009',
+    'OR T0001',
+    'SET M00010',
+    'LOAD P0000B',
+    'OR T0002',
+    'SET M00011',
+    'LOAD P00007',
+    'SET M00012',
+    '; 리셋 (문 버튼 · HMI): 원인이 없어진 고장만 풀린다',
+    'LOAD P00006',
+    'OR M00104',
+    'OUT M00030',
+    'LOAD M00030',
+    'AND NOT P00009',
+    'RST M00010',
+    'LOAD M00030',
+    'AND NOT P0000B',
+    'RST M00011',
+    'LOAD M00030',
+    'AND NOT P00007',
+    'RST M00012',
+    'LOAD M00010',
+    'OR M00011',
+    'OR M00012',
+    'OUT M00020',
+    '; 부저 정지: 원인이 남아 있어도 리셋을 누르면 부저만 끈다',
+    'LOAD M00030',
+    'AND M00020',
+    'SET M00021',
+    'LOAD NOT M00020',
+    'RST M00021',
+    '; 운전 램프 = MC 보조 접점 (실제로 붙었는가)',
+    'LOAD P00008',
+    'OUT P00042',
+    'LOAD P0000A',
+    'OUT P00043',
+    '; 고장 램프 점멸 (0.5초 켜짐 · 0.5초 꺼짐) 과 부저',
+    'LOAD M00020',
+    'AND NOT T0004',
+    'TON T0003 5',
+    'LOAD T0003',
+    'TON T0004 5',
+    'LOAD M00020',
+    'AND NOT T0003',
+    'OUT P00044',
+    'LOAD M00020',
+    'AND NOT M00021',
+    'OUT P00045',
+    'END',
+  ].join('\n');
+  const comments = (
+    [
+      ['P00000', tr('COS 로컬', 'COS local')],
+      ['P00001', tr('COS 원격', 'COS remote')],
+      ['P00002', tr('P1 기동 PB', 'P1 start PB')],
+      ['P00003', tr('P1 정지 PB (b)', 'P1 stop PB (NC)')],
+      ['P00004', tr('P2 기동 PB', 'P2 start PB')],
+      ['P00005', tr('P2 정지 PB (b)', 'P2 stop PB (NC)')],
+      ['P00006', tr('리셋 PB', 'Reset PB')],
+      ['P00007', tr('비상정지', 'E-stop')],
+      ['P00008', tr('MC1 운전 확인', 'MC1 feedback')],
+      ['P00009', tr('THR1 과부하', 'THR1 overload')],
+      ['P0000A', tr('MC2 운전 확인', 'MC2 feedback')],
+      ['P0000B', tr('THR2 과부하', 'THR2 overload')],
+      ['P00040', tr('RY1 P1 운전', 'RY1 P1 run')],
+      ['P00041', tr('RY2 P2 운전', 'RY2 P2 run')],
+      ['P00042', tr('GL1 P1 운전등', 'GL1 P1 run lamp')],
+      ['P00043', tr('GL2 P2 운전등', 'GL2 P2 run lamp')],
+      ['P00044', tr('RL 고장등', 'RL fault lamp')],
+      ['P00045', tr('BZ 부저', 'BZ buzzer')],
+      ['M00100', tr('HMI P1 기동', 'HMI P1 start')],
+      ['M00101', tr('HMI P1 정지', 'HMI P1 stop')],
+      ['M00102', tr('HMI P2 기동', 'HMI P2 start')],
+      ['M00103', tr('HMI P2 정지', 'HMI P2 stop')],
+      ['M00104', tr('HMI 리셋', 'HMI reset')],
+      ['M00010', tr('P1 고장', 'P1 fault')],
+      ['M00011', tr('P2 고장', 'P2 fault')],
+      ['M00012', tr('비상정지 기억', 'E-stop latched')],
+      ['M00020', tr('고장 합계', 'Any fault')],
+      ['M00021', tr('부저 정지', 'Buzzer silenced')],
+      ['M00030', tr('리셋', 'Reset')],
+      ['T0001', tr('MC1 확인 2초', 'MC1 check 2 s')],
+      ['T0002', tr('MC2 확인 2초', 'MC2 check 2 s')],
+      ['T0003', tr('점멸 켜짐', 'Flash on')],
+      ['T0004', tr('점멸 꺼짐', 'Flash off')],
+    ] as const
+  )
+    .map(([k, v]) => `${k}\t${v}`)
+    .join('\n');
+  return { dialect: 'ls', source, comments, sim: { ...defaultSimSettings(), watch: [] }, view: 'ladder', ladder: ilToLadder(source, 'ls').ladder };
+}
+
 export type ExampleGroup = 'motor' | 'panel' | 'home' | 'power' | 'basic';
 
 /** 예제 메뉴의 묶음 (차례대로) */
@@ -1524,6 +1843,7 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   busbar: 'power',
   feeders: 'power',
   substation: 'power',
+  'plc-panel': 'panel',
 };
 
 export interface CircuitExample {
@@ -1572,6 +1892,13 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'timer', name: tr('타이머 지연 동작', 'Timer delay'), desc: tr('기동 3초 뒤 운전, 기다리는 동안 대기 표시', 'Run 3 s after start, waiting lamp meanwhile'), build: timerDelay },
     { id: 'cylinder', name: tr('공압 실린더 1사이클', 'Cylinder one cycle'), desc: tr('기동 → 전진 → 전진단 → 후진 → 후진단', 'Start → advance → end → return'), build: cylinderCycle },
     { id: 'pneumatic', name: tr('전공압 자동 왕복 (밸브 · 근접 센서)', 'Electro-pneumatic auto cycle'), desc: tr('공압원 → FRL → 5/2 양솔 밸브 → 속도 제어 → 실린더, 근접 센서로 왕복', 'Air supply, FRL, 5/2 valve, flow control, cylinder, proximity sensors'), build: electroPneumatic },
+    {
+      id: 'plc-panel',
+      name: tr('PLC 제어반: 펌프 2대 (로컬 · HMI)', 'PLC panel: two pumps (local / HMI)'),
+      desc: tr('실물 PLC · HMI · 보조 릴레이 · MC · THR. 비상정지와 THR 은 MC 코일을 직접 끊고, PLC 출력은 DC 24V 릴레이만 켭니다', 'Real PLC, HMI, interposing relays, contactors and overloads; the E-stop and overloads break the coils directly'),
+      build: plcPanel,
+      plc: plcPanelProgram,
+    },
     { id: 'plc', name: tr('PLC 자기유지 + 타이머', 'PLC self-hold + timer'), desc: tr('푸시버튼 → PLC 입력, PLC 출력 → 램프. 프로그램은 PLC 탭에서 고칩니다', 'Buttons to PLC inputs, outputs to lamps; edit the program in the PLC tab'), build: plcSelfHold, plc: plcSelfHoldProgram },
   ];
   return list.map((e) => ({ ...e, group: EXAMPLE_GROUP[e.id] ?? 'basic' }));

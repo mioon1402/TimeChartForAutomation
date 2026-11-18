@@ -336,6 +336,45 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('시뮬레이션에서 손잡이의 왼쪽을 누르면 왼쪽으로, 오른쪽을 누르면 오른쪽으로 돌고, 같은 쪽을 한 번 더 누르면 가운데로 돌아옵니다. 조작 순서표에서는 동작을 왼쪽 · 가운데 · 오른쪽으로 고릅니다.', 'Click the left or right side of the knob to turn it; click the same side again to return to the centre. In the operation list pick left, centre or right.'),
         'pump-manual-auto',
       );
+    case 'r_plc':
+      return g(
+        tr('제어반에 다는 PLC (CPU 일체형, 입력 16 · 릴레이 출력 16) 입니다. DC 24V 전원이 + · − 에 들어와야 돌고, PLC 시뮬레이션 탭의 프로그램 (니모닉 · 래더) 을 스캔마다 실행합니다. 전원이 끊겼다 들어오면 처음부터 다시 돕니다.', 'A panel PLC (compact CPU, 16 inputs and 16 relay outputs). It runs only with 24 V DC on + and −, executing the program from the PLC tab every scan, and restarts from scratch after a power loss.'),
+        [
+          ['+ · −', tr('PLC 전원 DC 24V (SMPS 에서, 퓨즈 · 차단기를 거쳐)', 'PLC supply 24 V DC (from the SMPS, through a fuse or breaker)')],
+          ['FG', tr('접지 (PE) — 노이즈를 빼는 길', 'frame ground (PE)')],
+          ['COM', tr('입력 공통. 0V 를 물리면 싱크 (입력에 +24V 가 오면 ON), +24V 를 물리면 소스 (입력에 0V 가 오면 ON)', 'input common: 0V for sink inputs (ON with +24V), +24V for source inputs (ON with 0V)')],
+          [tr('입력 16', '16 inputs'), tr('버튼 · 셀렉터 · 리밋 · 센서 · MC 보조 접점 · THR 접점. DC 24V 만 (AC 220V 를 넣으면 입력 회로가 탑니다)', 'buttons, selectors, limits, sensors, MC aux and THR contacts — 24 V DC only (220 V AC burns the input)')],
+          ['COM0 · COM1', tr('출력 공통 (0~7 · 8~15). 그룹마다 따로 전원과 퓨즈를 줍니다', 'output commons (0–7, 8–15), each with its own supply and fuse')],
+          [tr('출력 16', '16 outputs'), tr('릴레이 접점 (보통 2A). 프로그램이 켜면 COM 과 이어집니다', 'relay contacts (typically 2 A), closed to their COM when the program turns them on')],
+        ],
+        [
+          tr('SMPS +V → 퓨즈 → PLC +, SMPS −V → PLC −, FG → PE 바', 'SMPS +V → fuse → PLC +, SMPS −V → PLC −, FG → earth bar'),
+          tr('싱크 입력: COM → 0V, +24V → 버튼 · 센서 → 입력 단자', 'Sink inputs: COM → 0V, +24V → button / sensor → input'),
+          tr('정지 · 비상정지 · THR 처럼 끊겨야 안전한 신호는 b접점으로 받습니다 (선이 끊어져도 정지 쪽)', 'Read stop, E-stop and overload as NC contacts so a broken wire also means stop'),
+          tr('출력으로 전자접촉기 코일 · 전동기를 바로 움직이지 말고, DC 24V 보조 릴레이 (인터포징 릴레이) 를 거칩니다. 출력 공통에는 퓨즈를', 'Do not switch contactor coils or motors straight from the outputs: go through 24 V DC interposing relays, and fuse the output commons'),
+          tr('비상정지 · THR 는 PLC 와 따로 MC 코일 회로를 직접 끊게 배선합니다 (PLC 가 고장 나도 멈추게)', 'Wire the E-stop and overload to break the MC coil circuit directly, independent of the PLC'),
+        ],
+        tr('시뮬레이션 중에는 입력 · 출력 LED 와 PWR · RUN 램프가 켜지고, [속성] 칸에 래더 모니터가 나옵니다. 주소 (X0 / P00000 …) 는 속성에서 정하고, 프로그램은 PLC 시뮬레이션 탭에서 고칩니다.', 'While simulating the I/O LEDs and PWR/RUN lamps light and the ladder monitor shows in Properties. Set the addresses in Properties and edit the program in the PLC tab.'),
+        'plc-panel',
+      );
+    case 'r_hmi':
+      return g(
+        tr('제어반 문에 다는 HMI (터치 판넬) 입니다. 화면의 버튼 · 스위치 · 램프가 PLC 의 디바이스 (M100 처럼) 를 통신으로 쓰고 읽습니다. 선으로 잇는 것은 전원뿐입니다.', 'A door-mounted HMI (touch panel): its screen buttons, switches and lamps write and read PLC devices (like M100) over the link; only the supply is wired.'),
+        [
+          ['+ · −', tr('HMI 전원 DC 24V', 'HMI supply 24 V DC')],
+          ['FG', tr('접지 (PE)', 'frame ground (PE)')],
+          [tr('버튼', 'button'), tr('누르는 동안 디바이스 = 1', 'device = 1 while pressed')],
+          [tr('스위치', 'switch'), tr('누를 때마다 1 ↔ 0 (불이 디바이스 값을 보여 줌)', 'toggles 1 ↔ 0 on each press (lit while 1)')],
+          [tr('램프', 'lamp'), tr('디바이스가 1 이면 켜짐 (운전 · 고장 표시)', 'lit while the device is 1 (run / fault)')],
+        ],
+        [
+          tr('속성에서 화면 칸 (버튼 · 스위치 · 램프) 과 PLC 디바이스를 정합니다', 'Set the screen items and their PLC devices in the properties'),
+          tr('HMI 버튼은 PLC 입력 (X · P) 이 아닌 내부 릴레이 (M) 에 씁니다. 입력은 PLC 가 스캔마다 단자 값으로 덮어씁니다', 'Point HMI buttons at internal relays (M), not at inputs (X / P), which the PLC overwrites from the terminals each scan'),
+          tr('로컬 · 원격 셀렉터로 어느 쪽 조작을 받을지 PLC 프로그램에서 고릅니다. 비상정지는 HMI 가 아닌 배선으로', 'Use a local/remote selector in the program to choose which commands count; keep the E-stop hardwired, not on the HMI'),
+        ],
+        tr('시뮬레이션에서 화면의 버튼을 누르면 PLC 가 다음 스캔에 읽습니다. 조작 순서표에서는 HMI1-1, HMI1-2 … (칸 번호) 를 고릅니다. 전원이 없거나 PLC 가 멈추면 "통신 이상" 으로 버튼이 듣지 않습니다.', 'Click the screen buttons while simulating; the PLC reads them on the next scan. In the operation list choose HMI1-1, HMI1-2 … (item numbers). Without power or a running PLC the panel shows a link error and ignores presses.'),
+        'plc-panel',
+      );
     case 'r_counter':
       return g(
         tr('프리셋 카운터입니다. 입력이 들어올 때마다 하나씩 세고, 설정 수에 닿으면 출력 접점이 바뀌어 리셋할 때까지 유지합니다 (제품 수 세기, 몇 번 왕복 뒤 정지).', 'A preset counter: counts each input and switches its output at the preset until reset (counting products, stop after n strokes).'),

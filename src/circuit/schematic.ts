@@ -328,6 +328,8 @@ const THREE_LOAD = new Set<PartType>(['r_motor3', 'r_motor6', 'r_load3', 'motor3
 /** 회로도로 바꾸지 않는 기기 */
 const UNSUPPORTED: Partial<Record<PartType, string>> = {
   plc: 'PLC',
+  r_plc: 'PLC',
+  r_hmi: 'HMI',
   r_tsw: tr('타임 스위치', 'time switch'),
   r_counter: tr('카운터', 'counter'),
   r_tc: tr('온도 조절기', 'temperature controller'),

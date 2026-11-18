@@ -66,6 +66,24 @@ const BOX2W: [number, number, number, number] = [-1.6, -2, 1, 2];
 const BOX3: [number, number, number, number] = [-3, -2, 3, 2];
 
 const pin = (x: number, y: number, label: string): PinDef => ({ x, y, label });
+
+/**
+ * PLC (실물) 단자 차례: 0~15 입력, 16 입력 공통 COM, 17~32 출력, 33 COM0 (출력 0~7 공통), 34 COM1 (출력 8~15 공통), 35 +, 36 −, 37 FG.
+ * 위 단자대: 전원 + · − · FG, COM, 입력 16. 아래 단자대: COM0, 출력 8, COM1, 출력 8
+ */
+export const RPLC = { nIn: 16, nOut: 16, com: 16, out0: 17, com0: 33, com1: 34, plus: 35, minus: 36, fg: 37 } as const;
+function rplcPins(ins: string[], outs: string[]): PinDef[] {
+  return [
+    ...ins.map((a, n) => pin(-13 + 2 * n, -5, a)),
+    pin(-15, -5, 'COM'),
+    ...outs.map((a, n) => pin(n < 8 ? -13 + 2 * n : 5 + 2 * (n - 8), 5, a)),
+    pin(-15, 5, 'COM0'),
+    pin(3, 5, 'COM1'),
+    pin(-22, -5, '+'),
+    pin(-20, -5, '−'),
+    pin(-18, -5, 'FG'),
+  ];
+}
 /** 8핀 소켓 단자: 번호 순서대로 (2-7 코일, 1 공통 → 3 a · 4 b, 8 공통 → 6 a · 5 b) */
 const OCTAL: PinDef[] = [pin(-3, -3, '1'), pin(-1, -3, '2'), pin(1, -3, '3'), pin(3, -3, '4'), pin(3, 3, '5'), pin(1, 3, '6'), pin(-1, 3, '7'), pin(-3, 3, '8')];
 
@@ -270,6 +288,21 @@ export const PARTS: Record<PartType, PartDef> = {
     prefix: 'PLC',
   },
   // ── 실물 배선도 기기 ──
+  // PLC (실물, 입력 16 · 릴레이 출력 16): DC 24V 전원이 + · − 에 들어와야 돈다. 입력은 COM 과 반대 극이 닿으면 ON (싱크 · 소스)
+  r_plc: {
+    type: 'r_plc',
+    cat: 'plc',
+    pins: rplcPins(
+      Array.from({ length: 16 }, (_, n) => `X${n.toString(8)}`),
+      Array.from({ length: 16 }, (_, n) => `Y${n.toString(8)}`),
+    ),
+    load: true,
+    loadPins: [RPLC.plus, RPLC.minus],
+    box: [-23.5, -6, 20.5, 6],
+    prefix: 'PLC',
+  },
+  // HMI (터치 판넬): 아래 전원 단자 + · − · FG. 화면 버튼 · 램프는 PLC 디바이스와 통신으로 이어진다
+  r_hmi: { type: 'r_hmi', cat: 'plc', pins: [pin(-2, 6, '+'), pin(0, 6, '−'), pin(2, 6, 'FG')], load: true, box: [-9, -7.5, 9, 7], prefix: 'HMI' },
   r_term: { type: 'r_term', cat: 'power', pins: [{ x: 0, y: 0, label: '' }], box: [-1, -2, 1, 1], prefix: '' },
   r_mcb1: { type: 'r_mcb1', cat: 'protect', pins: [pin(0, -4, '1'), pin(0, 4, '2')], poles: [[0, 1]], operate: 'toggle', defaultOn: true, box: [-1.3, -5, 1.3, 5], prefix: 'MCB' },
   r_mcb2: {
@@ -515,7 +548,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -639,6 +672,10 @@ export function tbSize(p: Part): number {
 
 /** 부품의 단자 (단자대는 극수만큼) */
 export function partPins(p: Part): PinDef[] {
+  if (p.type === 'r_plc') {
+    const { ins, outs } = plcAddresses(p);
+    return rplcPins(ins, outs);
+  }
   if (p.type === 'r_bus') return BUS_PHASES.slice(0, busSize(p).bars).map((ph, k) => pin(2 * k, 0, ph));
   // 8핀 소켓은 단자 배열에 따라 자리가 다르다 (차례는 늘 단자 번호 1~8)
   if (p.type === 'r_relay8' || p.type === 'r_timer8') return OCTAL_PINS[octalLayout(p)];
@@ -710,11 +747,29 @@ export function plcAddress(base: string, n: number): string {
   return `${b}${n}`;
 }
 
+/** PLC 블록의 입력 · 출력 수 (기호 PLC 는 8 · 8, 실물 PLC 는 16 · 16) */
+export function plcIo(p: Part): { nIn: number; nOut: number } {
+  return p.type === 'r_plc' ? { nIn: RPLC.nIn, nOut: RPLC.nOut } : { nIn: PLC_IO, nOut: PLC_IO };
+}
+
+/** PLC 블록인가 (기호 · 실물) */
+export const isPlcPart = (p: Part) => p.type === 'plc' || p.type === 'r_plc';
+
 export function plcAddresses(p: Part): { ins: string[]; outs: string[] } {
-  const ins = Array.from({ length: PLC_IO }, (_, n) => plcAddress(p.inBase || 'X0', n));
-  const outs = Array.from({ length: PLC_IO }, (_, n) => plcAddress(p.outBase || 'Y0', n));
+  const { nIn, nOut } = plcIo(p);
+  const ins = Array.from({ length: nIn }, (_, n) => plcAddress(p.inBase || 'X0', n));
+  const outs = Array.from({ length: nOut }, (_, n) => plcAddress(p.outBase || 'Y0', n));
   return { ins, outs };
 }
+
+/** HMI 화면 칸의 자리 (기기 기준 격자, 회전 전): 3열 × 4줄 */
+export const HMI_MAX = 12;
+export function hmiCells(p: Part): { n: number; x: number; y: number; w: number; h: number }[] {
+  return (p.hmi ?? []).slice(0, HMI_MAX).map((_, n) => ({ n, x: -8.2 + (n % 3) * 5.6, y: -5 + Math.floor(n / 3) * 2.45, w: 5.2, h: 2 }));
+}
+
+/** HMI 버튼 · 스위치의 조작 기호 (HMI1-3 = HMI1 의 셋째 칸) */
+export const hmiTag = (p: Part, n: number) => `${p.tag.trim().toUpperCase() || 'HMI'}-${n + 1}`;
 
 export const LAMP_PREFIX: Record<LampColor, string> = { red: 'RL', green: 'GL', yellow: 'YL', white: 'WL', blue: 'BL' };
 export const LAMP_HEX: Record<LampColor, string> = { red: '#ef4444', green: '#22c55e', yellow: '#facc15', white: '#e5e7eb', blue: '#3b82f6' };
@@ -882,6 +937,10 @@ export function partKindName(type: PartType): string {
       return tr('온도 조절기', 'Temperature controller');
     case 'r_thermo':
       return tr('판넬 서모스탯', 'Panel thermostat');
+    case 'r_plc':
+      return tr('PLC (입력 16 · 릴레이 출력 16)', 'PLC (16 in / 16 relay out)');
+    case 'r_hmi':
+      return tr('HMI (터치 판넬)', 'HMI (touch panel)');
     case 'r_ssr':
       return tr('SSR (무접점 릴레이)', 'Solid-state relay');
     case 'r_estop':
@@ -1144,6 +1203,11 @@ export function palette(): PaletteGroup[] {
         it('load', tr('부하 (히터 · 팬)', 'Load (heater, fan)')),
         it('cyl', tr('공압 실린더', 'Cylinder'), { stroke: 1000, strokeBack: 1000 }),
       ],
+    },
+    {
+      title: tr('PLC · HMI (제어반)', 'PLC & HMI (panel)'),
+      mode: 'real',
+      items: [it('r_plc', tr('PLC (입력 16 · 릴레이 출력 16)', 'PLC (16 in / 16 relay out)')), it('r_hmi', tr('HMI (터치 판넬)', 'HMI (touch panel)'))],
     },
     { title: 'PLC', items: [it('plc', tr('PLC (입력 8 · 출력 8)', 'PLC (8 in / 8 out)'))] },
     { title: tr('기타', 'Other'), items: [it('text', tr('글자', 'Text'), { text: tr('글자', 'Text') })] },
