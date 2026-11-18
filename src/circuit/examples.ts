@@ -2,6 +2,7 @@ import type { CableSpec, Circuit, OpStep, Part, PartType, Wire, WireColor } from
 import { uid } from '../model/wave';
 import { tr } from '../i18n';
 import { defaultSimSettings, type PlcConfig } from '../plc/types';
+import { ilToLadder } from '../plc/ladder';
 
 /** 예제 회로를 좌표로 적기 위한 도우미 */
 class Builder {
@@ -1477,7 +1478,8 @@ function plcSelfHoldProgram(): PlcConfig {
   ]
     .map(([k, v]) => `${k}\t${v}`)
     .join('\n');
-  return { dialect: 'mitsubishi', source, comments, sim: { ...defaultSimSettings(), watch: ['X0', 'X1', 'Y0', 'T0', 'Y1'] } };
+  // PLC 탭에서 래더로 열린다 (래더를 고치면 니모닉이 다시 만들어진다)
+  return { dialect: 'mitsubishi', source, comments, sim: { ...defaultSimSettings(), watch: ['X0', 'X1', 'Y0', 'T0', 'Y1'] }, view: 'ladder', ladder: ilToLadder(source, 'mitsubishi').ladder };
 }
 
 export type ExampleGroup = 'motor' | 'panel' | 'home' | 'power' | 'basic';

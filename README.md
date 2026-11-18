@@ -35,7 +35,7 @@ CADe SIMU 처럼 푸시버튼·릴레이·타이머·전자접촉기·전동기�
 ### 이 프로그램이 해 주는 일
 0. **회로도 → 타임차트 · 부품 리스트**: 회로도 탭에서 결선도(전원, 차단기, 푸시버튼, 릴레이·MC 코일과 접점, 타이머, THR, 램프, 전동기, 솔레노이드, 공압 실린더, PLC 블록)를 그리고 버튼을 눌러 시뮬레이션합니다. "PB1 누름 → 3초 뒤 PB0 누름" 같은 조작 순서만 적으면 회로가 그대로 움직인 결과가 타임차트가 되고, 그림에서 부품 리스트(기호·품명·사양·접점 수·수량)가 자동으로 나옵니다.
 1. **그리기**: 마우스로 ON/OFF 파형을 그립니다. 실린더 이동 시간은 경사선으로, 공정 스텝은 색 띠로 표시하고, "이 신호 때문에 저 신호가 켜진다"는 화살표와 시간 치수선을 넣을 수 있습니다.
-2. **PLC 프로그램으로 자동 생성**: PLC 프로그램(래더를 니모닉으로 뽑은 것)을 넣으면 PLC가 도는 것처럼 계산해서 타임차트를 자동으로 그려 줍니다. LS XG5000은 **니모닉(IL)을 PDF로 인쇄한 파일을 그대로 열면** 됩니다.
+2. **PLC 프로그램으로 자동 생성**: PLC 프로그램(래더를 니모닉으로 뽑은 것)을 넣거나 **래더를 직접 그리면** PLC가 도는 것처럼 계산해서 타임차트를 자동으로 그려 줍니다. LS XG5000은 **니모닉(IL)을 PDF로 인쇄한 파일을 그대로 열면** 됩니다.
 3. **검토와 보고서**: 사이클 타임과 가장 오래 걸리는 스텝(병목)을 계산하고, "SOL이 켜지고 0.4초 안에 센서가 들어와야 한다" 같은 규칙을 자동으로 OK/NG 판정합니다. 결과는 도면 표제란(작성/검토/승인)이 있는 PDF 보고서로 뽑습니다.
 
 ### 이렇게 흘러갑니다
@@ -520,6 +520,18 @@ XG5000은 니모닉을 텍스트나 CSV로 내보내는 기능이 없고 **인�
   - 자기 b접점으로 자기 코일을 끊는 회로는 동작 시간 두 배 주기로 붙었다 떨어지며 **채터링** 경고가 나옵니다
 - 회로·조작 순서는 차트(.tchart)에 함께 저장되고, 실행 취소(Ctrl+Z)·자동 백업이 됩니다. 회로도는 PNG·SVG 로 내보낼 수 있습니다
 
+### 래더(LD)를 그려서 PLC 블록으로 돌리기
+PLC 시뮬레이션 탭에서 PLC 종류를 **미쓰비시** 또는 **LS** 로 두고 위의 **[래더 (LD)]** 를 누르면 래더 편집기가 열립니다. 이미 있는 니모닉 프로그램은 그대로 래더 그림으로 바뀝니다.
+
+1. 칸을 고르고 **F3** a접점 · **F4** b접점 · **Shift+F3 / F4** 상승 · 하강 접점 · **F5** 가로선 · **F9** 코일 · **Shift+F9** SET · **F10** 응용 명령(MOV 등)을 놓습니다. 놓자마자 디바이스 이름(X0, P00000 …)을 치고 Enter 를 누르면 오른쪽 칸으로 넘어갑니다 (XG5000 · GX Works 와 같은 손놀림).
+2. 병렬(OR)은 **[줄 추가 (병렬)]** 로 아래 줄을 만들고 **F6** 세로선(칸 오른쪽에서 아래로) · **Shift+F6** 세로선(칸 왼쪽에서 아래로)으로 잇습니다. 자기유지는 X0 아래 줄에 Y0 a접점을 놓고 X0 오른쪽에 F6 을 누르면 됩니다.
+3. 타이머 · 카운터는 [TON] · [CTU] 를 놓고 설정값(100 ms 단위 · 횟수)을 적습니다. LS 는 OFF 딜레이(TOFF)도 됩니다.
+4. 편집 칸에 **디바이스 설명**(코멘트)과 렁마다 **렁 설명**(설명문)을 적을 수 있습니다.
+5. 그린 래더는 바로 니모닉으로 바뀝니다 (아래 [니모닉] 을 펼쳐 보기). 시뮬레이션 · 타임차트 · 회로도의 PLC 블록이 모두 이 니모닉을 실행합니다. 잘못 그린 렁(디바이스 빠짐, 출력 없음, 설정값 없음)은 렁 번호와 함께 빨갛게 알려 줍니다.
+
+- STL · 점프 · MC 처럼 래더 칸으로 그리기 어려운 렁은 니모닉 그대로 한 렁으로 두고, 그 렁도 그대로 실행됩니다.
+- **회로도에서 실시간 모니터**: 회로도 탭에 PLC 블록이 있는 회로를 [시뮬레이션] 하면 오른쪽 [속성] 칸에 래더 모니터가 나와서 켜진 접점 · 코일 · 타이머가 초록으로 칠해집니다 (예제 회로 → 기호 회로 → **PLC 자기유지 + 타이머**).
+
 ### CADe SIMU 와 비교
 
 | 기능 | CADe SIMU | TimeChart Studio 회로도 |
@@ -542,7 +554,7 @@ XG5000은 니모닉을 텍스트나 CSV로 내보내는 기능이 없고 **인�
 | 3상 전동기 정역 · 결상 | O | O |
 | 공압 실린더 · 솔레노이드 · 리밋 스위치 | O (밸브·배관까지) | O (공압원·FRL·3/2·5/2 편솔/양솔·5/3 밸브·속도 제어, 배관으로 공기 흐름 시뮬레이션) |
 | 센서 | O | O (근접 유도형·정전용량형, 광전 3선식 PNP/NPN, 근접 2선식 DC/AC, 리드·플로트·압력·온도 스위치) |
-| 회로 안의 PLC | O (LOGO!, S7-1200/1500, 래더·FBD·Grafcet 편집) | O (PLC 블록 입력 8·릴레이 출력 8, PLC 탭의 미쓰비시·LS·지멘스 STL·ST 프로그램을 스캔 실행. 래더·FBD 그림 편집은 없음) |
+| 회로 안의 PLC | O (LOGO!, S7-1200/1500, 래더·FBD·Grafcet 편집) | O (PLC 블록 입력 8·릴레이 출력 8, PLC 탭의 미쓰비시·LS·지멘스 STL·ST 프로그램을 스캔 실행. 미쓰비시·LS 는 래더 편집기 + 시뮬레이션 중 래더 모니터, FBD 는 없음) |
 | PC_SIMU(가상 설비) · 아두이노 연결 | O | — |
 | 조작 순서 → 타임차트 자동 생성 | — | O |
 | 부품 리스트 · 접점 수 · 수량 집계 · CSV | — | O |
@@ -616,6 +628,7 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 - **Use it now:** https://mioon1402.github.io/TimeChartForAutomation/ (no install, no sign-up). For offline PCs, download [TimeChartStudio.html](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html) and double-click it.
 - **Circuit tab (like CADe SIMU):** draw relay, contactor, timer, overload, motor and pneumatic circuits on a grid and run them by clicking buttons; live wires are coloured by pole, motors spin forward/reverse, cylinders move, shorts and open phases are flagged. Write the operator actions (or record them while simulating) and the timing chart is generated; the parts list (tags, item, spec, contacts used, quantities) comes straight from the drawing and prints in the report.
 - **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
+- **Ladder (LD) editor** for Mitsubishi and LS programs with GX Works / XG5000-style keys (F3 NO, F4 NC, F5 line, F6 vertical, F9 coil); existing mnemonics open as ladder, the drawing compiles to mnemonics, and a live ladder monitor shows ON contacts while the circuit with the PLC block runs.
 - **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.
 - **Sequence tab** following real design practice on one page: machine spec → moving devices and motion times → I/O list with PLC addresses → sequence (after / together with previous) → live preview with cycle time and interlock checks. The tables work like a spreadsheet (type, arrow keys, Ctrl+C/V with Excel); paste an Excel sequence table or I/O list and columns are matched by their headers.
 - **One machine, one file:** keep every chart of a machine (auto cycle, homing, each unit) as tabs in one `.tchart` file, and print them together with a contents page.
@@ -663,7 +676,7 @@ tests           단위 테스트
 
 ### 시뮬레이션 한계
 - 회로도는 전압·전류 값을 계산하지 않고 "어느 극에 닿았나"로 판단합니다. 부하를 직렬로 이은 회로, 다이오드·아날로그 부품은 아직 없습니다. PLC 블록은 한 회로에 여러 개 놓아도 프로그램은 PLC 탭의 하나를 함께 씁니다.
-- 래더 그래픽은 PLC 소프트웨어에서 니모닉 형태(CSV, PDF, 텍스트)로 뽑아서 불러옵니다.
+- 래더는 미쓰비시 · LS 니모닉으로만 그릴 수 있습니다 (지멘스 STL · ST 는 글자로 편집). PLC 소프트웨어의 프로젝트 파일(.gxw · .xgwx)을 바로 열지는 못하니 니모닉 형태(CSV, PDF, 텍스트)로 뽑아서 불러옵니다.
 - 인덱스 수식, 파일 레지스터, 통신·위치결정 명령, 사용자 FB 정의 등은 무시하고 경고로 알려 줍니다.
 
 ### 로드맵

@@ -5125,3 +5125,232 @@ button.seq-kpi {
     max-height: 50vh;
   }
 }
+
+/* ───────── 래더 (LD) 편집기 ───────── */
+.plc.with-ladder {
+  grid-template-columns: minmax(560px, 2.1fr) minmax(360px, 1fr) minmax(300px, 0.8fr);
+}
+
+.plc-view {
+  margin: 6px 0;
+  align-self: flex-start;
+}
+
+.plc-ladder {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.plc-gen {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.plc-gen pre {
+  max-height: 220px;
+  overflow: auto;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11.5px;
+}
+
+.ld {
+  --ld-sel: rgba(37, 99, 235, 0.1);
+  --ld-on: rgba(34, 197, 94, 0.35);
+  outline: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+:root[data-theme='dark'] .ld {
+  --ld-sel: rgba(79, 140, 255, 0.18);
+  --ld-on: rgba(34, 197, 94, 0.45);
+}
+
+.ld:focus-visible .ld-rungs {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.ld-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+  align-items: center;
+}
+
+.ld-tools .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ld-tools .sep {
+  width: 8px;
+}
+
+.ld-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 6px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.ld-edit .input {
+  width: auto;
+  min-width: 70px;
+  padding: 3px 6px;
+  font-size: 12.5px;
+}
+
+.ld-edit .input.mono {
+  width: 110px;
+}
+
+.ld-edit .input.wide {
+  width: 220px;
+}
+
+.ld-edit .input.num {
+  width: 60px;
+}
+
+.ld-edit .input.ld-note {
+  flex: 1;
+  min-width: 120px;
+  max-width: 260px;
+}
+
+.ld-rungs {
+  overflow: auto;
+  flex: 1;
+  min-height: 160px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 4px 0;
+}
+
+.ld-rung {
+  border-bottom: 1px dashed var(--border);
+  padding: 2px 4px 4px;
+}
+
+.ld-rung.bad {
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.ld-rung-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.ld-no {
+  min-width: 22px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: right;
+}
+
+.ld-comment {
+  flex: 1;
+  max-width: 420px;
+  padding: 2px 6px;
+  font-size: 12px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.ld-comment:hover,
+.ld-comment:focus {
+  border-color: var(--border);
+  background: var(--panel);
+}
+
+.ld-raw {
+  margin: 2px 0 2px 28px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  background: var(--panel-2);
+  border-left: 3px solid var(--border-strong);
+  white-space: pre;
+}
+
+.ld-svg {
+  display: block;
+  user-select: none;
+}
+
+.ld-svg .ld-rail {
+  stroke: var(--text, #1f2937);
+  stroke-width: 2.4;
+}
+
+.ld-svg .ld-wire {
+  stroke: var(--text, #1f2937);
+  stroke-width: 1.6;
+  fill: none;
+}
+
+.ld-svg .ld-wire.thin {
+  stroke-width: 1.2;
+}
+
+.ld-svg .ld-box {
+  fill: var(--panel, #fff);
+  stroke: var(--text, #1f2937);
+  stroke-width: 1.4;
+}
+
+.ld-svg .ld-box.on,
+.ld-svg .ld-on {
+  fill: var(--ld-on);
+  stroke: none;
+}
+
+.ld-svg .ld-box.on {
+  stroke: var(--text, #1f2937);
+}
+
+.ld-svg .ld-dev {
+  font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  fill: var(--text, #1f2937);
+}
+
+.ld-svg .ld-dev.small {
+  font-size: 10px;
+}
+
+.ld-svg .ld-dev.missing {
+  fill: var(--danger, #dc2626);
+}
+
+.ld-svg .ld-cm {
+  font-size: 9.5px;
+  fill: var(--muted);
+}
+
+.cc-ld-monitor {
+  margin-top: 8px;
+}
+
+.cc-ld-monitor .ld-rungs {
+  max-height: 360px;
+}

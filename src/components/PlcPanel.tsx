@@ -12,6 +12,8 @@ import { readProgramFile } from './programFile';
 import { Check, Field, Icon, NumberInput, Select, TimeInput } from './ui';
 import { roleOptions } from './PropertiesPanel';
 import { tr } from '../i18n';
+import { compileLadder, emptyLadder, ilToLadder, ladderDevices, readLadder, type Ladder, type LdDialect } from '../plc/ladder';
+import { LadderEditor } from './LadderEditor';
 
 function defaultConfig(): PlcConfig {
   const s = plcSamples()[0];
@@ -58,6 +60,38 @@ export function PlcPanel() {
 
   const commentMap = useMemo(() => parseDeviceComments(cfg.comments, cfg.dialect), [cfg.comments, cfg.dialect]);
   const prog: ParsedProgram = useMemo(() => parseProgram(cfg.source, cfg.dialect, commentMap), [cfg.source, cfg.dialect, commentMap]);
+
+  // 래더 (LD): 미쓰비시 · LS 니모닉일 때. 래더를 고치면 니모닉 (source) 을 다시 만든다
+  const ladderable = cfg.dialect === 'mitsubishi' || cfg.dialect === 'ls';
+  const ladder: Ladder | null = useMemo(() => (cfg.view === 'ladder' ? readLadder(cfg.ladder) : null), [cfg.view, cfg.ladder]);
+  const ladderMode = ladderable && cfg.view === 'ladder' && !!ladder;
+  const compiled = useMemo(() => (ladderMode && ladder ? compileLadder(ladder, cfg.dialect as LdDialect) : null), [ladderMode, ladder, cfg.dialect]);
+  const devComments = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of prog.devices) if (d.comment) m.set(d.name.toUpperCase(), d.comment);
+    for (const [k, v] of commentMap) if (v) m.set(k.toUpperCase(), v);
+    return m;
+  }, [prog, commentMap]);
+  const devList = useMemo(() => [...new Set([...prog.devices.map((d) => d.name.toUpperCase()), ...(ladder ? ladderDevices(ladder) : [])])].sort(), [prog, ladder]);
+  /** 니모닉 → 래더 (이미 같은 프로그램의 래더가 있으면 그대로) */
+  const ladderOf = (source: string, dialect: LdDialect): { ladder: Ladder; raw: number } => {
+    const old = readLadder(cfg.ladder);
+    if (old && compileLadder(old, dialect).text === source) return { ladder: old, raw: old.rungs.filter((r) => r.raw).length };
+    return source.trim() ? ilToLadder(source, dialect) : { ladder: emptyLadder(), raw: 0 };
+  };
+  const toLadder = () => {
+    if (!ladderable) {
+      toast(tr('래더 편집은 미쓰비시 · LS 니모닉에서 됩니다. 위에서 PLC 종류를 바꾸세요', 'Ladder editing works with Mitsubishi or LS mnemonics; change the dialect first'), 'warn');
+      return;
+    }
+    const r = ladderOf(src, cfg.dialect as LdDialect);
+    setCfg({ view: 'ladder', ladder: r.ladder, source: src });
+    if (r.raw) toast(tr(`렁 ${r.raw}개는 래더로 그릴 수 없는 명령 (STL · 점프 등) 이라 니모닉 그대로 두었습니다`, `${r.raw} rung(s) kept as mnemonics (no ladder form)`), 'warn');
+  };
+  // 래더면 니모닉의 오류 줄을 렁 번호로
+  const rungOf = (line: number) => compiled?.rungOfLine[line - 1] ?? 0;
+  const ldErrors = compiled ? [...compiled.errors, ...prog.messages.filter((m) => m.severity === 'error').map((m) => ({ rung: rungOf(m.line), message: m.message }))] : undefined;
+  const onLadder = (ld: Ladder, key?: string) => setCfg({ ladder: ld, source: compileLadder(ld, cfg.dialect as LdDialect).text }, key ?? 'plc-ladder');
   const [result, setResult] = useState<SimResult | null>(null);
   const [keepExisting, setKeepExisting] = useState(true);
   const [filter, setFilter] = useState('');
@@ -82,7 +116,8 @@ export function PlcPanel() {
   const loadSample = (id: string) => {
     const s = plcSamples().find((x) => x.id === id);
     if (!s) return;
-    setCfg({ dialect: s.dialect, source: s.source, comments: s.comments, sim: s.sim });
+    const asLadder = cfg.view === 'ladder' && (s.dialect === 'mitsubishi' || s.dialect === 'ls');
+    setCfg({ dialect: s.dialect, source: s.source, comments: s.comments, sim: s.sim, view: asLadder ? 'ladder' : 'text', ladder: asLadder ? ilToLadder(s.source, s.dialect as LdDialect).ladder : undefined });
     setShowComments(!!s.comments);
     setResult(null);
   };
@@ -95,7 +130,8 @@ export function PlcPanel() {
     const dialect = /\.(st|scl)$/i.test(f.name) ? 'st' : /\.(awl|stl)$/i.test(f.name) ? 'siemens' : detectDialect(r.text);
     const parsed = parseProgram(r.text, dialect);
     // 새 프로그램: 이전 프로그램의 디바이스 코멘트는 비운다
-    setCfg({ dialect, source: r.text, comments: '', sim: { ...defaultSimSettings(), duration: sim.duration, scanTime: sim.scanTime, watch: defaultWatch(parsed), stimuli: suggestStimuli(parsed), stepDevice: defaultStepDevice(parsed) } });
+    const asLadder = cfg.view === 'ladder' && (dialect === 'mitsubishi' || dialect === 'ls');
+    setCfg({ dialect, source: r.text, comments: '', sim: { ...defaultSimSettings(), duration: sim.duration, scanTime: sim.scanTime, watch: defaultWatch(parsed), stimuli: suggestStimuli(parsed), stepDevice: defaultStepDevice(parsed) }, view: asLadder ? 'ladder' : 'text', ladder: asLadder ? ilToLadder(r.text, dialect as LdDialect).ladder : undefined });
     toast(
       tr(`${f.name} 불러옴 (${dialectName(dialect)}): 명령 ${parsed.size}개, 디바이스 ${parsed.devices.length}개`, `Loaded ${f.name} (${dialectName(dialect)}): ${parsed.size} instructions`),
       parsed.size ? 'ok' : 'warn',
@@ -195,7 +231,7 @@ export function PlcPanel() {
   const shownDevices = prog.devices.filter((d) => !q || d.name.toUpperCase().includes(q) || d.comment.toUpperCase().includes(q) || (d.alias ?? '').toUpperCase().includes(q) || (d.drives ?? '').toUpperCase().includes(q));
 
   return (
-    <div className="plc">
+    <div className={`plc ${ladderMode ? 'with-ladder' : ''}`}>
       <div className="plc-col plc-src">
         <div className="plc-head">
           <h3>
@@ -207,7 +243,15 @@ export function PlcPanel() {
           </button>
         </div>
         <div className="plc-toolbar">
-          <Select value={cfg.dialect} onChange={(v: PlcDialect) => setCfg({ dialect: v })} options={(['mitsubishi', 'ls', 'siemens', 'st'] as PlcDialect[]).map((d) => ({ value: d, label: dialectName(d) }))} />
+          <Select
+            value={cfg.dialect}
+            onChange={(v: PlcDialect) => {
+              // 래더면 바뀐 PLC 의 니모닉으로 다시 만든다 (디바이스 이름은 직접 고쳐야 함)
+              if (ladderMode && ladder && (v === 'mitsubishi' || v === 'ls')) setCfg({ dialect: v, source: compileLadder(ladder, v).text });
+              else setCfg({ dialect: v, ...(v === 'mitsubishi' || v === 'ls' ? {} : { view: 'text' as const }) });
+            }}
+            options={(['mitsubishi', 'ls', 'siemens', 'st'] as PlcDialect[]).map((d) => ({ value: d, label: dialectName(d) }))}
+          />
           <button type="button" className="btn small" title={tr('소스에서 PLC 종류 자동 감지', 'Detect dialect from source')} onClick={() => setCfg({ dialect: detectDialect(src) })}>
             <Icon name="wand" size={14} /> {tr('자동 감지', 'Detect')}
           </button>
@@ -220,6 +264,23 @@ export function PlcPanel() {
             ))}
           </select>
         </div>
+        <div className="seg plc-view">
+          <button type="button" className={!ladderMode ? 'on' : ''} onClick={() => ladderMode && setCfg({ view: 'text' })}>
+            {tr('니모닉 (텍스트)', 'Mnemonic (text)')}
+          </button>
+          <button type="button" className={ladderMode ? 'on' : ''} onClick={() => !ladderMode && toLadder()} disabled={!ladderable} title={ladderable ? tr('렁을 그려서 프로그램 (XG5000 · GX Works 래더처럼)', 'Draw rungs (like XG5000 / GX Works ladder)') : tr('미쓰비시 · LS 니모닉에서만', 'Mitsubishi / LS only')}>
+            {tr('래더 (LD)', 'Ladder (LD)')}
+          </button>
+        </div>
+        {ladderMode && ladder ? (
+          <div className="plc-ladder">
+            <LadderEditor ladder={ladder} dialect={cfg.dialect as LdDialect} comments={devComments} onChange={onLadder} errors={ldErrors} devices={devList} />
+            <details className="plc-gen">
+              <summary>{tr('니모닉 (래더에서 자동으로 만든 것, PLC 블록 · 시뮬레이션이 이것을 실행)', 'Mnemonics generated from the ladder (what the PLC block runs)')}</summary>
+              <pre>{cfg.source}</pre>
+            </details>
+          </div>
+        ) : (
         <div className="code">
           <div className="gutter" ref={gutterRef}>
             {Array.from({ length: lineCount }, (_, i) => (
@@ -240,6 +301,7 @@ export function PlcPanel() {
             placeholder={tr('여기에 니모닉(IL), STL, ST 코드를 붙여넣거나 [파일 열기]로 불러오세요.\n· XG5000: 니모닉(IL)을 PDF로 인쇄한 파일을 그대로 열면 됩니다. PDF에서 복사한 텍스트를 붙여넣어도 됩니다.\n· GX Works: 프로젝트 → 다른 형식으로 저장 → CSV', 'Paste IL / STL / ST code here or open a file (PDF of printed IL works).')}
           />
         </div>
+        )}
         <div className="msgs">
           <div className="msgs-head">
             {errors.length ? (
@@ -253,11 +315,22 @@ export function PlcPanel() {
               {dialectName(prog.dialect)} · {prog.size} {cfg.dialect === 'st' ? tr('문장', 'statements') : tr('명령', 'instructions')} · {prog.devices.length} {tr('디바이스', 'devices')}
             </span>
           </div>
-          {prog.messages.slice(0, 50).map((m, i) => (
-            <button type="button" key={i} className={`msg ${m.severity}`} onClick={() => jumpTo(m.line)}>
-              <b>{tr('줄', 'Line')} {m.line}</b> {m.message}
-            </button>
+          {(compiled?.errors ?? []).map((m, i) => (
+            <div key={`ld${i}`} className="msg error">
+              {m.message}
+            </div>
           ))}
+          {prog.messages.slice(0, 50).map((m, i) =>
+            ladderMode ? (
+              <div key={i} className={`msg ${m.severity}`}>
+                <b>{rungOf(m.line) ? `${tr('렁', 'Rung')} ${rungOf(m.line)}` : ''}</b> {m.message}
+              </div>
+            ) : (
+              <button type="button" key={i} className={`msg ${m.severity}`} onClick={() => jumpTo(m.line)}>
+                <b>{tr('줄', 'Line')} {m.line}</b> {m.message}
+              </button>
+            ),
+          )}
         </div>
         <div className="comments-box">
           <div className="plc-head">

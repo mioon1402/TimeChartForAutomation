@@ -1,4 +1,5 @@
 import type { SignalRole, WavePoint } from '../model/types';
+import type { Ladder } from './ladder';
 
 /** 지원 PLC 언어/제조사 */
 export type PlcDialect =
@@ -98,6 +99,9 @@ export interface PlcConfig {
   source: string;
   comments: string;
   sim: SimSettings;
+  /** 편집 화면: 니모닉 (기본) · 래더. 래더면 source 는 ladder 를 니모닉으로 바꾼 것 */
+  view?: 'text' | 'ladder';
+  ladder?: Ladder;
 }
 
 export type DeviceType = 'bit' | 'word' | 'timer' | 'counter';
@@ -144,6 +148,8 @@ export interface Instr {
   timerBase?: number;
   line: number;
   text: string;
+  /** 명령 원문 (스텝 번호 · 주석을 뺀 토큰): 래더의 응용 명령 상자 · 래더로 못 그린 렁에 그대로 쓴다 */
+  src?: string;
 }
 
 export function defaultSimSettings(): SimSettings {

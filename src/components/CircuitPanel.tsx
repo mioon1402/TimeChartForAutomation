@@ -24,6 +24,9 @@ import { niceCeil } from '../plc/simulator';
 import { askConfirm, askText, Check, Field, Icon, IconButton, Menu, NumberInput, Select, TimeInput } from './ui';
 import * as F from './fileActions';
 import { rerouteWiring, wireLength } from '../circuit/realize';
+import { ilToLadder, readLadder } from '../plc/ladder';
+import { parseDeviceComments } from '../plc/comments';
+import { LadderEditor } from './LadderEditor';
 
 /** 회로 기호가 아닌 것 (글 · PLC · 공압): [실물 배선도 만들기] 를 띄울지 볼 때 뺀다 */
 const NOT_SYMBOL = new Set<PartType>(['text', 'plc', 'cyl', 'v32', 'v52', 'v52d', 'v53', 'air', 'frl', 'fc']);
@@ -218,6 +221,8 @@ export function CircuitPanel() {
     setPlacing(null);
     setSel(NO_SEL);
     setRunning(true);
+    // PLC 가 있으면 래더 모니터가 보이게
+    if (circuit.parts.some((q) => q.type === 'plc') && side === 'ops') setSide('props');
     const errs = issues.filter((i) => i.level === 'error').length;
     const hint = model.tswDef.size ? tr('시뮬레이션 시작: 1초에 1시간씩 흐릅니다 (속도는 위에서 바꿉니다)', 'Simulation running at 1 hour per second') : tr('시뮬레이션 시작: 버튼·스위치를 눌러 보세요', 'Simulation running: click buttons and switches');
     toast(errs ? tr(`시뮬레이션 시작 (검사 문제 ${errs}개)`, `Simulation started (${errs} issues)`) : hint, errs ? 'warn' : 'ok');
@@ -646,6 +651,7 @@ export function CircuitPanel() {
           <div className="cc-side-body">
             {side === 'props' && (
               <PropsPane
+                plcMonitor={running && runRef.current ? (d) => runRef.current?.sim.plcBit(d) ?? null : undefined}
                 circuit={circuit}
                 model={model}
                 sel={sel}
@@ -868,11 +874,14 @@ function PropsPane({
   setWireColor,
   setWireCable,
   setCircuit,
+  plcMonitor,
 }: {
   circuit: Circuit;
   model: CircuitModel;
   sel: Sel;
   part: Part | null;
+  /** 시뮬레이션 중 PLC 디바이스 값 */
+  plcMonitor?: (dev: string) => boolean | null;
   colors: CircuitColors;
   placing: PaletteItem | null;
   update: (id: string, patch: Partial<Part>) => void;
@@ -883,6 +892,13 @@ function PropsPane({
   setCircuit: (c: Circuit) => void;
 }) {
   const bom = useMemo(() => partsList(circuit), [circuit]);
+  // 시뮬레이션 중이고 PLC 가 있으면, 고른 것이 없을 때 래더 모니터를 보여 준다
+  if (!p && plcMonitor && circuit.parts.some((q) => q.type === 'plc') && !sel.parts.length && !sel.wires.length)
+    return (
+      <div className="cc-props">
+        <PlcMonitor monitor={plcMonitor} />
+      </div>
+    );
   if (!p) {
     const n = sel.parts.length + sel.wires.length;
     if (n)
@@ -961,7 +977,7 @@ function PropsPane({
           <SupplyFields circuit={circuit} onChange={setCircuit} />
         </>
       ) : p.type === 'plc' ? (
-        <PlcProps p={p} set={set} model={model} />
+        <PlcProps p={p} set={set} model={model} monitor={plcMonitor} />
       ) : p.type === 'src3' ? (
         <>
           <p className="muted small">{tr('3상 전원 L1 · L2 · L3. 전동기 U·V·W 에 L1→L2→L3 순서로 닿으면 정회전, 두 상을 바꾸면 역회전.', '3-phase supply. L1→L2→L3 on U·V·W runs forward; swapping two phases reverses.')}</p>
@@ -1620,7 +1636,32 @@ function SchedEditor({ p, set }: { p: Part; set: (patch: Partial<Part>) => void 
   );
 }
 
-function PlcProps({ p, set, model }: { p: Part; set: (patch: Partial<Part>) => void; model: CircuitModel }) {
+/** PLC 프로그램을 래더로 (시뮬레이션 중이면 켜진 접점 · 코일을 칠한다) */
+function PlcMonitor({ monitor }: { monitor?: (dev: string) => boolean | null }) {
+  const plc = useStore((s) => s.project.plc);
+  const ld = useMemo(() => {
+    if (!plc || (plc.dialect !== 'mitsubishi' && plc.dialect !== 'ls')) return null;
+    if (plc.view === 'ladder') {
+      const l = readLadder(plc.ladder);
+      if (l) return l;
+    }
+    return plc.source.trim() ? ilToLadder(plc.source, plc.dialect).ladder : null;
+  }, [plc]);
+  const comments = useMemo(() => {
+    const m = new Map<string, string>();
+    if (plc) for (const [k, v] of parseDeviceComments(plc.comments, plc.dialect)) m.set(k.toUpperCase(), v);
+    return m;
+  }, [plc]);
+  if (!ld || !plc) return null;
+  return (
+    <div className="cc-ld-monitor">
+      <div className="field-label">{monitor ? tr('PLC 래더 모니터 (켜진 접점 · 코일을 칠함)', 'PLC ladder monitor (ON contacts and coils filled)') : tr('PLC 프로그램 (래더)', 'PLC program (ladder)')}</div>
+      <LadderEditor ladder={ld} dialect={plc.dialect as 'mitsubishi' | 'ls'} comments={comments} readOnly monitor={monitor} scale={0.8} />
+    </div>
+  );
+}
+
+function PlcProps({ p, set, model, monitor }: { p: Part; set: (patch: Partial<Part>) => void; model: CircuitModel; monitor?: (dev: string) => boolean | null }) {
   const plc = useStore((s) => s.project.plc);
   const { ins, outs } = plcAddresses(p);
   return (
@@ -1654,9 +1695,10 @@ function PlcProps({ p, set, model }: { p: Part; set: (patch: Partial<Part>) => v
           ? tr(`프로그램: ${dialectName(plc.dialect)} · ${model.prog.size}개 명령 · 스캔 ${formatTime(plc.sim.scanTime, 'ms')}`, `Program: ${dialectName(plc.dialect)} · ${model.prog.size} instructions · scan ${formatTime(plc.sim.scanTime, 'ms')}`)
           : tr('PLC 프로그램이 없습니다.', 'No PLC program yet.')}{' '}
         <button type="button" className="linkish" onClick={() => useStore.getState().setTab('plc')}>
-          {tr('PLC 탭에서 프로그램 열기', 'Open the PLC tab')}
+          {tr('PLC 탭에서 프로그램 열기 (니모닉 · 래더)', 'Open the PLC tab (mnemonic / ladder)')}
         </button>
       </p>
+      <PlcMonitor monitor={monitor} />
     </>
   );
 }

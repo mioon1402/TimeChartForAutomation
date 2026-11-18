@@ -621,6 +621,16 @@ export class CircuitSim {
     }
   }
 
+  /** PLC 디바이스 값 (래더 모니터): PLC 가 없으면 null */
+  plcBit(dev: string): boolean | null {
+    if (!this.rt) return null;
+    try {
+      return this.rt.readBit(dev);
+    } catch {
+      return null;
+    }
+  }
+
   timerView(tag: string): TimerView | null {
     const st = this.timers.get(tag);
     const def = this.m.timerDef.get(tag);

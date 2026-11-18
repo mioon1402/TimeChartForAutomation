@@ -1,5 +1,5 @@
 import type { CmpOp, Instr, ParseMessage, PlcDialect } from './types';
-import { csvInstructionListToLines, tokenizeMnemonic, type SourceLine } from './text';
+import { csvInstructionListToLines, tokenizeMnemonic } from './text';
 import { normDevice } from './devices';
 import { lsStreamLines } from './lsStream';
 
@@ -196,11 +196,24 @@ function mapLs(op: string, args: string[], base: Omit<Instr, 'op' | 'args'>): In
 }
 
 /** 미쓰비시 / LS 니모닉(IL) 파싱 */
-export function parseIl(text: string, dialect: 'mitsubishi' | 'ls'): IlParseResult {
+/** 니모닉 원문 → 줄 (CSV 명령 리스트 · LS PDF 토큰 흐름 · 텍스트) */
+function sourceLines(text: string, dialect: 'mitsubishi' | 'ls') {
   // LS: XG5000 은 IL 을 PDF 로만 내보낼 수 있으므로 PDF 추출 텍스트에 강한 토큰 흐름 해석기 사용
   const csv = csvInstructionListToLines(text);
   const stream = !csv && dialect === 'ls' ? lsStreamLines(text) : null;
-  const src: SourceLine[] = csv ?? stream?.lines ?? tokenizeMnemonic(text);
+  return { src: csv ?? stream?.lines ?? tokenizeMnemonic(text), stream };
+}
+
+/** 설명만 있는 줄 (렁 설명문): 줄 번호 → 글 */
+export function ilCommentLines(text: string): { line: number; comment: string }[] {
+  // LS 토큰 흐름은 설명만 있는 줄을 버리므로 줄 단위로 다시 본다 (줄 번호는 같다)
+  return (csvInstructionListToLines(text) ?? tokenizeMnemonic(text))
+    .filter((l) => !l.tokens.length && l.comment)
+    .map((l) => ({ line: l.line, comment: l.comment }));
+}
+
+export function parseIl(text: string, dialect: 'mitsubishi' | 'ls'): IlParseResult {
+  const { src, stream } = sourceLines(text, dialect);
   const instrs: Instr[] = [];
   const labels = new Map<string, number>();
   const messages: ParseMessage[] = [];
@@ -225,7 +238,7 @@ export function parseIl(text: string, dialect: 'mitsubishi' | 'ls'): IlParseResu
     const op = tokens[0];
     const rawArgs = tokens.slice(1);
     const args = rawArgs.map((a) => normDevice(a, dialect));
-    const base = { line: sl.line, text: sl.text };
+    const base = { line: sl.line, text: sl.text, src: tokens.join(' ') };
     const mapped = dialect === 'mitsubishi' ? mapMitsubishi(op, args, base) : mapLs(op, args, base);
     if (mapped === 'label') {
       const name = dialect === 'ls' ? `L${args[0] ?? ''}` : op.toUpperCase();
