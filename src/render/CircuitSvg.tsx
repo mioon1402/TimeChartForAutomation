@@ -85,6 +85,8 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
       const dial = model.circuit.clock ?? 0;
       return { closed: false, act: false, on: false, dir: 0, openPhase: false, timer: null, pos: 0, link: 'tsw', tsw: { dial, out: schedOn(tswSched(p), dial), run: true } };
     }
+    // 3단 셀렉터는 시작 자리로 그린다
+    if (p.type === 'r_ss3') return { closed: false, act: !!p.pos0, on: false, dir: 0, openPhase: false, timer: null, pos: 0, link: model.tagKind.get(tag), sel: p.pos0 ?? 0 };
     return { closed: def.nc ? !act : act || p.type === 'fuse' || p.type === 'fuse3', act, on: false, dir: 0, openPhase: false, timer: null, pos: 0, link: model.tagKind.get(tag), spring, air };
   }
   const sol = (t?: string) => !!t?.trim() && sim.loadOn(normTag(t));

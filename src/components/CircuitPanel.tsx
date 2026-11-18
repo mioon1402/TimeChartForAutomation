@@ -1057,6 +1057,17 @@ function PropsPane({
               <Field label={tr('자리 이름 (왼쪽 / 가운데 / 오른쪽)', 'Position names (left / centre / right)')} wide>
                 <TagInput value={p.pos3 ?? ''} onChange={(v) => set({ pos3: v || undefined })} placeholder={pos3Labels({}).join(' / ')} />
               </Field>
+              <Field label={tr('지금 자리 (시뮬레이션을 이 자리에서 시작)', 'Current position (simulation starts here)')} wide>
+                <Select
+                  value={String(p.pos0 ?? 0)}
+                  onChange={(v: string) => set({ pos0: v === '-1' ? -1 : v === '1' ? 1 : undefined })}
+                  options={[
+                    { value: '-1', label: `← ${pos3Labels(p)[0]}` },
+                    { value: '0', label: pos3Labels(p)[1] },
+                    { value: '1', label: `${pos3Labels(p)[2]} →` },
+                  ]}
+                />
+              </Field>
               <p className="small muted">{tr(`왼쪽 (${pos3Labels(p)[0]}) 이면 13-14, 오른쪽 (${pos3Labels(p)[2]}) 이면 23-24 가 닫히고 가운데는 둘 다 열립니다. 시뮬레이션 중에는 손잡이의 왼쪽 · 오른쪽을 눌러 돌립니다`, `Left (${pos3Labels(p)[0]}) closes 13-14, right (${pos3Labels(p)[2]}) closes 23-24, centre opens both. While simulating, click the left or right side of the knob`)}</p>
             </>
           )}
