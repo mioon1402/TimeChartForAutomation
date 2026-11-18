@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isTempDevice, pos3Labels, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isPlcPart, isTempDevice, pos3Labels, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
@@ -90,6 +90,8 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_ss: 6,
   r_ss3: 6,
   r_counter: 4,
+  r_plc: 3,
+  r_hmi: 3,
   r_tc: 4,
   r_thermo: 6,
   r_ssr: 3,
@@ -363,6 +365,15 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       const { ins, outs } = plcAddresses(p);
       return { kind: 'PLC', spec: tr(`입력 8 (${ins[0]}~${ins[7]}) · 릴레이 출력 8 (${outs[0]}~${outs[7]})`, `8 in (${ins[0]}–${ins[7]}) · 8 relay out (${outs[0]}–${outs[7]})`) };
     }
+    case 'r_plc': {
+      const { ins, outs } = plcAddresses(p);
+      return {
+        kind: tr('PLC (CPU 일체형)', 'PLC (compact CPU)'),
+        spec: tr(`전원 DC 24V, 입력 16 (${ins[0]}~${ins[15]}, DC 24V 싱크/소스) · 릴레이 출력 16 (${outs[0]}~${outs[15]}, 2A, 8점/COM)`, `24 V DC supply, 16 in (${ins[0]}–${ins[15]}, 24 V DC sink/source) · 16 relay out (${outs[0]}–${outs[15]}, 2 A, 8 points/COM)`) + (p.name ? `, ${p.name}` : ''),
+      };
+    }
+    case 'r_hmi':
+      return { kind: tr('HMI (터치 판넬)', 'HMI (touch panel)'), spec: tr(`전원 DC 24V, 버튼 ${(p.hmi ?? []).filter((x) => x.kind !== 'lamp').length} · 램프 ${(p.hmi ?? []).filter((x) => x.kind === 'lamp').length}, PLC 통신`, `24 V DC, ${(p.hmi ?? []).filter((x) => x.kind !== 'lamp').length} buttons · ${(p.hmi ?? []).filter((x) => x.kind === 'lamp').length} lamps, PLC link`) + (p.name ? `, ${p.name}` : '') };
     default:
       return { kind: partKindName(p.type), spec: ab };
   }
@@ -527,7 +538,7 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
     if (!wired(d.l) || !wired(d.n)) out.push({ level: 'warn', msg: tr(`${p.tag}: 시계 전원 L · N 을 이어야 다이얼이 돕니다`, `${p.tag}: wire L and N so the dial runs`), partIds: [p.id] });
     if (!d.sched.some(([a, b]) => a !== b)) out.push({ level: 'warn', msg: tr(`${p.tag}: 켜지는 시각을 정하세요`, `${p.tag}: set the ON periods`), partIds: [p.id] });
   }
-  const plcParts = c.parts.filter((p) => p.type === 'plc').map((p) => p.id);
+  const plcParts = c.parts.filter((p) => isPlcPart(p) || p.type === 'r_hmi').map((p) => p.id);
   for (const msg of model.plcIssues) out.push({ level: model.prog ? 'error' : 'warn', msg, partIds: plcParts });
   if (c.parts.some((p) => partPins(p).length) && !c.parts.some((p) => p.type === 'src' || p.type === 'src3' || p.type === 'r_term' || p.type === 'r_kepco')) {
     out.push({ level: 'error', msg: tr('전원(L·N, +24V·0V, 3상)이 없습니다', 'No supply (L/N, +24V/0V or 3-phase)'), partIds: [] });

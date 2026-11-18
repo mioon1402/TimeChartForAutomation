@@ -93,11 +93,22 @@ export type PartType =
   | 'r_ssr' // SSR (무접점 릴레이): 입력 3(+) · 4(-) DC, 출력 1-2 AC
   | 'r_tc' // 온도 조절기 (48×48): 전원 A1 · A2, 제어 출력 C1-OUT, 경보 출력 C2-AL (릴레이 a접점)
   | 'r_thermo' // 판넬 서모스탯 (바이메탈): 1-2 접점. NC = 난방 (오르면 열림), NO = 냉방 · 팬 (오르면 닫힘)
+  | 'r_plc' // PLC (실물): 전원 + · − · FG, 입력 16 + 공통 COM (싱크 · 소스), 릴레이 출력 16 (8점마다 공통 COM0 · COM1). 전원이 있어야 돈다
+  | 'r_hmi' // HMI (터치 판넬): 전원 + · − · FG. 화면의 버튼 · 램프가 PLC 디바이스 (M 등) 를 쓰고 읽는다 (통신, 선 없음)
   | 'text';
 
 export type Rot = 0 | 90 | 180 | 270;
 
 export type LampColor = 'red' | 'green' | 'yellow' | 'white' | 'blue';
+
+/** HMI 화면의 한 칸: 버튼 (누르는 동안 1) · 스위치 (누를 때마다 1 ↔ 0) · 램프 (디바이스가 1 이면 켜짐) */
+export interface HmiItem {
+  kind: 'btn' | 'sw' | 'lamp';
+  label: string;
+  /** PLC 디바이스 (M100 · P00100 …) */
+  dev: string;
+  color?: LampColor;
+}
 
 export interface Part {
   id: string;
@@ -133,6 +144,8 @@ export interface Part {
   /** PLC: 입력·출력 첫 주소 (X0 / Y0, P00000 / P00040, I0.0 / Q0.0, %IX0.0 / %QX0.0) */
   inBase?: string;
   outBase?: string;
+  /** HMI: 화면의 버튼 · 스위치 · 램프 (위에서 아래, 왼쪽에서 오른쪽) */
+  hmi?: HmiItem[];
   /** 센서 종류: 3선식(inductive 유도형 · capacitive 정전용량형 · photo 광전), 리밋 스위치(reed 리드 · float 플로트 · pressure 압력) */
   sense?: 'inductive' | 'capacitive' | 'photo' | 'reed' | 'float' | 'pressure' | 'temp';
   /** 3선식 센서 출력: NPN (기본 PNP) */

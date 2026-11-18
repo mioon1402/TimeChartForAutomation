@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { ALWAYS_ON, counterPreset, isLinkedSensor, isTempDevice, tempSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, PLC_IO, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
+import { ALWAYS_ON, counterPreset, hmiTag, isLinkedSensor, isPlcPart, isTempDevice, tempSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, RPLC, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import { poleLive } from './supply';
 import type { PlcConfig, SimSettings } from '../plc/types';
@@ -114,6 +114,20 @@ export interface PlcBlock {
   /** 디바이스 설명 (코멘트) */
   inName: string[];
   outName: string[];
+  /** 실물 PLC: 입력 공통 COM 넷, 전원 + · − 넷 (기호 PLC 는 없음 = 늘 켜짐, 입력은 +24V · L 이 닿으면 ON) */
+  com?: number;
+  power?: [number, number];
+}
+
+/** HMI 버튼 · 스위치 하나 */
+export interface HmiButton {
+  part: Part;
+  n: number;
+  label: string;
+  /** 런타임 디바이스 */
+  dev: string;
+  /** 스위치 (누를 때마다 바뀜) */
+  toggle: boolean;
 }
 
 export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut';
@@ -162,6 +176,11 @@ export class CircuitModel {
   /** 대표 부품 (기호마다 처음 나온 것, 코일이 있으면 코일) */
   readonly mainPart = new Map<string, Part>();
   readonly plcs: PlcBlock[] = [];
+  /** HMI: 기기와 버튼 · 스위치 (조작 기호 → 정의), 램프 디바이스 */
+  readonly hmis: { part: Part; plus: number; minus: number }[] = [];
+  readonly hmiDef = new Map<string, HmiButton>();
+  /** HMI 칸마다 PLC 디바이스 (런타임 이름, 부품 id → 칸 차례) */
+  readonly hmiDevs = new Map<string, string[]>();
   /** PLC 탭의 프로그램 (회로에 PLC 가 있을 때만) */
   readonly prog: ParsedProgram | null = null;
   readonly plcSim: SimSettings | null = null;
@@ -236,6 +255,16 @@ export class CircuitModel {
         if (def.defaultOn) this.operatorDefault.set(tag, true);
       } else if (p.type === 'cyl') {
         if (p.tag.trim() && !this.cylDef.has(tag)) this.cylDef.set(tag, p);
+      } else if (p.type === 'r_hmi') {
+        // 화면 버튼 · 스위치마다 조작 기호 (HMI1-1, HMI1-2 …). 디바이스 이름은 PLC 종류를 안 뒤에 정한다
+        (p.hmi ?? []).forEach((it, n) => {
+          if (it.kind === 'lamp' || !it.dev.trim()) return;
+          const t = hmiTag(p, n);
+          if (this.tagKind.has(t)) return;
+          setKind(t, 'operator', p);
+          this.tagLabel.set(t, `${p.tag.trim() || 'HMI'}-${n + 1}`);
+          this.hmiDef.set(t, { part: p, n, label: it.label, dev: it.dev.trim().toUpperCase(), toggle: it.kind === 'sw' });
+        });
       }
       if (def.load) {
         this.loads.push(p);
@@ -281,6 +310,7 @@ export class CircuitModel {
         if (p.type === 'fc') this.flowCtrls.push({ part: p, net: pin(0), speed: Math.min(100, Math.max(5, p.speed ?? 50)) });
       } else if (VALVES.has(p.type)) this.valves.push({ part: p, ports: def.pins.map((_, i) => pin(i)), solA: normTag(p.solA ?? ''), solB: normTag(p.solB ?? '') });
       else if (p.type === 'cyl' && p.tag.trim() && !this.cylPorts.has(tag)) this.cylPorts.set(tag, { cap: pin(0), rod: pin(1), capTubed: tubed(pin(0)), rodTubed: tubed(pin(1)) });
+      if (p.type === 'r_hmi') this.hmis.push({ part: p, plus: pin(0), minus: pin(1) });
     }
     // 온도 묶음: 값마다 그 값을 처음 적은 기기의 것을 쓴다 (부하 · 속도 · 주위 온도)
     for (const [zone, ps] of zoneParts) {
@@ -300,7 +330,7 @@ export class CircuitModel {
       });
     }
     // PLC: 입력은 단자 넷의 극으로 읽고, 출력은 공통 C ↔ Qn 접점
-    const blocks = circuit.parts.filter((p) => p.type === 'plc');
+    const blocks = circuit.parts.filter(isPlcPart);
     if (blocks.length) {
       const dialect = plc?.dialect ?? 'mitsubishi';
       if (plc?.source.trim()) {
@@ -321,6 +351,7 @@ export class CircuitModel {
         const { ins, outs } = plcAddresses(p);
         const inDev = ins.map(dev);
         const outDev = outs.map(dev);
+        const real = p.type === 'r_plc';
         this.plcs.push({
           part: p,
           inNets: ins.map((_, n) => net(p, n)),
@@ -330,10 +361,18 @@ export class CircuitModel {
           outAddr: outs,
           inName: inDev.map((d) => info.get(d)?.comment ?? ''),
           outName: outDev.map((d) => info.get(d)?.comment ?? ''),
+          ...(real ? { com: net(p, RPLC.com), power: [net(p, RPLC.plus), net(p, RPLC.minus)] as [number, number] } : {}),
         });
-        for (let n = 0; n < PLC_IO; n++) this.conductors.push({ part: p, a: net(p, PLC_IO), b: net(p, PLC_IO + 1 + n), ia: PLC_IO, ib: PLC_IO + 1 + n, tag: tagKey(p), nc: false, always: false, plcOut: n });
+        outs.forEach((_, n) => {
+          // 기호 PLC: 공통 C (8) ↔ Q (9~). 실물 PLC: 출력 0~7 은 COM0, 8~15 는 COM1
+          const ia = real ? (n < 8 ? RPLC.com0 : RPLC.com1) : ins.length;
+          const ib = real ? RPLC.out0 + n : ins.length + 1 + n;
+          this.conductors.push({ part: p, a: net(p, ia), b: net(p, ib), ia, ib, tag: tagKey(p), nc: false, always: false, plcOut: n });
+        });
       }
-    }
+      for (const b of this.hmiDef.values()) b.dev = dev(b.dev);
+      for (const h of this.hmis) this.hmiDevs.set(h.part.id, (h.part.hmi ?? []).map((it) => (it.dev.trim() ? dev(it.dev.trim().toUpperCase()) : '')));
+    } else if (this.hmiDef.size) this.plcIssues.push('HMI 가 있지만 회로에 PLC 가 없습니다. HMI 버튼은 PLC 와 통신해야 동작합니다');
     // 실린더 기호가 없는 리밋 스위치 연결은 조작 기기로
     for (const [tag, s] of this.sensorDef) {
       if (!this.cylDef.has(s.cyl)) {
@@ -345,6 +384,14 @@ export class CircuitModel {
 
   /** 사람이 조작하는 기호 (조작 순서에서 고를 수 있는 것) */
   /** 조작 순서에 쓸 수 있는 기호 (버튼 · 스위치 · THR, 온도 기기는 온도를 바꾼다) */
+  /** 누르는 동안만 (버튼) 인가 — HMI 스위치는 누를 때마다 바뀜 */
+  momentary(tag: string): boolean {
+    const h = this.hmiDef.get(tag);
+    if (h) return !h.toggle;
+    const p = this.mainPart.get(tag);
+    return !!p && PARTS[p.type].operate === 'momentary';
+  }
+
   operable(): string[] {
     return [...this.tagKind].filter(([, k]) => k === 'operator' || k === 'thr' || k === 'temp').map(([t]) => t);
   }
@@ -427,6 +474,10 @@ export class CircuitSim {
   /** 속도 제어 밸브로 느려진 비율 (1 = 그대로) */
   readonly cylFactor = new Map<string, { ext: number; ret: number }>();
   private rt: PlcRuntime | null = null;
+  /** PLC 전원이 꺼져 있었다 (다시 들어오면 처음부터 돈다: 유지하지 않는 M · 타이머가 지워짐) */
+  private plcDown = false;
+  /** HMI 버튼이 PLC 에 마지막으로 쓴 값 (바뀔 때만 쓴다) */
+  private readonly hmiSent = new Map<string, boolean>();
   private nextScan: number | null = null;
   private scanK = 0;
   /** 기록이 마지막으로 바뀐 시각 */
@@ -449,8 +500,8 @@ export class CircuitSim {
     for (const tag of m.cylDef.keys()) this.cyl.set(tag, { pos: 0, target: 0, atPlus: false, atMinus: true, hold: false });
     for (const v of m.valves) this.valvePos.set(v.part.id, v.part.type === 'v53' ? 'c' : 'b');
     for (const b of m.plcs) {
-      this.plcIn.set(b.part.id, new Array<boolean>(PLC_IO).fill(false));
-      this.plcOut.set(b.part.id, new Array<boolean>(PLC_IO).fill(false));
+      this.plcIn.set(b.part.id, new Array<boolean>(b.inDev.length).fill(false));
+      this.plcOut.set(b.part.id, new Array<boolean>(b.outDev.length).fill(false));
     }
     m.plcIssues.forEach((w) => this.warn(w));
     if (m.prog && m.plcSim && m.plcs.length) {
@@ -492,19 +543,70 @@ export class CircuitSim {
     return Math.max(0.1, this.m.plcSim?.scanTime ?? 10);
   }
 
+  /** PLC 가 돌고 있는가 (실물 PLC 는 + · − 에 DC 24V, 기호 PLC 는 늘) */
+  plcRunning(id: string): boolean {
+    const b = this.m.plcs.find((x) => x.part.id === id);
+    return !!b && (!b.power || !!this.powered.get(id));
+  }
+
+  /** HMI 화면: 전원 · 통신, 칸마다 눌림 · 디바이스 값 */
+  hmiView(p: Part): { powered: boolean; online: boolean; pressed: boolean[]; bits: boolean[] } {
+    const online = this.hmiOnline(p.id);
+    const devs = this.m.hmiDevs.get(p.id) ?? [];
+    return {
+      powered: !!this.powered.get(p.id),
+      online,
+      pressed: (p.hmi ?? []).map((_, n) => !!this.act.get(hmiTag(p, n))),
+      bits: devs.map((d) => (online && d ? !!this.plcBit(d) : false)),
+    };
+  }
+
+  /** HMI 가 켜져 있고 PLC 와 통신하는가 */
+  hmiOnline(id: string): boolean {
+    return !!this.powered.get(id) && this.rt !== null && this.m.plcs.some((b) => this.plcRunning(b.part.id));
+  }
+
   /** PLC 한 스캔: 입력 단자 전압 → 프로그램 → 출력 접점 */
   private scanPlc(): void {
+    const up = this.m.plcs.filter((b) => this.plcRunning(b.part.id));
+    if (!up.length) {
+      // 전원이 없으면 멈춘다 (출력 모두 꺼짐)
+      for (const b of this.m.plcs) this.plcOut.set(b.part.id, b.outDev.map(() => false));
+      this.plcDown = true;
+      this.nextScan = this.t + this.scanTime;
+      return;
+    }
+    if (this.plcDown && this.m.prog && this.m.plcSim) {
+      // 전원이 다시 들어오면 처음부터 (STOP → RUN)
+      this.rt = this.m.prog.createRuntime(this.m.plcSim);
+      this.hmiSent.clear();
+      this.plcDown = false;
+    }
     const rt = this.rt!;
-    for (const b of this.m.plcs) {
+    for (const b of up) {
+      const com = b.com !== undefined ? this.netPole[b.com] : null;
       const ins = b.inNets.map((n) => {
         const p = this.netPole[n];
+        // 실물: COM 과 반대 극 (싱크 = COM 0V · 입력 +24V, 소스 = COM +24V · 입력 0V). 기호: +24V · L 이 닿으면
+        if (b.com !== undefined) return (p === '+24V' && com === '0V') || (p === '0V' && com === '+24V');
         return p === '+24V' || p === 'L1' || p === 'L2' || p === 'L3';
       });
       this.plcIn.set(b.part.id, ins);
       ins.forEach((v, i) => rt.writeBit(b.inDev[i], v));
     }
+    // HMI 버튼: 바뀔 때만 디바이스에 쓴다 (프로그램이 같은 비트를 지워도 덮어쓰지 않게)
+    for (const [tag, h] of this.m.hmiDef) {
+      const v = !!this.act.get(tag) && this.hmiOnline(h.part.id);
+      if (this.hmiSent.get(tag) === v) continue;
+      this.hmiSent.set(tag, v);
+      try {
+        rt.writeBit(h.dev, v);
+      } catch {
+        this.warn(`HMI 버튼 ${this.m.label(tag)} 의 디바이스 ${h.dev} 를 PLC 에 쓸 수 없습니다`);
+      }
+    }
     rt.scan(this.t, this.scanK++);
-    for (const b of this.m.plcs) this.plcOut.set(b.part.id, b.outDev.map((d) => rt.readBit(d)));
+    for (const b of this.m.plcs) this.plcOut.set(b.part.id, b.outDev.map((d) => this.plcRunning(b.part.id) && rt.readBit(d)));
     this.nextScan = this.t + this.scanTime;
   }
 
@@ -709,7 +811,7 @@ export class CircuitSim {
   conductorClosed(c: Conductor): boolean {
     if (c.sel !== undefined) return (this.sel.get(c.tag) ?? 0) === c.sel;
     if (c.al) return !!this.temps.get(c.tag)?.al;
-    const closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] : c.always || (c.inst ? !!this.timers.get(c.tag)?.coil : this.on(c.tag)) !== c.nc;
+    const closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] && this.plcRunning(c.part.id) : c.always || (c.inst ? !!this.timers.get(c.tag)?.coil : this.on(c.tag)) !== c.nc;
     return closed && !(c.power && !this.powered.get(c.power));
   }
 
@@ -962,6 +1064,23 @@ export class CircuitSim {
       const want = powerBetween(this.netPole[s.inL], this.netPole[s.inN]);
       if (want !== (this.powered.get(s.part.id) ?? false)) {
         this.powered.set(s.part.id, want);
+        return true;
+      }
+    }
+    // 실물 PLC · HMI: + 에 +24V, − 에 0V (거꾸로면 안 켜짐)
+    for (const b of this.m.plcs) {
+      if (!b.power) continue;
+      const want = powerBetween(this.netPole[b.power[0]], this.netPole[b.power[1]], true);
+      if (want !== (this.powered.get(b.part.id) ?? false)) {
+        this.powered.set(b.part.id, want);
+        if (!want) this.plcOut.set(b.part.id, b.outDev.map(() => false));
+        return true;
+      }
+    }
+    for (const h of this.m.hmis) {
+      const want = powerBetween(this.netPole[h.plus], this.netPole[h.minus], true);
+      if (want !== (this.powered.get(h.part.id) ?? false)) {
+        this.powered.set(h.part.id, want);
         return true;
       }
     }
@@ -1288,7 +1407,7 @@ export class CircuitSim {
     };
     for (const b of m.plcs) {
       b.inAddr.forEach((a, n) => wired(b.part, n) && this.tracks.push({ key: `plcIn:${b.part.id}:${n}`, tag: a, kind: 'plcIn', part: b.part, points: [], last: null, idx: n }));
-      b.outAddr.forEach((a, n) => wired(b.part, PLC_IO + 1 + n) && this.tracks.push({ key: `plcOut:${b.part.id}:${n}`, tag: a, kind: 'plcOut', part: b.part, points: [], last: null, idx: n }));
+      b.outAddr.forEach((a, n) => wired(b.part, b.power ? RPLC.out0 + n : b.inDev.length + 1 + n) && this.tracks.push({ key: `plcOut:${b.part.id}:${n}`, tag: a, kind: 'plcOut', part: b.part, points: [], last: null, idx: n }));
     }
   }
 

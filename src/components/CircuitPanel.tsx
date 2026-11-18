@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../store/store';
 import type { Project } from '../model/types';
-import { emptyCircuit, type CableMethod, type CableSpec, type Circuit, type LampColor, type OpStep, type Part, type PartType, type Pole, type PowerSystem, type Wire, type WireColor } from '../circuit/types';
+import { emptyCircuit, type CableMethod, type CableSpec, type Circuit, type HmiItem, type LampColor, type OpStep, type Part, type PartType, type Pole, type PowerSystem, type Wire, type WireColor } from '../circuit/types';
 import { defaultVolt, poleLive, POWER_SYSTEMS, systemLabel, systemName, systemOf, systemVolts, systemVoltText, voltFieldLabel } from '../circuit/supply';
 import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, trImpedance, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
 import { changeSocketLayout } from '../circuit/socket';
-import { busSize, circuitWires, REAL, counterPreset, isTempDevice, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempDevice, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -66,10 +66,19 @@ export function makePart(c: Circuit, item: PaletteItem, x: number, y: number, id
       p.tag = nextTag(c.parts, prefix);
     }
   }
-  if (item.type === 'plc') {
+  if (item.type === 'plc' || item.type === 'r_plc') {
     const b = plcBases(dialect);
     p.inBase = b.in;
     p.outBase = b.out;
+  }
+  if (item.type === 'r_hmi' && !p.hmi) {
+    // 기본 화면: 기동 · 정지 버튼, 운전 램프 (PLC 종류에 맞는 내부 릴레이)
+    const ls = dialect === 'ls';
+    p.hmi = [
+      { kind: 'btn', label: tr('기동', 'Start'), dev: ls ? 'M00100' : 'M100', color: 'green' },
+      { kind: 'btn', label: tr('정지', 'Stop'), dev: ls ? 'M00101' : 'M101', color: 'red' },
+      { kind: 'lamp', label: tr('운전', 'Run'), dev: plcBases(dialect).out, color: 'green' },
+    ];
   }
   // 아직 아무것도 쓰지 않는 솔레노이드 기호를 실린더·밸브에 붙여 준다
   const used = new Set(c.parts.flatMap((q) => [q.solPlus, q.solMinus, q.solA, q.solB].map((t) => normTag(t ?? ''))));
@@ -92,8 +101,7 @@ function actionsToOps(actions: OpEvent[], model: CircuitModel): OpStep[] {
   let prev = 0;
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
-    const main = model.mainPart.get(a.tag);
-    const momentary = main && PARTS[main.type].operate === 'momentary';
+    const momentary = model.momentary(a.tag);
     if (momentary && !a.on) continue;
     const t = r10(a.t);
     const op: OpStep = { id: uid('op'), wait: Math.max(0, t - prev), tag: model.label(a.tag), action: 'press', hold: 300 };
@@ -222,7 +230,7 @@ export function CircuitPanel() {
     setSel(NO_SEL);
     setRunning(true);
     // PLC 가 있으면 래더 모니터가 보이게
-    if (circuit.parts.some((q) => q.type === 'plc') && side === 'ops') setSide('props');
+    if (circuit.parts.some(isPlcPart) && side === 'ops') setSide('props');
     const errs = issues.filter((i) => i.level === 'error').length;
     const hint = model.tswDef.size ? tr('시뮬레이션 시작: 1초에 1시간씩 흐릅니다 (속도는 위에서 바꿉니다)', 'Simulation running at 1 hour per second') : tr('시뮬레이션 시작: 버튼·스위치를 눌러 보세요', 'Simulation running: click buttons and switches');
     toast(errs ? tr(`시뮬레이션 시작 (검사 문제 ${errs}개)`, `Simulation started (${errs} issues)`) : hint, errs ? 'warn' : 'ok');
@@ -235,7 +243,7 @@ export function CircuitPanel() {
     if (r && r.actions.length) {
       const ok = await askConfirm(
         tr('조작 순서로 저장', 'Save as operation sequence'),
-        tr(`방금 누른 조작 ${r.actions.filter((a) => a.on || PARTS[model.mainPart.get(a.tag)?.type ?? 'pb_no'].operate !== 'momentary').length}개를 조작 순서표로 바꿀까요? 그러면 타임차트가 그 순서대로 만들어집니다.`, 'Turn the operations you just made into the operation sequence? The timing chart follows it.'),
+        tr(`방금 누른 조작 ${r.actions.filter((a) => a.on || !model.momentary(a.tag)).length}개를 조작 순서표로 바꿀까요? 그러면 타임차트가 그 순서대로 만들어집니다.`, 'Turn the operations you just made into the operation sequence? The timing chart follows it.'),
         tr('조작 순서로 저장', 'Save'),
       );
       if (ok) {
@@ -277,8 +285,7 @@ export function CircuitPanel() {
       setTick((x) => x + 1);
       return;
     }
-    const main = model.mainPart.get(tag);
-    const momentary = !!main && PARTS[main.type].operate === 'momentary';
+    const momentary = model.momentary(tag);
     let v: boolean | null = null;
     if (phase === 'down') v = momentary ? true : !r.sim.on(tag);
     else if (momentary) v = false;
@@ -893,7 +900,7 @@ function PropsPane({
 }) {
   const bom = useMemo(() => partsList(circuit), [circuit]);
   // 시뮬레이션 중이고 PLC 가 있으면, 고른 것이 없을 때 래더 모니터를 보여 준다
-  if (!p && plcMonitor && circuit.parts.some((q) => q.type === 'plc') && !sel.parts.length && !sel.wires.length)
+  if (!p && plcMonitor && circuit.parts.some(isPlcPart) && !sel.parts.length && !sel.wires.length)
     return (
       <div className="cc-props">
         <PlcMonitor monitor={plcMonitor} />
@@ -976,8 +983,10 @@ function PropsPane({
           </Field>
           <SupplyFields circuit={circuit} onChange={setCircuit} />
         </>
-      ) : p.type === 'plc' ? (
+      ) : isPlcPart(p) ? (
         <PlcProps p={p} set={set} model={model} monitor={plcMonitor} />
+      ) : p.type === 'r_hmi' ? (
+        <HmiProps p={p} set={set} model={model} />
       ) : p.type === 'src3' ? (
         <>
           <p className="muted small">{tr('3상 전원 L1 · L2 · L3. 전동기 U·V·W 에 L1→L2→L3 순서로 닿으면 정회전, 두 상을 바꾸면 역회전.', '3-phase supply. L1→L2→L3 on U·V·W runs forward; swapping two phases reverses.')}</p>
@@ -1664,6 +1673,7 @@ function PlcMonitor({ monitor }: { monitor?: (dev: string) => boolean | null }) 
 function PlcProps({ p, set, model, monitor }: { p: Part; set: (patch: Partial<Part>) => void; model: CircuitModel; monitor?: (dev: string) => boolean | null }) {
   const plc = useStore((s) => s.project.plc);
   const { ins, outs } = plcAddresses(p);
+  const real = p.type === 'r_plc';
   return (
     <>
       <div className="grid2">
@@ -1673,10 +1683,10 @@ function PlcProps({ p, set, model, monitor }: { p: Part; set: (patch: Partial<Pa
         <Field label={tr('설명', 'Description')}>
           <TagInput value={p.name ?? ''} onChange={(v) => set({ name: v || undefined })} placeholder="FX3U, XGB …" />
         </Field>
-        <Field label={tr('입력 첫 주소', 'First input')} hint={`${ins[0]} ~ ${ins[7]}`}>
+        <Field label={tr('입력 첫 주소', 'First input')} hint={`${ins[0]} ~ ${ins[ins.length - 1]}`}>
           <TagInput value={p.inBase ?? ''} onChange={(v) => set({ inBase: v.trim() || undefined })} placeholder="X0" />
         </Field>
-        <Field label={tr('출력 첫 주소', 'First output')} hint={`${outs[0]} ~ ${outs[7]}`}>
+        <Field label={tr('출력 첫 주소', 'First output')} hint={`${outs[0]} ~ ${outs[outs.length - 1]}`}>
           <TagInput value={p.outBase ?? ''} onChange={(v) => set({ outBase: v.trim() || undefined })} placeholder="Y0" />
         </Field>
       </div>
@@ -1688,7 +1698,9 @@ function PlcProps({ p, set, model, monitor }: { p: Part; set: (patch: Partial<Pa
         ))}
       </div>
       <p className="small muted">
-        {tr('입력 단자에 +24V 나 L 이 닿으면 ON. 출력은 공통 C 와 Q 사이의 릴레이 접점입니다. 프로그램은 PLC 시뮬레이션 탭의 것을 스캔마다 실행합니다.', 'An input is ON when +24V or L reaches it. Outputs are relay contacts between C and Q. The PLC tab program runs every scan.')}
+        {real
+          ? tr('+ · − 에 DC 24V 가 들어와야 돕니다 (끊겼다 들어오면 처음부터). 입력은 COM 과 반대 극이 닿으면 ON (COM = 0V 면 싱크). 출력은 COM0 (0~7) · COM1 (8~15) 과 이어지는 릴레이 접점입니다. 전자접촉기 코일은 보조 릴레이를 거쳐 움직이세요.', 'Runs only with 24 V DC on + and − (restarts after a power loss). An input is ON with the opposite pole of COM (COM = 0V: sink). Outputs are relay contacts to COM0 (0–7) and COM1 (8–15). Drive contactor coils through interposing relays.')
+          : tr('입력 단자에 +24V 나 L 이 닿으면 ON. 출력은 공통 C 와 Q 사이의 릴레이 접점입니다. 프로그램은 PLC 시뮬레이션 탭의 것을 스캔마다 실행합니다.', 'An input is ON when +24V or L reaches it. Outputs are relay contacts between C and Q. The PLC tab program runs every scan.')}
       </p>
       <p className={`small ${model.prog ? 'muted' : 'cc-bad'}`}>
         {model.prog && plc
@@ -1699,6 +1711,66 @@ function PlcProps({ p, set, model, monitor }: { p: Part; set: (patch: Partial<Pa
         </button>
       </p>
       <PlcMonitor monitor={monitor} />
+    </>
+  );
+}
+
+/** HMI: 화면 칸 (버튼 · 스위치 · 램프) 과 PLC 디바이스 */
+function HmiProps({ p, set, model }: { p: Part; set: (patch: Partial<Part>) => void; model: CircuitModel }) {
+  const items = p.hmi ?? [];
+  const plc = useStore((s) => s.project.plc);
+  const setItem = (n: number, patch: Partial<HmiItem>) => set({ hmi: items.map((it, k) => (k === n ? { ...it, ...patch } : it)) });
+  const ls = plc?.dialect === 'ls';
+  return (
+    <>
+      <div className="grid2">
+        <Field label={tr('기호', 'Tag')}>
+          <TagInput value={p.tag} onChange={(v) => set({ tag: v.trim() })} />
+        </Field>
+        <Field label={tr('설명', 'Description')}>
+          <TagInput value={p.name ?? ''} onChange={(v) => set({ name: v || undefined })} placeholder={tr('운전 화면', 'Main screen')} />
+        </Field>
+      </div>
+      <div className="field-label">{tr('화면 칸 (3열, 최대 12)', 'Screen items (3 columns, up to 12)')}</div>
+      <div className="cc-hmi-items">
+        {items.map((it, n) => (
+          <div key={n} className="cc-hmi-row">
+            <span className="mono small muted" title={tr('조작 순서에서 쓰는 이름', 'Name used in the operation list')}>
+              {it.kind === 'lamp' ? '' : hmiTag(p, n)}
+            </span>
+            <select className="input" value={it.kind} onChange={(e) => setItem(n, { kind: e.target.value as HmiItem['kind'] })}>
+              <option value="btn">{tr('버튼 (누르는 동안)', 'Button (momentary)')}</option>
+              <option value="sw">{tr('스위치 (누를 때마다)', 'Switch (toggle)')}</option>
+              <option value="lamp">{tr('램프 (표시)', 'Lamp (indicator)')}</option>
+            </select>
+            <input className="input" value={it.label} placeholder={tr('글', 'Label')} onChange={(e) => setItem(n, { label: e.target.value })} />
+            <input className="input mono" value={it.dev} placeholder={ls ? 'M00100' : 'M100'} onChange={(e) => setItem(n, { dev: e.target.value.toUpperCase() })} />
+            <select className="input" value={it.color ?? ''} onChange={(e) => setItem(n, { color: (e.target.value || undefined) as LampColor | undefined })}>
+              <option value="">{tr('색', 'Colour')}</option>
+              {(['green', 'red', 'yellow', 'blue', 'white'] as LampColor[]).map((c) => (
+                <option key={c} value={c}>
+                  {lampColorName(c)}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="btn small" onClick={() => set({ hmi: items.filter((_, k) => k !== n) })} title={tr('지우기', 'Remove')}>
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="cc-btnrow">
+        <button type="button" className="btn small" disabled={items.length >= HMI_MAX} onClick={() => set({ hmi: [...items, { kind: 'btn', label: tr('버튼', 'Button'), dev: '' }] })}>
+          + {tr('버튼', 'Button')}
+        </button>
+        <button type="button" className="btn small" disabled={items.length >= HMI_MAX} onClick={() => set({ hmi: [...items, { kind: 'lamp', label: tr('램프', 'Lamp'), dev: '', color: 'green' }] })}>
+          + {tr('램프', 'Lamp')}
+        </button>
+      </div>
+      <p className="small muted">
+        {tr('버튼 · 스위치는 PLC 의 내부 릴레이 (M) 에 쓰고, 램프는 아무 디바이스 (출력 · M) 나 읽습니다. 전원 + · − (DC 24V) 만 배선하고 PLC 와는 통신으로 이어집니다. 조작 순서에서는 왼쪽의 이름 (HMI1-1 …) 을 고릅니다.', 'Buttons and switches write PLC internal relays (M); lamps read any device. Only + and − (24 V DC) are wired; the PLC link is by communication. Use the names on the left (HMI1-1 …) in the operation list.')}
+      </p>
+      {!model.plcs.length && <p className="small cc-bad">{tr('회로에 PLC 가 없습니다. HMI 는 PLC 와 함께 씁니다.', 'There is no PLC in the circuit; the HMI needs one.')}</p>}
     </>
   );
 }
@@ -1801,8 +1873,8 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
   const ops = circuit.ops;
   const devices = model.operable().map((t) => {
     const p = model.mainPart.get(t)!;
-    const name = circuit.parts.find((q) => tagKey(q) === t && q.name)?.name;
-    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: PARTS[p.type].operate === 'momentary', sel3: p.type === 'r_ss3' ? p : undefined, temp: model.tagKind.get(t) === 'temp' ? p : undefined };
+    const name = model.hmiDef.get(t) ? `HMI ${model.hmiDef.get(t)!.label}` : circuit.parts.find((q) => tagKey(q) === t && q.name)?.name;
+    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: model.momentary(t), sel3: p.type === 'r_ss3' ? p : undefined, temp: model.tagKind.get(t) === 'temp' ? p : undefined };
   });
   const setOps = (next: OpStep[]) => onChange({ ...circuit, ops: next });
   const setOp = (i: number, patch: Partial<OpStep>) => setOps(ops.map((o, k) => (k === i ? { ...o, ...patch } : o)));

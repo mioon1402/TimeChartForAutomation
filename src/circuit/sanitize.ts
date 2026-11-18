@@ -115,6 +115,14 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
         .slice(0, 24);
       p.sched = sched;
     }
+    if (Array.isArray(q.hmi)) {
+      // HMI 화면 칸: 버튼 · 스위치 · 램프 (최대 12)
+      p.hmi = q.hmi
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object')
+        .filter((x) => x.kind === 'btn' || x.kind === 'sw' || x.kind === 'lamp')
+        .slice(0, 12)
+        .map((x) => ({ kind: x.kind as 'btn' | 'sw' | 'lamp', label: typeof x.label === 'string' ? x.label.slice(0, 24) : '', dev: typeof x.dev === 'string' ? x.dev.slice(0, 24) : '', ...(COLORS.includes(x.color as LampColor) ? { color: x.color as LampColor } : {}) }));
+    }
     parts.push(p);
   }
   const wires: Wire[] = [];

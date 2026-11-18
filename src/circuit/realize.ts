@@ -67,6 +67,8 @@ const ROW: Partial<Record<PartType, number>> = {
   r_my4: 2,
   r_timer8: 2,
   r_counter: 2,
+  r_plc: 2,
+  r_hmi: 3,
   r_ssr: 2,
   r_tc: 2,
   r_smps: 2,

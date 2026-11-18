@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Circuit, Part, Rot, Wire, WireColor } from '../circuit/types';
 import { autoWireColor } from '../circuit/wires';
-import { busSize, isTempDevice, OPERATOR, panelSize, partBox, partPins, partWires, pinPositions, rotate, stripSize, tbSize, type PaletteItem } from '../circuit/parts';
+import { busSize, hmiCells, hmiTag, isTempDevice, OPERATOR, panelSize, partBox, partPins, partWires, pinPositions, rotate, stripSize, tbSize, type PaletteItem } from '../circuit/parts';
 import { tagKey, type CircuitModel, type CircuitSim } from '../circuit/engine';
 import { onWireInterior } from '../circuit/netlist';
 import { uid } from '../model/wave';
@@ -373,6 +373,18 @@ export function CircuitCanvas(props: CanvasProps) {
     }
     if (sim) {
       const p = hitPart(g);
+      // HMI: 화면의 버튼 · 스위치 칸
+      if (p && p.type === 'r_hmi') {
+        const [lx, ly] = rotate(g[0] - p.x, g[1] - p.y, ((360 - p.rot) % 360) as Rot);
+        const cell = hmiCells(p).find((q) => lx >= q.x && lx <= q.x + q.w && ly >= q.y && ly <= q.y + q.h);
+        const it = cell ? p.hmi?.[cell.n] : undefined;
+        if (cell && it && it.kind !== 'lamp' && model.tagKind.get(hmiTag(p, cell.n)) === 'operator') {
+          const tag = hmiTag(p, cell.n);
+          props.onOperate(tag, 'down');
+          setD({ kind: 'op', tag });
+          return;
+        }
+      }
       if (p && operable(p)) {
         const tag = tagKey(p);
         const [lx] = rotate(g[0] - p.x, g[1] - p.y, ((360 - p.rot) % 360) as Rot);
