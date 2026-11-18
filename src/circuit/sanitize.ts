@@ -115,6 +115,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
         .slice(0, 24);
       p.sched = sched;
     }
+    if (q.pos0 === -1 || q.pos0 === 1) p.pos0 = q.pos0;
     if (Array.isArray(q.hmi)) {
       // HMI 화면 칸: 버튼 · 스위치 · 램프 (최대 12)
       p.hmi = q.hmi

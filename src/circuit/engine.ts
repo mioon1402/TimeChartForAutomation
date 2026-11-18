@@ -493,7 +493,13 @@ export class CircuitSim {
     for (const tag of m.coilParts.keys()) this.coilOn.set(tag, false);
     for (const tag of m.timerParts.keys()) this.timers.set(tag, { coil: false, out: false, since: 0 });
     for (const [tag, d] of m.tswDef) this.tsw.set(tag, { dial: this.clock0, out: schedOn(d.sched, this.clock0), run: false });
-    for (const tag of m.sel3) this.sel.set(tag, 0);
+    // 3단 셀렉터: 그림에 둔 자리 (pos0) 에서 시작
+    for (const tag of m.sel3) {
+      const p = m.mainPart.get(tag);
+      const at = p?.type === 'r_ss3' ? (p.pos0 ?? 0) : 0;
+      this.sel.set(tag, at);
+      if (at) this.act.set(tag, true);
+    }
     for (const tag of m.counterDef.keys()) this.counters.set(tag, { n: 0, out: false, cp: false, rst: false });
     for (const [z, d] of m.tempZones) this.zones.set(z, { pv: d.amb, since: 0, rate: 0, goal: d.amb, forced: false });
     for (const tag of m.tempDef.keys()) this.temps.set(tag, { hot: false, alHot: false, out: false, al: false });

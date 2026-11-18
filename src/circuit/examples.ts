@@ -1523,7 +1523,7 @@ function plcPanel(): Circuit {
   const f2 = b.part('r_fuse', 51, 6, 'F2', { name: tr('입력 · 현장 신호', 'Inputs & field signals'), amps: 2 });
   const f3 = b.part('r_fuse', 54, 6, 'F3', { name: tr('출력 공통 COM0', 'Output common COM0'), amps: 4 });
   // 문: 운전 선택 · 버튼 · 비상정지 (입력은 PLC 위 단자로)
-  const ss1 = b.part('r_ss3', 52, 16, 'SS1', { name: tr('운전 선택 (COS)', 'Mode (COS)'), pos3: tr('로컬/정지/원격', 'Local/Off/Remote') });
+  const ss1 = b.part('r_ss3', 52, 16, 'SS1', { name: tr('운전 선택 (COS)', 'Mode (COS)'), pos3: tr('로컬/정지/원격', 'Local/Off/Remote'), pos0: -1 });
   const pb11 = b.part('r_pb', 57, 16, 'PB11', { name: tr('P1 기동', 'P1 start'), color: 'green' });
   const pb10 = b.part('r_pb', 62, 16, 'PB10', { name: tr('P1 정지', 'P1 stop'), color: 'red' });
   const pb21 = b.part('r_pb', 67, 16, 'PB21', { name: tr('P2 기동', 'P2 start'), color: 'green' });
@@ -1548,15 +1548,23 @@ function plcPanel(): Circuit {
       { kind: 'btn', label: tr('P2 정지', 'P2 stop'), dev: 'M00103', color: 'red' },
       { kind: 'lamp', label: tr('P2 운전', 'P2 run'), dev: 'P0000A', color: 'green' },
       { kind: 'btn', label: tr('고장 리셋', 'Reset'), dev: 'M00104', color: 'yellow' },
-      { kind: 'lamp', label: tr('원격', 'Remote'), dev: 'P00001', color: 'blue' },
-      { kind: 'lamp', label: tr('고장', 'Fault'), dev: 'M00020', color: 'red' },
+      { kind: 'lamp', label: tr('로컬 (문)', 'Local (door)'), dev: 'P00000', color: 'white' },
+      { kind: 'lamp', label: tr('원격 (HMI)', 'Remote (HMI)'), dev: 'P00001', color: 'blue' },
+      { kind: 'lamp', label: tr('P1 고장', 'P1 fault'), dev: 'M00010', color: 'red' },
+      { kind: 'lamp', label: tr('P2 고장', 'P2 fault'), dev: 'M00011', color: 'red' },
       { kind: 'lamp', label: tr('비상정지', 'E-stop'), dev: 'M00012', color: 'red' },
-      { kind: 'lamp', label: tr('P1 과부하', 'P1 OL'), dev: 'P00009', color: 'yellow' },
-      { kind: 'lamp', label: tr('P2 과부하', 'P2 OL'), dev: 'P0000B', color: 'yellow' },
     ],
   });
   const peBar = b.part('r_nbar', 30, 56, 'PEB', { n: 6, pole: 'PE', name: tr('접지 바', 'Earth bar') });
   b.part('text', 0, -5, '', { text: tr('PLC 제어반: 급수 펌프 2대 (COS 로컬 = 문 버튼 · 원격 = HMI, 비상정지 · THR 은 MC 코일을 직접 끊음)', 'PLC panel: two feed pumps (COS local = door buttons, remote = HMI; E-stop and THR break the MC coils directly)') });
+  // 시뮬레이션 하는 법 (HMI 오른쪽 빈 곳)
+  [
+    tr('▶ 시뮬레이션: 먼저 SS1 (COS) 자리를 보세요', '▶ Simulation: check SS1 (COS) first'),
+    tr('왼쪽 = 로컬 → 문 버튼 PB11 · PB21 로 기동 (처음 자리)', 'Left = local → start with door buttons PB11 / PB21 (initial)'),
+    tr('오른쪽 = 원격 → HMI 화면 버튼으로 기동', 'Right = remote → start from the HMI screen'),
+    tr('가운데 = 정지 (모두 멈춤, 어떤 기동도 안 받음)', 'Centre = off (all stop, no start accepted)'),
+    tr('정지 버튼 · HMI 정지 · 비상정지는 어느 자리에서나', 'Stop buttons, HMI stop and the E-stop work in any position'),
+  ].forEach((t, k) => b.part('text', 105, 23 + k * 2, '', { text: t }));
   b.part('text', 0, 61, '', { text: tr('전선 색: 주회로 L1 갈색 · L2 검정 · L3 회색 / N · 0V 파랑 / AC 220V 조작 노랑 / DC 24V 빨강 / 접지 녹황', 'Wire colours: L1 brown · L2 black · L3 grey / N and 0 V blue / 220 V AC control yellow / 24 V DC red / earth green-yellow') });
   b.part('text', 0, 63, '', { text: tr('PLC 보호: 입력 DC 24V 만 · 출력 공통 COM0 퓨즈 F3 · 출력은 DC 24V 보조 릴레이 RY1 · RY2 만 켜고 MC 는 릴레이 접점이 켬 · PLC · HMI 전원 퓨즈 F1 · FG 접지', 'PLC protection: 24 V DC inputs only · fused output common (F3) · outputs drive 24 V DC interposing relays only · PLC/HMI supply fused (F1) · FG earthed') });
 
@@ -1647,8 +1655,8 @@ function plcPanel(): Circuit {
   for (const w of plcPanelWires) b.wires.push({ ...w, id: uid('cw') });
 
   // 조작 순서: 로컬 운전 → HMI 는 막힘 → 원격 (HMI) → 과부하 · 리셋 → 비상정지 · 리셋
-  b.op(500, 'SS1', 'left', tr('로컬 (문 버튼)', 'Local (door buttons)'));
-  b.op(500, 'PB11', 'press', tr('P1 기동 (문)', 'P1 start (door)'));
+  // SS1 은 로컬 자리에서 시작
+  b.op(1000, 'PB11', 'press', tr('로컬: P1 기동 (문)', 'Local: P1 start (door)'));
   b.op(1500, 'PB21', 'press', tr('P2 기동 (문)', 'P2 start (door)'));
   b.op(1500, 'PB10', 'press', tr('P1 정지 (문)', 'P1 stop (door)'));
   b.op(1500, 'HMI1-1', 'press', tr('로컬에서 HMI 기동 → 무시', 'HMI start in local → ignored'));

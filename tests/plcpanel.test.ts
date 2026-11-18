@@ -36,6 +36,9 @@ describe('PLC 제어반 예제 (펌프 2대, 로컬 · HMI)', () => {
 
   it('로컬 = 문 버튼, 원격 = HMI, 정지는 어디서나, COS 정지면 모두 멈춘다', () => {
     expect(res.warnings).toEqual([]);
+    // COS 는 로컬 자리에서 시작한다 (가운데면 아무 버튼도 듣지 않아 고장처럼 보임), 저장해도 남는다
+    expect(edges(res, 'sel:SS1')[0]).toEqual({ t: 0, v: 'L' });
+    expect(sanitizeCircuit(JSON.parse(JSON.stringify(c)))!.parts.find((p) => p.tag === 'SS1')!.pos0).toBe(-1);
     // 1 s 문 기동 · 4 s 문 정지 · 5.5 s 로컬에서 HMI 기동 (무시) · 8 s HMI 기동 · 15.5 s 비상정지 · 19.5 s HMI 기동 · 23.5 s COS 정지
     expect(times(res, 'coil:MC1')).toEqual([0, 1010, 4010, 8010, 15500, 19510, 23510]);
     // 2.5 s 문 기동 · 9.5 s THR2 트립 · 20.5 s HMI 기동 · 22 s HMI 정지
