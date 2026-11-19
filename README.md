@@ -190,7 +190,8 @@ CADe SIMU 처럼 푸시버튼·릴레이·타이머·전자접촉기·전동기�
 - **전동기 제어 (실물 배선)**: 조그 (인칭) 운전 · **조그 + 연속 운전** (보조 릴레이가 기동을 기억, 조그는 누르는 동안만) · 표시등 부착 자기유지 (운전 · 정지 · 과부하등) · 2개소 (다점) 제어 · **리밋 스위치 자동 정지** (끝에 닿으면 LS b접점이 자기유지를 끊음) · **정 · 역 운전 이중 인터록** (버튼 b접점 + 접촉기 b접점, L1 · L3 을 바꿔 역회전) · **자동 Y-Δ 기동** (접촉기 3개 · 타이머 · 인터록, 6단자 전동기) · 급수 펌프 (플로트 스위치 자동 / 수동) · **급수 펌프 수동 · 정지 · 자동** (3단 셀렉터: 수동은 버튼 자기유지, 자동은 플로트) · 기동 · 정지
 - **제어반 · 릴레이 · 센서**: **PLC 제어반: 펌프 2대 (로컬 · HMI)** (아래 설명) · 제어반 실물 배선 (단자대) · 릴레이 소켓 배선 · **직류 24V (SMPS → 근접 센서 → 릴레이 → 솔레노이드 밸브 · 부저)** · **솔레노이드 밸브 2개 교번** (플리커 타이머의 a · b 접점이 1초마다 번갈아) · **생산 수량 카운터** (리밋 스위치 3번 → 완료등, 리셋 버튼) · **SSR 로 히터 켜기** (DC 24V 스위치 → SSR → 교류 히터 2 kW) · **2선식 근접 센서** (DC: +24V → 갈색, 파랑 → 램프 → 0V · AC: L → 차단기 → 센서 → 램프 → N) · **히터 온도 제어** (온도 조절기 OUT → 전자접촉기 → 히터 2 kW 로 60℃ 유지, 85℃ 로 올린 과열 시험에서 AL 경보등) · **판넬 온도 관리** (35℃ 면 팬 · 5℃ 면 결로 방지 히터, 판넬 온도를 여름 낮 · 겨울 밤처럼 천천히 바꿔 봄)
 - **전등 · 주거**: 타임 스위치 전등 · 3로 스위치 계단등 · **타이머 지연 점등** (8핀 타이머 한시 a접점, 스위치를 켜고 3초 뒤) · **주거 배선 (누전차단기 · 스위치 · 전등 · 콘센트, 중성선 바 · 접지 바)**
-- **분전반 · 계통 해석**, **기호 회로 (시퀀스 · 공압 · PLC)**: 기호 회로에는 **센서 감지 → 솔밸브 3초만** (인터벌 타이머: 계속 감지해도 3초 뒤 꺼짐, 감지가 짧으면 그때 꺼짐) 도 있습니다
+- **분전반 · 계통 해석**: 분전반 · 부스바 · 급전 · 수전 · 변압기 해석, **누전 · 지락: 접지와 누전차단기 (TT)** (아래 설명)
+- **기호 회로 (시퀀스 · 공압 · PLC)**: 기호 회로에는 **센서 감지 → 솔밸브 3초만** (인터벌 타이머: 계속 감지해도 3초 뒤 꺼짐, 감지가 짧으면 그때 꺼짐) 도 있습니다
 
 ### PLC 제어반 예제: 급수 펌프 2대 (로컬 · HMI 원격)
 
@@ -257,6 +258,22 @@ CADe SIMU 처럼 푸시버튼·릴레이·타이머·전자접촉기·전동기�
 - 값은 조작 순서대로 돌렸을 때 가장 나쁜 순간 (전류 최대 · 전압 최소) 입니다. 엑셀 CSV 로 저장하고, 보고서에 `전기 해석` 표로 인쇄됩니다.
 - 예제: `예제 회로 → 분전반 급전 해석` (메인 분전반 → 부스바 → 급전선 → 분전반 2개. 일부러 넣은 문제 2개를 찾아 굵기를 키워 고쳐 보세요)
 - 예제: `예제 회로 → 분전반: 부스바 · 누전차단기 분기` (메인 4P 125 A → 세로 부스바 L1 L2 L3 N → 양옆에 옆으로 놓은 분기 차단기 (3상 3개 · 단상 2개) → 판넬 밖 부하. 실제 분전반처럼 배치한 예)
+
+### 누전 · 지락 시뮬레이션 (접지로 흐르는 전류 · 외함 전압 · 누전차단기)
+
+기기의 절연이 나빠져 충전부 (L) 가 외함에 닿았을 때 (누전) 접지로 얼마가 흐르고, 외함에 몇 V 가 남고, 어느 차단기가 끊는지를 어림합니다.
+
+- **계통 접지 방식**: 전원 단자 속성이나 [해석] 탭 위의 전원 계통 설정에서 고릅니다.
+  - **TN-C-S** (기본, 특고압 수전 공장 · 빌딩): 기기 접지선이 변압기 중성점으로 돌아갑니다. 완전 지락은 단락처럼 커서 (220 V ÷ 고장 루프 약 0.4 Ω ≈ 550 A) 일반 차단기가 순시 트립합니다.
+  - **TT** (저압 수전 주택 · 작은 공장): 기기를 따로 접지합니다. 지락 전류가 220 V ÷ (기기 접지 Ra 100 Ω + 계통 접지 Rb 10 Ω) ≈ 2 A 뿐이라 일반 차단기는 떨어지지 않고 외함에 약 200 V 가 남습니다. 그래서 **누전차단기 (30 mA)** 가 끊어야 합니다. Ra · Rb 는 바꿀 수 있습니다.
+- **외함 접지**: 전동기 · 콘센트 · SMPS 처럼 PE (FG) 단자가 있는 기기는 그 단자가 접지 (PE) 까지 이어졌는지 봅니다. 접지가 안 됐으면 전류는 흐르지 않다가 **사람이 만지면 몸 (약 1000 Ω) 으로 약 220 mA** 가 흐릅니다 (감전). 누전차단기가 있으면 그때 0.03 초 안에 끊습니다. 기호 그림의 기기는 접지를 그리지 않으므로 접지된 것으로 봅니다.
+- **누전차단기**: 차단기 속성의 [누전차단기 (ELB)] 와 [정격 감도 전류] (15 · 30 · 100 · 200 · 500 mA). 접지로 샌 전류가 감도 이상이면 0.03 초 뒤 끊습니다. 일반 차단기는 지락 전류가 정격의 10 배 (순시) 이상일 때 0.01 초 뒤 끊습니다. 기기에서 가까운 차단기가 먼저 끊습니다.
+- **시뮬레이션에서 누전 일으키기**: 시뮬레이션 중 전동기 · 히터 · 콘센트 · 전등 · SMPS · 솔레노이드를 **Shift+클릭**하면 완전 지락이 생기고, 다시 Shift+클릭하면 없어집니다. 기기 옆에 지락 전류 · 외함 전압이 뜨고, 알림에 끊은 차단기가 나옵니다.
+- **조작 순서**: 그 기기를 고르면 동작이 **누전 (절연 불량)** 입니다. [절연 Ω] 은 충전부와 외함 사이 절연 저항 (0 = 완전 지락, 10 kΩ 이면 약 22 mA 로 30 mA 누전차단기는 안 떨어짐), [지속] 은 누전이 이어지는 시간 (0 = 끝까지). 타임차트에 `누전 · 지락` 묶음으로 누전 여부와 지락 전류 (A) 가 나옵니다.
+- **[해석] → 누전 · 지락 검토**: 시뮬레이션 없이 기기마다 완전 지락이면 지락 전류 · 외함 전압 · 끊는 차단기와 판정 (끊김 · 위험 · 누설) 을 표로 보여 줍니다. 누전차단기마다 **평상시 누설 전류 합계** (전동기 · 케이블 정전 용량, SMPS 노이즈 필터 어림) 도 내고, 감도의 30% 를 넘으면 이유 없이 떨어질 수 있다고 알립니다.
+- **[검사]**: TT 계통인데 누전 때 끊기지 않는 기기 (누전차단기 없음 · 외함 접지 없음) 를 알립니다.
+- 예제 **누전 · 지락: 접지와 누전차단기 (TT)**: 절연 10 kΩ → 22 mA 로 안 떨어짐, 완전 지락 → 2 A 로 ELB1 이 0.03 초에 끊음, 고치지 않고 다시 넣으면 또 떨어짐, 콘센트 기기 누전 → ELB2.
+- 한계: 값은 어림입니다. 실제 접지 저항 · 절연 저항 · 누설 전류는 접지 저항계 · 절연 저항계 (메거) · 누설 전류계로 재세요. 사람 몸 저항은 젖은 손 · 맨발이면 훨씬 작아져 전류가 커집니다.
 
 ### 한전 수전부터 변압기까지 계통 해석 (부하율 · 단락 전류)
 
@@ -645,6 +662,7 @@ rule delay Y0 rise -> X1 rise max=400 "클램프 응답"
 - **Use it now:** https://mioon1402.github.io/TimeChartForAutomation/ (no install, no sign-up). For offline PCs, download [TimeChartStudio.html](https://mioon1402.github.io/TimeChartForAutomation/TimeChartStudio.html) and double-click it.
 - **Circuit tab (like CADe SIMU):** draw relay, contactor, timer, overload, motor and pneumatic circuits on a grid and run them by clicking buttons; live wires are coloured by pole, motors spin forward/reverse, cylinders move, shorts and open phases are flagged. Write the operator actions (or record them while simulating) and the timing chart is generated; the parts list (tags, item, spec, contacts used, quantities) comes straight from the drawing and prints in the report.
 - **Draw** bit, word, analog and clock signals; sloped actuator motion; cause-and-effect arrows; time dimensions; process steps.
+- **Earth faults**: inject an insulation fault on a motor, outlet or heater (Shift+click while simulating, or an operation step with insulation resistance) and see the earth current, the frame voltage and which breaker or RCD trips, for TN-C-S or TT earthing (Ra/Rb). The Analysis tab lists every device's fault current, touch voltage and protective device, and the standing leakage on each RCD.
 - **PLC panel devices**: a real-wiring PLC (16 in / 16 relay out with supply, input COM and output commons; restarts after a power loss) and an HMI touch panel whose buttons and lamps read and write PLC devices; the wiring check warns about AC on DC inputs, unfused output commons and contactor coils switched straight from PLC outputs. Example: a two-pump panel with local / HMI operation, interposing relays and a hardwired E-stop.
 - **Ladder (LD) editor** for Mitsubishi and LS programs with GX Works / XG5000-style keys (F3 NO, F4 NC, F5 line, F6 vertical, F9 coil); existing mnemonics open as ladder, the drawing compiles to mnemonics, and a live ladder monitor shows ON contacts while the circuit with the PLC block runs.
 - **Generate charts from PLC programs** by scan simulation: Mitsubishi GX Works (IL/CSV), LS XG5000 (IL, including printed IL PDFs), Siemens STL, IEC 61131-3 ST/SCL. Equipment models (cylinders, delays, moving axes with encoders and limit switches) respond to outputs so the whole cycle runs.

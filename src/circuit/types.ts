@@ -177,6 +177,8 @@ export interface Part {
   h?: number;
   /** 차단기: 누전차단기 (ELB) */
   elb?: boolean;
+  /** 누전차단기 정격 감도 전류 (mA, 없으면 30) */
+  idn?: number;
   /** 부스바: 막대 수 (3 = L1 L2 L3, 4 = + N), 단면적 (mm²) */
   bars?: number;
   mm2?: number;
@@ -275,11 +277,12 @@ export interface OpStep {
   tag: string;
   /**
    * press = 눌렀다 뗌 (hold 동안), on = 켬·누른 채 유지, off = 끔·뗌 (3단 셀렉터는 가운데), left · right = 3단 셀렉터를 왼쪽 · 오른쪽으로,
-   * temp = 온도 기기의 온도를 value (℃) 로 (hold 동안 일정하게 바뀜, 0 이면 바로)
+   * temp = 온도 기기의 온도를 value (℃) 로 (hold 동안 일정하게 바뀜, 0 이면 바로),
+   * leak = 기기의 누전 (절연 불량: 충전부가 외함에 닿음, value = 절연 저항 Ω, hold 동안, 0 이면 끝까지)
    */
-  action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp';
+  action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp' | 'leak';
   hold: number;
-  /** temp: 바꿀 온도 (℃) */
+  /** temp: 바꿀 온도 (℃), leak: 절연 저항 (Ω, 0 = 완전 지락) */
   value?: number;
   /** 적으면 타임차트의 공정 스텝 이름이 된다 */
   note?: string;
@@ -305,6 +308,11 @@ export interface Circuit {
   system?: PowerSystem;
   /** 릴레이 · 전자접촉기 · 타이머 코일이 붙고 떨어지는 데 걸리는 시간 (ms). 없으면 0 (바로) */
   relayMs?: number;
+  /** 계통 접지 방식: TT (기기를 따로 접지, 저압 수전 주택 등) · 없으면 TN (TN-C-S, 기기 접지선이 변압기 중성점으로) */
+  earthing?: 'TT';
+  /** 접지 저항 (Ω): ra = 기기 보호 접지 (TT), rb = 계통 (변압기 중성점) 접지. 없으면 100 · 10 */
+  ra?: number;
+  rb?: number;
   /** 계통의 대표 전압 (V): 3상은 선간 (3상 4선식 기본 380, 상전압은 선간 / √3), 단상 3선식은 L1-L2 (기본 220), 단상 2선식은 L-N (기본 220) */
   vll?: number;
 }

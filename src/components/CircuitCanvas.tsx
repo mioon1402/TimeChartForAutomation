@@ -135,6 +135,8 @@ export interface CanvasProps {
   /** 시뮬레이션 중 부품 조작 (down: 누름, up: 뗌) */
   /** side: 3단 셀렉터에서 누른 쪽 (-1 왼쪽, 1 오른쪽) */
   onOperate: (tag: string, phase: 'down' | 'up', side?: -1 | 1) => void;
+  /** 시뮬레이션 중 Shift+클릭: 기기의 누전 (절연 불량) 을 켜고 끈다 */
+  onLeak?: (tag: string) => void;
   onCommit: (next: Circuit, mergeKey?: string, regen?: boolean) => void;
   onEndMerge: () => void;
   onEditPart: (p: Part) => void;
@@ -373,6 +375,11 @@ export function CircuitCanvas(props: CanvasProps) {
     }
     if (sim) {
       const p = hitPart(g);
+      // Shift+클릭: 누전이 날 수 있는 기기 (전동기 · 히터 · 콘센트 …) 의 절연 불량
+      if (p && e.shiftKey && props.onLeak && model.faultDev.has(tagKey(p))) {
+        props.onLeak(tagKey(p));
+        return;
+      }
       // HMI: 화면의 버튼 · 스위치 칸
       if (p && p.type === 'r_hmi') {
         const [lx, ly] = rotate(g[0] - p.x, g[1] - p.y, ((360 - p.rot) % 360) as Rot);

@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { ALWAYS_ON, counterPreset, hmiTag, isLinkedSensor, isPlcPart, isTempDevice, tempSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, RPLC, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
+import { ALWAYS_ON, counterPreset, hmiTag, isLinkedSensor, isPlcPart, isTempDevice, tempSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, REAL, RPLC, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import { poleLive } from './supply';
 import type { PlcConfig, SimSettings } from '../plc/types';
@@ -9,6 +9,7 @@ import { parseProgram, type ParsedProgram } from '../plc/program';
 import { parseDeviceComments } from '../plc/comments';
 import { normDevice } from '../plc/devices';
 import type { PlcRuntime } from '../plc/runtime';
+import { conductorGraph, earthFault, earthingOf, FAULTABLE, faultText, feedPath, frameEarthPin, livePins, phaseSources, phaseVolt, type FaultResult } from './earth';
 
 /**
  * 회로 시뮬레이션 (사건 구동)
@@ -130,7 +131,7 @@ export interface HmiButton {
   toggle: boolean;
 }
 
-export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut';
+export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut' | 'leak' | 'earthA';
 
 export interface Track {
   key: string;
@@ -179,6 +180,8 @@ export class CircuitModel {
   /** HMI: 기기와 버튼 · 스위치 (조작 기호 → 정의), 램프 디바이스 */
   readonly hmis: { part: Part; plus: number; minus: number }[] = [];
   readonly hmiDef = new Map<string, HmiButton>();
+  /** 누전이 날 수 있는 기기 (기호 → 부품, 충전부 넷, 외함 접지 단자 넷) */
+  readonly faultDev = new Map<string, { part: Part; live: number[]; pe: number | null }>();
   /** HMI 칸마다 PLC 디바이스 (런타임 이름, 부품 id → 칸 차례) */
   readonly hmiDevs = new Map<string, string[]>();
   /** PLC 탭의 프로그램 (회로에 PLC 가 있을 때만) */
@@ -311,6 +314,11 @@ export class CircuitModel {
       } else if (VALVES.has(p.type)) this.valves.push({ part: p, ports: def.pins.map((_, i) => pin(i)), solA: normTag(p.solA ?? ''), solB: normTag(p.solB ?? '') });
       else if (p.type === 'cyl' && p.tag.trim() && !this.cylPorts.has(tag)) this.cylPorts.set(tag, { cap: pin(0), rod: pin(1), capTubed: tubed(pin(0)), rodTubed: tubed(pin(1)) });
       if (p.type === 'r_hmi') this.hmis.push({ part: p, plus: pin(0), minus: pin(1) });
+      if (FAULTABLE.has(p.type) && p.tag.trim() && !this.faultDev.has(tag)) {
+        const pe = frameEarthPin(p);
+        this.faultDev.set(tag, { part: p, live: livePins(p).map(pin), pe: pe >= 0 ? pin(pe) : null });
+        if (!this.tagLabel.has(tag)) this.tagLabel.set(tag, p.tag.trim());
+      }
     }
     // 온도 묶음: 값마다 그 값을 처음 적은 기기의 것을 쓴다 (부하 · 속도 · 주위 온도)
     for (const [zone, ps] of zoneParts) {
@@ -476,6 +484,15 @@ export class CircuitSim {
   private rt: PlcRuntime | null = null;
   /** PLC 전원이 꺼져 있었다 (다시 들어오면 처음부터 돈다: 유지하지 않는 M · 타이머가 지워짐) */
   private plcDown = false;
+  /** 누전 (절연 불량) 중인 기기: 기호 → 절연 저항 (Ω) */
+  readonly faults = new Map<string, number>();
+  /** 누전 중인 기기의 지금 지락 계산 */
+  readonly faultView = new Map<string, FaultResult>();
+  /** 누전 사건 기록 (시각 · 글) — 화면 알림용 */
+  readonly faultLog: { t: number; tag: string; text: string; level: FaultResult['level'] }[] = [];
+  private faultAdj: ReturnType<typeof conductorGraph> | null = null;
+  /** 지락으로 끊을 차단기: 기호 → 끊는 시각 (누전차단기 0.03 s, 순시 0.01 s 뒤) */
+  private readonly tripAt = new Map<string, number>();
   /** HMI 버튼이 PLC 에 마지막으로 쓴 값 (바뀔 때만 쓴다) */
   private readonly hmiSent = new Map<string, boolean>();
   private nextScan: number | null = null;
@@ -776,9 +793,19 @@ export class CircuitSim {
   }
 
   /** 같은 순간의 조작을 한꺼번에 바꾸고 한 번만 자리 잡는다 (두 버튼을 동시에 누름 · 뗌) */
-  applyAll(list: { tag: string; on: boolean; pos?: -1 | 0 | 1; temp?: number; ramp?: number }[]): void {
+  applyAll(list: { tag: string; on: boolean; pos?: -1 | 0 | 1; temp?: number; ramp?: number; leak?: number | null }[]): void {
     let changed = false;
     for (const e of list) {
+      if (e.leak !== undefined) {
+        if (!this.m.faultDev.has(e.tag)) continue;
+        if (e.leak === null) {
+          if (!this.faults.delete(e.tag)) continue;
+          this.faultView.delete(e.tag);
+        } else if (this.faults.get(e.tag) === e.leak) continue;
+        else this.faults.set(e.tag, Math.max(0, e.leak));
+        changed = true;
+        continue;
+      }
       if (e.temp !== undefined) {
         changed = this.setTemp(e.tag, e.temp, e.ramp ?? 0) || changed;
         continue;
@@ -799,6 +826,58 @@ export class CircuitSim {
     if (!changed) return;
     this.settle();
     this.record();
+  }
+
+  /** 기기에 누전을 일으키거나 (절연 저항 Ω, 0 = 완전 지락) 없앤다 (null) */
+  setLeak(tag: string, rf: number | null): boolean {
+    if (!this.m.faultDev.has(tag)) return false;
+    if (rf === null ? !this.faults.has(tag) : this.faults.get(tag) === rf) return false;
+    if (rf === null) {
+      this.faults.delete(tag);
+      this.faultView.delete(tag);
+    } else this.faults.set(tag, Math.max(0, rf));
+    this.settle();
+    this.record();
+    return true;
+  }
+
+  /** 누전 중인 기기마다 지락 전류를 계산하고, 끊는 차단기가 있으면 끊는다 (끊었으면 true) */
+  private faultStep(): boolean {
+    const cfg = earthingOf(this.m.circuit);
+    this.faultAdj ??= conductorGraph(this.m.conductors);
+    const src = phaseSources(this.m);
+    let tripped = false;
+    for (const [tag, rf] of this.faults) {
+      const d = this.m.faultDev.get(tag)!;
+      const earthed = d.pe === null ? !REAL.has(d.part.type) : this.netPole[d.pe] === 'PE';
+      // 전압이 걸린 충전부에서 전원 쪽으로 (지금 닫힌 접점만)
+      const live = d.live.filter((n) => {
+        const p = this.netPole[n];
+        return p === 'L1' || p === 'L2' || p === 'L3';
+      });
+      const path = live.length ? feedPath(this.faultAdj, live, src, (k) => this.conductorClosed(k)) : null;
+      const r = earthFault(path ? phaseVolt(this.m.circuit, path.phase) : 0, earthed, rf, cfg, path?.protectors ?? []);
+      this.faultView.set(tag, r);
+      if (r.u0 <= 0) continue;
+      const key = `fault:${tag}:${rf}:${r.trip?.part.id ?? ''}:${earthed}`;
+      if (!this.warned.has(key)) {
+        this.warned.add(key);
+        const text = faultText(this.m.label(tag), r, cfg);
+        this.faultLog.push({ t: this.t, tag, text, level: r.level });
+        this.warnings.push(`${formatTime(this.t, 's')}: ${text}`);
+      }
+      if (r.trip) {
+        const bt = tagKey(r.trip.part);
+        // 끊는 데 걸리는 시간 동안은 지락 전류가 흐른다 (차트에 보이게). 시작할 때 (boot) 는 바로
+        if (this.act.get(bt) !== false && !this.tripAt.has(bt)) {
+          if (this.boot) {
+            this.act.set(bt, false);
+            tripped = true;
+          } else this.tripAt.set(bt, this.t + (r.trip.why === 'rcd' ? 30 : 10));
+        }
+      }
+    }
+    return tripped;
   }
 
   selPos(tag: string): -1 | 0 | 1 {
@@ -1220,6 +1299,8 @@ export class CircuitSim {
     for (let i = 0; i < 400; i++) {
       this.evaluate();
       if (!this.stepOnce()) {
+        // 누전: 지락 전류로 차단기가 끊으면 다시 자리 잡는다
+        if (this.faults.size && this.faultStep()) continue;
         this.retarget();
         // 한 번에 한 줄로: 아직 알리지 않은 코일만 모아서
         const keys = [...flips].filter(([key, k]) => k >= 2 && !this.warned.has(`pulse:${key}`)).map(([key]) => key);
@@ -1244,6 +1325,7 @@ export class CircuitSim {
   nextEvent(withScan = true): number | null {
     let best = withScan && this.nextScan !== null ? this.nextScan : Infinity;
     for (const pd of this.pending.values()) best = Math.min(best, pd.at);
+    for (const at of this.tripAt.values()) best = Math.min(best, at);
     // 온도: 향하는 온도, 설정 · 경보 온도 (오를 때) 와 되돌아가는 온도 (내릴 때) 에 닿는 시각
     for (const [z, s] of this.zones) {
       if (!s.rate) continue;
@@ -1327,6 +1409,12 @@ export class CircuitSim {
         return;
       }
       this.moveTo(next);
+      // 지락으로 차단기가 끊는 시각
+      for (const [bt, at] of [...this.tripAt]) {
+        if (at > this.t + EPS) continue;
+        this.tripAt.delete(bt);
+        this.act.set(bt, false);
+      }
       // 릴레이 동작 시간이 지난 코일 · 타이머
       const chatter: string[] = [];
       for (const [key, pd] of [...this.pending]) {
@@ -1406,6 +1494,11 @@ export class CircuitSim {
     for (const [tag, p] of m.cylDef) {
       this.tracks.push({ key: `cyl:${tag}`, tag: m.label(tag), kind: 'cyl', part: p, points: [], last: null });
     }
+    // 누전: 기기마다 누전 여부 · 접지로 흐르는 전류 (차트에는 바뀐 것만)
+    for (const [tag, d] of m.faultDev) {
+      this.tracks.push({ key: `leak:${tag}`, tag: m.label(tag), kind: 'leak', part: d.part, points: [], last: null });
+      this.tracks.push({ key: `ie:${tag}`, tag: m.label(tag), kind: 'earthA', part: d.part, points: [], last: null });
+    }
     // PLC: 선이 이어진 입출력 단자만
     const wired = (p: Part, i: number) => {
       const n = m.net.pinNet.get(`${p.id}:${i}`)!;
@@ -1440,6 +1533,12 @@ export class CircuitSim {
         return this.counters.get(tag)?.out ? 1 : 0;
       case 'tempVal':
         return Math.round(this.zoneTemp(tag) * 100) / 100;
+      case 'leak':
+        return this.faults.has(tag) ? 1 : 0;
+      case 'earthA': {
+        const f = this.faultView.get(tag);
+        return f && this.faults.has(tag) ? Math.round(f.ifA * 1000) / 1000 : 0;
+      }
       case 'tempOut':
         return this.temps.get(tag)?.out ? 1 : 0;
       case 'tempAlarm':
@@ -1480,6 +1579,8 @@ export class CircuitSim {
         const remain = Math.abs(st.target - st.pos) * this.strokeTime(this.m.cylDef.get(tag)!, st.target);
         if (remain > 0) pt.ramp = Math.round(remain * 1000) / 1000;
       }
+      // 지락 전류는 계단으로 바뀐다 (아날로그 선이 비스듬히 이어지지 않게 바로 앞에 이전 값)
+      if (tr.kind === 'earthA' && tr.last !== null && t > 0.001) tr.points.push({ t: Math.round((t - 0.001) * 1000) / 1000, v: tr.last as number });
       tr.points.push(pt);
       if (tr.last !== null) this.lastChangeT = Math.max(this.lastChangeT, t);
       tr.last = key;
@@ -1499,6 +1600,8 @@ export interface OpEvent {
   /** 온도 기기: 바꿀 온도 (℃) 와 걸리는 시간 (ms) */
   temp?: number;
   ramp?: number;
+  /** 누전: 절연 저항 (Ω) 으로 시작, null = 끝 */
+  leak?: number | null;
 }
 
 /** 조작 순서의 각 줄 시각 (앞 줄 조작 시각 + 대기) */
@@ -1518,6 +1621,10 @@ export function opsToEvents(ops: OpStep[]): OpEvent[] {
       ev.push({ t, tag, on: true });
       ev.push({ t: t + Math.max(0, o.hold), tag, on: false });
     } else if (o.action === 'temp') ev.push({ t, tag, on: false, temp: o.value ?? 0, ramp: Math.max(0, o.hold || 0) });
+    else if (o.action === 'leak') {
+      ev.push({ t, tag, on: false, leak: Math.max(0, o.value ?? 0) });
+      if (o.hold > 0) ev.push({ t: t + o.hold, tag, on: false, leak: null });
+    }
     else if (o.action === 'left' || o.action === 'right') ev.push({ t, tag, on: true, pos: o.action === 'left' ? -1 : 1 });
     else ev.push({ t, tag, on: o.action === 'on' });
   });
@@ -1560,7 +1667,7 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
     for (; i < events.length && events[i].t <= t + EPS; i++) {
       const ev = events[i];
       const k = model.tagKind.get(ev.tag);
-      if (ev.temp !== undefined ? k !== 'temp' : k !== 'operator' && k !== 'thr') {
+      if (ev.leak !== undefined ? !model.faultDev.has(ev.tag) : ev.temp !== undefined ? k !== 'temp' : k !== 'operator' && k !== 'thr') {
         missing.add(ev.tag);
         continue;
       }

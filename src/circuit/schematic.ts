@@ -385,7 +385,7 @@ function contactSym(k: Conductor): Sym | null {
     case 'r_mcb2':
     case 'r_mcb3':
     case 'r_mcb4':
-      return { type: 'mcb', tag, extra: {} };
+      return { type: 'mcb', tag, extra: keep('elb', 'idn', 'amps', 'spec') };
     case 'r_fuse':
       return { type: 'fuse', tag, extra: {} };
     case 'r_mc':
@@ -672,6 +672,15 @@ export function toSchematic(c: Circuit): SchematicResult {
   if (c.vll) out.vll = c.vll;
   if (c.supply) out.supply = c.supply;
   if (c.relayMs) out.relayMs = c.relayMs;
+  if (c.earthing) out.earthing = c.earthing;
+  if (c.ra) out.ra = c.ra;
+  if (c.rb) out.rb = c.rb;
+  // 회로도에 그리지 않는 콘센트에 누전 조작이 있으면 알린다
+  for (const o of c.ops) {
+    if (o.action !== 'leak') continue;
+    const p = c.parts.find((q) => q.tag.trim().toUpperCase() === o.tag.trim().toUpperCase());
+    if (p?.type === 'r_outlet') notes.push(tr(`콘센트 ${p.tag} 는 회로도에 그리지 않아 그 누전 조작은 빠집니다`, `Outlet ${p.tag} is not drawn in the schematic; its earth-fault step is dropped`));
+  }
   return { circuit: out, notes: [...new Set(notes)] };
 }
 
@@ -947,6 +956,8 @@ function drawMain(m: CircuitModel, node: (n: number) => number, srcPoles: Map<nu
     const p = dv.part;
     const extra: Partial<Part> = {};
     if (p.name) extra.name = p.name;
+    // 차단기의 누전 (ELB) · 정격: 누전 계산이 그대로 되게
+    for (const k of ['elb', 'idn', 'amps', 'spec'] as const) if ((dv.type === 'mcb3' || dv.type === 'mcb') && p[k] !== undefined) Object.assign(extra, { [k]: p[k] });
     if (dv.type === 'r_motor6' || dv.type === 'r_load3') Object.assign(extra, Object.fromEntries((['spec', 'watt', 'pf', 'eff'] as const).filter((k) => p[k] !== undefined).map((k) => [k, p[k]])));
     d.part(dv.type, dv.x, dv.y + shift, p.tag.trim(), extra);
     tags.add(p.tag.trim().toUpperCase());

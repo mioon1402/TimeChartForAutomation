@@ -4,6 +4,7 @@ import { onWireInterior } from './netlist';
 import type { CircuitModel } from './engine';
 import { nominalVolt, poleLive, systemVolts } from './supply';
 import { POLE_WIRE } from './wires';
+import { earthStudy } from './earth';
 import { tr } from '../i18n';
 
 /**
@@ -358,6 +359,19 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       }
       for (const b of bad.values()) out.push({ level: b.level, msg: `${b.msg} ${tr(`${b.wires.length}가닥`, `(${b.wires.length})`)}`, partIds: [], wireIds: b.wires });
     }
+  }
+  // TT 계통: 지락 전류가 작아 (약 2 A) 일반 차단기가 떨어지지 않으니 누전차단기가 있어야 한다
+  if (c.earthing === 'TT') {
+    const bad = earthStudy(c, model).rows.filter((r) => r.r.level === 'danger');
+    if (bad.length)
+      out.push({
+        level: 'warn',
+        msg: tr(
+          `TT 계통인데 ${bad.map((r) => r.name).join(' · ')} 이(가) 누전 때 끊기지 않습니다 (지락 전류가 작아 차단기가 떨어지지 않고 외함에 위험한 전압이 남거나, 외함이 접지되지 않음) → 누전차단기 (30 mA) 를 거치게 하고 외함을 접지하세요. [해석] 의 누전 · 지락 검토를 보세요`,
+          `TT system: ${bad.map((r) => r.name).join(', ')} would not be disconnected on an earth fault (fault current too small for the breaker, or the frame is not earthed) — feed it through an RCD (30 mA) and earth the frame; see Earth faults in Analysis`,
+        ),
+        partIds: bad.map((r) => r.part.id),
+      });
   }
   out.push(...plcChecks(model, { allPoles, bare, sources, wired, name, pinNet }));
   return out;

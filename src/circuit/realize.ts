@@ -435,7 +435,7 @@ export function toWiring(c: Circuit): WiringResult {
         two('r_load1', { ...(p.watt ? { watt: p.watt } : {}), ...(p.pf ? { pf: p.pf } : {}), ...(p.type === 'motor' && !p.name ? { name: tr('전동기', 'Motor') } : {}) });
         break;
       case 'mcb':
-        two('r_mcb1', p.spec ? { spec: p.spec } : {});
+        two('r_mcb1', { ...(p.spec ? { spec: p.spec } : {}), ...(p.amps ? { amps: p.amps } : {}) });
         break;
       case 'fuse':
         two('r_fuse', p.amps ? { amps: p.amps } : {});
@@ -448,7 +448,7 @@ export function toWiring(c: Circuit): WiringResult {
         }
         break;
       case 'mcb3': {
-        const d = mk('r_mcb3', t, p, { ...(p.name ? { name: p.name } : {}), ...(p.spec ? { spec: p.spec } : {}) });
+        const d = mk('r_mcb3', t, p, { ...(p.name ? { name: p.name } : {}), ...(p.spec ? { spec: p.spec } : {}), ...(p.elb ? { elb: true } : {}), ...(p.idn ? { idn: p.idn } : {}), ...(p.amps ? { amps: p.amps } : {}) });
         [0, 1, 2, 3, 4, 5].forEach((i) => link(d, i, net(p, i)));
         break;
       }
@@ -561,6 +561,9 @@ export function toWiring(c: Circuit): WiringResult {
     ...(c.system ? { system: c.system } : {}),
     ...(c.vll ? { vll: c.vll } : {}),
     ...(c.relayMs ? { relayMs: c.relayMs } : {}),
+    ...(c.earthing ? { earthing: c.earthing } : {}),
+    ...(c.ra ? { ra: c.ra } : {}),
+    ...(c.rb ? { rb: c.rb } : {}),
   };
   const pinNets = new Map<string, number>();
   for (const d of devs) for (const [i, n] of d.pins) pinNets.set(`${d.part.id}:${i}`, n);
