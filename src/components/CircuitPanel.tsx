@@ -7,6 +7,7 @@ import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, trImpedance, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
 import { BODY_OHM, earthingOf, earthStudy, ZLOOP_TN, type EarthRow } from '../circuit/earth';
+import { DEFAULT_PRICE, energyUse } from '../circuit/energy';
 import { changeSocketLayout } from '../circuit/socket';
 import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempDevice, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
@@ -748,6 +749,7 @@ export function CircuitPanel() {
               />
             )}
             {side === 'power' && <EarthSection circuit={circuit} model={model} onPick={(parts) => (setSel({ parts, wires: [] }), setPowerPick({ parts, wires: [] }))} />}
+            {side === 'power' && preview && <EnergySection circuit={circuit} res={preview.res} onChange={(c) => commitCircuit(c)} onPick={(parts) => (setSel({ parts, wires: [] }), setPowerPick({ parts, wires: [] }))} />}
             {side === 'check' && <CheckPane issues={issues} onPick={(ids, wires) => (setSel({ parts: ids, wires }), setPowerPick({ parts: ids, wires }), ids.length === 1 && !wires.length && setSide('props'))} />}
           </div>
         </aside>
@@ -1594,6 +1596,117 @@ function EarthSection({ circuit, model, onPick }: { circuit: Circuit; model: Cir
   );
 }
 
+/** 시간 글: 3시간 15분 · 12분 30초 · 4.2초 */
+function durText(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s >= 3600) return tr(`${Math.floor(s / 3600)}시간 ${Math.round((s % 3600) / 60)}분`, `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`);
+  if (s >= 60) return tr(`${Math.floor(s / 60)}분 ${s % 60}초`, `${Math.floor(s / 60)} min ${s % 60} s`);
+  return tr(`${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}초`, `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`);
+}
+const won = (x: number) => `${x < 10 && x > 0 ? x.toFixed(1) : Math.round(x).toLocaleString('ko-KR')}${tr('원', ' KRW')}`;
+const kwhText = (x: number) => `${x.toFixed(x < 0.1 ? 3 : x < 100 ? 2 : 0)} kWh`;
+
+/** [해석] 의 전력량 · 전기 요금: 시뮬레이션에서 부하가 켜져 있던 시간 × kW × 단가 */
+function EnergySection({ circuit, res, onChange, onPick }: { circuit: Circuit; res: ScenarioResult; onChange: (c: Circuit) => void; onPick: (parts: string[]) => void }) {
+  const e = useMemo(() => energyUse(circuit, res), [circuit, res]);
+  if (!e.rows.length) return null;
+  const hours = e.period / 3600000;
+  return (
+    <div className="cc-energy">
+      <h4>{tr('전력량 · 전기 요금', 'Energy & cost')}</h4>
+      <p className="small muted">
+        {e.day
+          ? tr('24시간 타임 스위치가 있어 하루를 돌린 결과입니다. 온도 조절처럼 켜졌다 꺼졌다 하는 부하도 실제로 켜져 있던 시간만 셉니다.', 'One full day (the circuit has a 24-h time switch). Loads that cycle on and off are counted only while they are on.')
+          : tr(`조작 순서 ${durText(e.period)} 동안 켜져 있던 시간으로 계산합니다. 하루 단위로 보려면 24시간 타임 스위치를 넣으세요.`, `Counted over the ${durText(e.period)} operation sequence. Add a 24-h time switch to simulate a whole day.`)}
+      </p>
+      <div className="grid2">
+        <Field label={tr('전력량 단가 (원/kWh)', 'Energy price (KRW/kWh)')} hint={tr(`비우면 ${DEFAULT_PRICE}원 (2025 산업용 평균 어림)`, `blank = ${DEFAULT_PRICE} (2025 industrial average)`)}>
+          <NumberInput allowEmpty value={circuit.price} min={0} step={1} placeholder={String(DEFAULT_PRICE)} onChange={(v) => onChange({ ...circuit, price: v !== undefined && v >= 0 ? v : undefined })} />
+        </Field>
+        <Field label={tr('기본요금 (원/kW · 월)', 'Demand charge (KRW/kW·month)')} hint={tr('고지서의 계약 종별 요금', 'from your tariff')}>
+          <NumberInput allowEmpty value={circuit.basePrice} min={0} step={10} placeholder="0" onChange={(v) => onChange({ ...circuit, basePrice: v && v > 0 ? v : undefined })} />
+        </Field>
+        <Field label={tr('계약 전력 (kW)', 'Contract (kW)')} hint={tr('비우면 부하 설비 합', 'blank = sum of loads')}>
+          <NumberInput allowEmpty value={circuit.contractKw} min={0} step={1} placeholder={String(e.contractKw)} onChange={(v) => onChange({ ...circuit, contractKw: v && v > 0 ? v : undefined })} />
+        </Field>
+      </div>
+      <table className="cc-table">
+        <thead>
+          <tr>
+            <th>{tr('부하', 'Load')}</th>
+            <th>kW</th>
+            <th>{tr('켜진 시간', 'On time')}</th>
+            <th>kWh</th>
+            <th>{tr('요금', 'Cost')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {e.rows.map((r) => (
+            <tr key={r.tag} onClick={() => onPick(r.parts.map((p) => p.id))}>
+              <td className="mono">
+                <b>{r.tag}</b>
+                {r.name && <div className="small muted">{r.name}</div>}
+              </td>
+              <td className="num">{r.kw >= 0.1 ? r.kw.toFixed(r.kw >= 10 ? 1 : 2) : r.kw.toFixed(3)}</td>
+              <td className="num">
+                {durText(r.onMs)}
+                <div className="small muted">{e.period > 0 ? Math.round((r.onMs / e.period) * 100) : 0}%</div>
+              </td>
+              <td className="num">{kwhText(r.kwh)}</td>
+              <td className="num">{won(r.cost)}</td>
+            </tr>
+          ))}
+          <tr className="cc-total">
+            <td colSpan={3}>
+              <b>{e.day ? tr('하루 합계', 'Per day') : tr('합계', 'Total')}</b>
+            </td>
+            <td className="num">
+              <b>{kwhText(e.kwh)}</b>
+            </td>
+            <td className="num">
+              <b>{won(e.cost)}</b>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      {e.month ? (
+        <table className="cc-table">
+          <tbody>
+            <tr>
+              <td>{tr('한 달 (30일) 전력량', 'Month (30 days) energy')}</td>
+              <td className="num">{kwhText(e.month.kwh)}</td>
+            </tr>
+            <tr>
+              <td>{tr('전력량 요금', 'Energy charge')}</td>
+              <td className="num">{won(e.month.energy)}</td>
+            </tr>
+            <tr>
+              <td>{tr(`기본요금 (${e.contractKw} kW × ${e.basePrice.toLocaleString('ko-KR')}원)`, `Demand (${e.contractKw} kW × ${e.basePrice})`)}</td>
+              <td className="num">{won(e.month.base)}</td>
+            </tr>
+            <tr className="cc-total">
+              <td>
+                <b>{tr('한 달 어림', 'Month estimate')}</b>
+              </td>
+              <td className="num">
+                <b>{won(e.month.total)}</b>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      ) : (
+        hours > 0 && <p className="small">{tr(`이 순서를 1시간 동안 되풀이하면 약 ${kwhText(e.kwh / hours)} · ${won(e.cost / hours)}`, `Repeated for an hour: about ${kwhText(e.kwh / hours)} · ${won(e.cost / hours)}`)}</p>
+      )}
+      <p className="small muted">
+        {tr(
+          `1 kW 를 1시간 쓰면 1 kWh = ${won(e.price)}. 전동기는 효율로 나눈 입력 전력으로 셉니다. 계절 · 시간대 요금, 역률 할인 · 할증, 부가세 · 전력산업기반기금은 넣지 않은 어림입니다.`,
+          `1 kW for 1 hour = 1 kWh = ${won(e.price)}. Motors use input power (output ÷ efficiency). Seasonal / time-of-use rates, power-factor adjustments and taxes are not included.`,
+        )}
+      </p>
+    </div>
+  );
+}
+
 function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>) => void; circuit: Circuit }) {
   const big = p.type === 'r_load1' || p.type === 'r_load3' || p.type === 'r_motor3' || p.type === 'motor3' || p.type === 'motor';
   const motor = p.type === 'r_motor3' || p.type === 'motor3' || p.type === 'motor';
@@ -1742,6 +1855,7 @@ function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>
         )}
       </div>
       {(p.type === 'r_load1' || p.type === 'r_load3') && <Check checked={!!p.lighting} onChange={(v) => set({ lighting: v || undefined })} label={tr('조명 부하 (전압강하 허용값이 더 작다)', 'Lighting load (stricter voltage drop)')} />}
+      {(p.type === 'r_load1' || p.type === 'r_load3') && <Check checked={!!p.pe} onChange={(v) => set({ pe: v || undefined })} label={tr('외함 접지 단자 PE (금속 외함 · Ⅰ종 기기)', 'Frame earth terminal PE (metal case, class I)')} />}
       <p className="small muted">
         {tr('정격 전류', 'Rated current')} <b>{amps.toFixed(1)} A</b> ({three ? tr('3상', '3-ph') : tr('단상', '1-ph')} {nominalVolt(volt)} V{motor ? tr(', 기동 전류는 계산하지 않습니다', '; starting current is not modelled') : ''})
       </p>
@@ -1951,8 +2065,8 @@ function Tips() {
 /** 온도 기기 속성: 설정 · 히스테리시스 · 경보 · 동작, 온도가 바뀌는 방식 (묶음 · 연결 부하 · 속도) */
 function TempProps({ p, circuit, set }: { p: Part; circuit: Circuit; set: (patch: Partial<Part>) => void }) {
   const { sv, hys } = tempSetting(p);
-  const loads = [...new Set(circuit.parts.filter((q) => PARTS[q.type].load && !PARTS[q.type].selfCoil && q.type !== 'coil' && q.type !== 'timer' && q.type !== 'r_tc' && q.type !== 'r_counter' && q.tag.trim()).map((q) => q.tag.trim()))];
-  const tc = p.type === 'r_tc';
+  const loads = [...new Set(circuit.parts.filter((q) => PARTS[q.type].load && !PARTS[q.type].selfCoil && q.type !== 'coil' && q.type !== 'timer' && q.type !== 'r_tc' && q.type !== 'r_tc8' && q.type !== 'r_counter' && q.tag.trim()).map((q) => q.tag.trim()))];
+  const tc = p.type === 'r_tc' || p.type === 'r_tc8';
   return (
     <>
       <div className="grid2">
@@ -1967,9 +2081,11 @@ function TempProps({ p, circuit, set }: { p: Part; circuit: Circuit; set: (patch
             <Field label={tr('제어 동작', 'Control action')}>
               <Select value={p.tcMode ?? 'heat'} onChange={(v: 'heat' | 'cool') => set({ tcMode: v === 'cool' ? 'cool' : undefined })} options={[{ value: 'heat', label: tr('가열 (설정보다 낮으면 OUT)', 'Heating (OUT below set)') }, { value: 'cool', label: tr('냉각 (설정 이상이면 OUT)', 'Cooling (OUT above set)') }]} />
             </Field>
-            <Field label={tr('경보 온도 AL (℃)', 'Alarm AL (℃)')} hint={tr('이 온도 이상이면 C2-AL 닫힘. 비우면 경보 없음', 'C2-AL closes at or above this. Empty = no alarm')}>
-              <NumberInput value={p.alarm} allowEmpty placeholder={tr('없음', 'none')} min={-100} max={2000} step={1} onChange={(v) => set({ alarm: v })} />
-            </Field>
+            {p.type === 'r_tc' && (
+              <Field label={tr('경보 온도 AL (℃)', 'Alarm AL (℃)')} hint={tr('이 온도 이상이면 C2-AL 닫힘. 비우면 경보 없음', 'C2-AL closes at or above this. Empty = no alarm')}>
+                <NumberInput value={p.alarm} allowEmpty placeholder={tr('없음', 'none')} min={-100} max={2000} step={1} onChange={(v) => set({ alarm: v })} />
+              </Field>
+            )}
           </>
         )}
         {p.type === 'r_thermo' && (

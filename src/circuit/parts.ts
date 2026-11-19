@@ -469,6 +469,24 @@ export const PARTS: Record<PartType, PartDef> = {
     box: [-6, -5.4, 6, 6],
     prefix: 'TC',
   },
+  // 온도 조절기 8핀 (T3S 꼴, 48×48 썸휠 설정): 위 측온저항체 입력 A · B · B', 아래 전원 L · N 과 릴레이 출력 COM → NO · NC.
+  // 단자 번호는 기종마다 달라 기능 이름으로 적는다 (실물은 옆면 결선도)
+  r_tc8: {
+    type: 'r_tc8',
+    cat: 'relay',
+    pins: [pin(-4, 6, 'L'), pin(-2, 6, 'N'), pin(0, 6, 'COM'), pin(2, 6, 'NO'), pin(4, 6, 'NC'), pin(-2, -6, 'A'), pin(0, -6, 'B'), pin(2, -6, "B'")],
+    poles: [
+      [2, 3],
+      [2, 4],
+    ],
+    polesNc: [false, true],
+    load: true,
+    loadPins: [0, 1],
+    box: [-6, -6.6, 6, 6.6],
+    prefix: 'TC',
+  },
+  // 측온저항체 Pt100 3선식 (보호관 · 나사 고정 · 편조 케이블): 리드선 A (한 가닥) · B · B' (같은 색 두 가닥)
+  r_rtd: { type: 'r_rtd', cat: 'switch', pins: [pin(-2, 4, 'A'), pin(0, 4, 'B'), pin(2, 4, "B'")], box: [-3, -7, 3, 4.6], prefix: 'RTD' },
   // 판넬 서모스탯 (바이메탈): 아래 단자 1 · 2. NC 는 온도가 오르면 열리고 (히터), NO 는 닫힌다 (팬)
   r_thermo: { type: 'r_thermo', cat: 'switch', pins: [pin(-1, 3, '1'), pin(1, 3, '2')], poles: [[0, 1]], box: [-2.4, -4, 2.4, 3.6], prefix: 'TS' },
   // SSR: 위 1 · 2 출력 (교류 부하), 아래 3 (+) · 4 (-) 입력 (직류)
@@ -493,7 +511,7 @@ export const PARTS: Record<PartType, PartDef> = {
   r_sw: { type: 'r_sw', cat: 'switch', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], poles: [[0, 1]], operate: 'toggle', box: [-2, -2.6, 2, 2.8], prefix: 'S' },
   // 부하 (용량으로 전류를 계산): 단상 L · N, 3상 L1 · L2 · L3
   r_load1: { type: 'r_load1', cat: 'output', pins: [pin(-1, -3, 'L'), pin(1, -3, 'N')], load: true, box: [-3.2, -3.8, 3.2, 3], prefix: 'LD' },
-  r_load3: { type: 'r_load3', cat: 'output', pins: [pin(-2, -3, 'L1'), pin(0, -3, 'L2'), pin(2, -3, 'L3')], load: true, box: [-3.6, -3.8, 3.6, 3], prefix: 'LD' },
+  r_load3: { type: 'r_load3', cat: 'output', pins: [pin(-2, -3, 'L1'), pin(0, -3, 'L2'), pin(2, -3, 'L3')], load: true, box: [-3.6, -3.8, 4, 3], prefix: 'LD' },
   // 수전 · 변압기 (계통 해석): 한전 수전점 (특고압 A B C), 진공차단기, 3상 변압기 (Δ-Y, 2차 X0 = N)
   r_kepco: { type: 'r_kepco', cat: 'power', pins: [pin(-2, 3, 'A'), pin(0, 3, 'B'), pin(2, 3, 'C')], box: [-3.6, -4.2, 3.6, 3], prefix: 'UT' },
   r_vcb: {
@@ -548,7 +566,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -651,12 +669,13 @@ export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right' 
 
 /** 온도 기기인가: 온도 조절기 · 판넬 서모스탯 · 온도 스위치 기호 */
 export function isTempDevice(p: Pick<Part, 'type' | 'sense'>): boolean {
-  return p.type === 'r_tc' || p.type === 'r_thermo' || ((p.type === 'ls_no' || p.type === 'ls_nc') && p.sense === 'temp');
+  return p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_thermo' || ((p.type === 'ls_no' || p.type === 'ls_nc') && p.sense === 'temp');
 }
 
 /** 온도 기기의 설정 온도 · 히스테리시스 (℃) */
 export function tempSetting(p: Pick<Part, 'sv' | 'hys' | 'type'>): { sv: number; hys: number } {
-  return { sv: typeof p.sv === 'number' ? p.sv : p.type === 'r_tc' ? 60 : 40, hys: Math.max(0.1, typeof p.hys === 'number' ? p.hys : p.type === 'r_tc' ? 2 : 5) };
+  const tc = p.type === 'r_tc' || p.type === 'r_tc8';
+  return { sv: typeof p.sv === 'number' ? p.sv : tc ? 60 : 40, hys: Math.max(0.1, typeof p.hys === 'number' ? p.hys : tc ? 2 : 5) };
 }
 
 /** 카운터 설정 수 */
@@ -681,6 +700,8 @@ export function partPins(p: Part): PinDef[] {
     const { ins, outs } = plcAddresses(p);
     return rplcPins(ins, outs);
   }
+  // 부하 상자: 금속 외함이면 접지 단자 PE (끝에 붙여 예전 그림의 단자 차례는 그대로)
+  if ((p.type === 'r_load1' || p.type === 'r_load3') && p.pe) return [...PARTS[p.type].pins, pin(p.type === 'r_load1' ? 2 : 3, -3, 'PE')];
   if (p.type === 'r_bus') return BUS_PHASES.slice(0, busSize(p).bars).map((ph, k) => pin(2 * k, 0, ph));
   // 8핀 소켓은 단자 배열에 따라 자리가 다르다 (차례는 늘 단자 번호 1~8)
   if (p.type === 'r_relay8' || p.type === 'r_timer8') return OCTAL_PINS[octalLayout(p)];
@@ -940,6 +961,10 @@ export function partKindName(type: PartType): string {
       return tr('프리셋 카운터', 'Preset counter');
     case 'r_tc':
       return tr('온도 조절기', 'Temperature controller');
+    case 'r_tc8':
+      return tr('온도 조절기 (8핀, 측온저항체)', 'Temperature controller (8-pin, RTD)');
+    case 'r_rtd':
+      return tr('측온저항체 Pt100 (3선식)', 'RTD Pt100 (3-wire)');
     case 'r_thermo':
       return tr('판넬 서모스탯', 'Panel thermostat');
     case 'r_plc':
@@ -1034,6 +1059,7 @@ export function palette(): PaletteGroup[] {
         it('r_timer8', tr('인터벌 (원샷) 타이머', 'Interval (one-shot) timer'), { sock: 'pf', timerMode: 'interval', preset: 3000 }, 'rt8-int'),
         it('r_counter', tr('카운터 (프리셋)', 'Counter (preset)'), { count: 5 }),
         it('r_tc', tr('온도 조절기 (48×48)', 'Temperature controller (48×48)'), { sv: 60, hys: 2, alarm: 80 }),
+        it('r_tc8', tr('온도 조절기 8핀 (T3S 꼴 · Pt100)', 'Temp. controller 8-pin (T3S type, Pt100)'), { sv: 60, hys: 2 }),
         it('r_ssr', tr('SSR (무접점 릴레이)', 'SSR (solid-state relay)')),
         it('r_tsw', tr('24시간 타임 스위치', '24-h time switch'), { sched: [[18 * 3600000, 23 * 3600000]] }),
         it('r_sol', tr('솔레노이드 밸브', 'Solenoid valve')),
@@ -1068,6 +1094,7 @@ export function palette(): PaletteGroup[] {
         it('r_prox2', tr('근접 센서 AC 2선식', 'Proximity AC 2-wire'), { sense: 'inductive', ac: true }, 'rprox2-ac'),
         it('r_float', tr('플로트 스위치 (수위)', 'Float switch')),
         it('r_psw', tr('압력 스위치', 'Pressure switch')),
+        it('r_rtd', tr('측온저항체 Pt100 (3선식)', 'RTD Pt100 (3-wire)')),
         it('r_thermo', tr('판넬 서모스탯 (히터 · NC)', 'Panel thermostat (heater, NC)'), { ncOut: true, sv: 10, hys: 5 }, 'rthermo-nc'),
         it('r_thermo', tr('판넬 서모스탯 (팬 · NO)', 'Panel thermostat (fan, NO)'), { sv: 35, hys: 5 }, 'rthermo-no'),
       ],
@@ -1120,8 +1147,8 @@ export function palette(): PaletteGroup[] {
         it('r_panel', tr('분전반 · 변전함 (테두리)', 'Panel box'), { w: 20, h: 24, name: tr('분전반', 'Panel') }),
         it('r_bus', tr('부스바 4극 (L1 L2 L3 N)', 'Busbar 4-pole'), { bars: 4, h: 20, mm2: 100, amps: 250 }, 'bus4'),
         it('r_bus', tr('부스바 3극 (L1 L2 L3)', 'Busbar 3-pole'), { bars: 3, h: 20, mm2: 100, amps: 250 }, 'bus3'),
-        it('r_load3', tr('부하 3상 (kW)', '3-phase load (kW)'), { watt: 7500, pf: 0.9 }),
-        it('r_load1', tr('부하 단상 (kW)', '1-phase load (kW)'), { watt: 2000, pf: 1 }),
+        it('r_load3', tr('부하 3상 (kW)', '3-phase load (kW)'), { watt: 7500, pf: 0.9, pe: true }),
+        it('r_load1', tr('부하 단상 (kW)', '1-phase load (kW)'), { watt: 2000, pf: 1, pe: true }),
       ],
     },
     {

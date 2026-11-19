@@ -70,6 +70,8 @@ export interface TempDef {
   alarm: number | null;
   /** 냉각 동작: 설정 이상이면 OUT */
   cool: boolean;
+  /** 센서가 제대로 이어졌는가 (8핀 조절기의 측온저항체 A · B · B'). 끊기면 출력을 끈다 (번아웃) */
+  sensorOk: boolean;
 }
 
 /** 온도 묶음: 처음 · 주위 온도, 최고 온도, 오르는 · 내리는 속도 (℃/s), 온도를 바꾸는 부하 */
@@ -100,6 +102,27 @@ export type AirState = 'P' | 'E' | 'X';
 function powerBetween(a: string | null, b: string | null, dcPolarity = false): boolean {
   if (!a || !b || a === b || a === 'short' || b === 'short' || POLE_SYSTEM[a] !== POLE_SYSTEM[b]) return false;
   return !dcPolarity || POLE_SYSTEM[a] !== 'dc' || a === '+24V';
+}
+
+/** 8핀 온도 조절기의 센서 단자 A · B · B' 가 측온저항체의 A · B · B' 와 이어졌는가 (B · B' 는 바뀌어도 됨) */
+export function rtdWired(circuit: Circuit, net: Netlist, tc: Part, conductors: Conductor[] = []): boolean {
+  // 단자대 · 바처럼 늘 통하는 것은 한 가닥으로 본다 (현장 센서는 단자대를 거쳐 들어온다)
+  const parent = new Map<number, number>();
+  const find = (x: number): number => {
+    while (parent.has(x) && parent.get(x) !== x) x = parent.get(x)!;
+    return x;
+  };
+  for (const k of conductors) if (k.always) parent.set(find(k.a), find(k.b));
+  const at = (p: Part, i: number) => {
+    const n = net.pinNet.get(`${p.id}:${i}`);
+    return n === undefined ? undefined : find(n);
+  };
+  const [a, b, b2] = [5, 6, 7].map((i) => at(tc, i));
+  return circuit.parts.some((r) => {
+    if (r.type !== 'r_rtd') return false;
+    const [ra, rb, rb2] = [0, 1, 2].map((i) => at(r, i));
+    return ra === a && ((rb === b && rb2 === b2) || (rb === b2 && rb2 === b)) && rb !== rb2;
+  });
 }
 
 /** 회로 안의 PLC: 입력 단자 넷과 프로그램 디바이스 */
@@ -239,7 +262,7 @@ export class CircuitModel {
         if (!this.tempDef.has(tag)) {
           const s = tempSetting(p);
           const zone = normTag(p.zone ?? '') || tag;
-          this.tempDef.set(tag, { part: p, zone, tc: p.type === 'r_tc', sv: s.sv, hys: s.hys, alarm: p.type === 'r_tc' && typeof p.alarm === 'number' ? p.alarm : null, cool: p.tcMode === 'cool' });
+          this.tempDef.set(tag, { part: p, zone, tc: p.type === 'r_tc' || p.type === 'r_tc8', sv: s.sv, hys: s.hys, alarm: p.type === 'r_tc' && typeof p.alarm === 'number' ? p.alarm : null, cool: p.tcMode === 'cool', sensorOk: true });
           zoneParts.set(zone, [...(zoneParts.get(zone) ?? []), p]);
         }
       } else if (p.type === 'r_tsw') {
@@ -320,6 +343,8 @@ export class CircuitModel {
         if (!this.tagLabel.has(tag)) this.tagLabel.set(tag, p.tag.trim());
       }
     }
+    // 8핀 조절기: 측온저항체가 A · B · B' 에 제대로 이어졌는가 (접점 · 단자대가 다 만들어진 뒤에)
+    for (const d of this.tempDef.values()) if (d.part.type === 'r_tc8') d.sensorOk = rtdWired(circuit, this.net, d.part, this.conductors);
     // 온도 묶음: 값마다 그 값을 처음 적은 기기의 것을 쓴다 (부하 · 속도 · 주위 온도)
     for (const [zone, ps] of zoneParts) {
       const first = <K extends keyof Part>(k: K) => ps.find((q) => q[k] !== undefined && q[k] !== '')?.[k];
@@ -1104,7 +1129,7 @@ export class CircuitSim {
       const hot = st.hot ? pv > d.sv - d.hys + 1e-6 : pv >= d.sv - 1e-6;
       const alHot = d.alarm !== null && (st.alHot ? pv > d.alarm - d.hys + 1e-6 : pv >= d.alarm - 1e-6);
       const pw = !d.tc || this.energized.has(d.part.id);
-      const out = d.tc ? pw && (d.cool ? hot : !hot) : hot;
+      const out = d.tc ? pw && d.sensorOk && (d.cool ? hot : !hot) : hot;
       const al = d.tc && pw && alHot;
       if (hot !== st.hot || alHot !== st.alHot || out !== st.out || al !== st.al) {
         Object.assign(st, { hot, alHot, out, al });

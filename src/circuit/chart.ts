@@ -89,6 +89,7 @@ function defaultName(p: Part): string {
     case 'r_counter':
       return t_('카운터', 'Counter');
     case 'r_tc':
+    case 'r_tc8':
       return t_('온도 조절기', 'Temp. controller');
     case 'r_thermo':
       return t_('서모스탯', 'Thermostat');

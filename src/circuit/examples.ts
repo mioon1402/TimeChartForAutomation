@@ -1517,6 +1517,69 @@ function routeNets(b: Builder, key: string, nets: () => NetList): void {
   for (const w of routedWires.get(key)!) b.wires.push({ ...w, id: uid('cw') });
 }
 
+// ───────────────────── 열풍기 온도 제어 + 24시간 타이머 (T3S 꼴 조절기 · Pt100) ─────────────────────
+
+/**
+ * 단상 220 V 열풍기 5 kW: 누전차단기 → 전자접촉기 → 열풍기 (외함 접지). 조작은 퓨즈 F1 뒤에서
+ *  - 온도 조절기 TC1 (8핀, T3S 꼴): 측온저항체 Pt100 (3선식) 로 작업장 온도를 재서 20℃ 아래면 출력 (COM-NO) → MC1 코일
+ *  - 운전 선택 SS1: 자동 = 24시간 타이머 (08~18시) 를 거쳐서, 수동 = 바로 (잔업), 가운데 = 정지
+ *  - 운전등 GL1 = MC1 보조 a접점
+ * 온도: 주위 5℃, 열풍기가 켜지면 분당 0.6℃ 오르고 꺼지면 분당 0.2℃ 내림 → 켜진 시간만큼 전력량 · 요금 ([해석] 탭)
+ */
+function blowerTimer(): Circuit {
+  const b = new Builder();
+  const tL = b.part('r_term', 2, 0, '', { pole: 'L' });
+  const tN = b.part('r_term', 4, 0, '', { pole: 'N' });
+  const tPE = b.part('r_term', 7, 0, '', { pole: 'PE' });
+  const elb = b.part('r_mcb2', 3, 6, 'ELB1', { name: tr('주 차단기', 'Main RCD'), spec: 'AC 220V 30A', amps: 30, elb: true, idn: 30 });
+  const f1 = b.part('r_fuse', 10, 6, 'F1', { name: tr('조작 회로', 'Control'), amps: 2 });
+  const tsw = b.part('r_tsw', 18, 7, 'TSW1', { name: tr('운전 시간 08~18시', 'Run 08:00–18:00'), sched: [[8 * 3600000, 18 * 3600000]] });
+  const ss1 = b.part('r_ss3', 28, 8, 'SS1', { name: tr('운전 선택', 'Mode'), pos3: tr('수동/정지/자동', 'Manual/Off/Auto'), pos0: 1 });
+  const mc = b.part('r_mc', 5, 25, 'MC1', { name: tr('열풍기 개폐', 'Blower contactor'), spec: tr('코일 AC 220V, 주접점 AC-1 32A', 'coil AC 220V, AC-1 32 A') });
+  const tc = b.part('r_tc8', 38, 8, 'TC1', { name: tr('작업장 온도', 'Workshop temp.'), spec: 'T3S-B4RP2C-N', sv: 20, hys: 2, tLoad: 'HT1', zone: tr('작업장', 'Workshop'), amb: 5, tmax: 35, rise: 0.01, fall: 0.0033 });
+  const rtd = b.part('r_rtd', 53, -4, 'PT1', { name: 'Pt100 Ω' });
+  const ht = b.part('r_load1', 3, 39, 'HT1', { name: tr('열풍기 5 kW', 'Hot-air blower 5 kW'), watt: 5000, pf: 1, pe: true });
+  const gl = b.part('r_lamp', 14, 39, 'GL1', { name: tr('운전', 'Running'), color: 'green' });
+  const peb = b.part('r_nbar', 8, 47, 'PEB', { n: 3, pole: 'PE', name: tr('접지 바', 'Earth bar') });
+  b.part('text', 0, -5, '', { text: tr('열풍기 온도 제어: 측온저항체 → 온도 조절기 (T3S 꼴) → 전자접촉기 → 열풍기 5 kW, 24시간 타이머로 08~18시만 자동 운전', 'Hot-air blower: RTD → controller (T3S type) → contactor → 5 kW blower, 24-h timer runs it 08:00–18:00') });
+  [
+    tr('▶ [해석] 탭 아래 [전력량 · 전기 요금]: 하루 사용량 · 요금과 한 달 어림', '▶ Analysis tab → Energy & cost: daily use, cost and a monthly estimate'),
+    tr('SS1 자동 = 타이머 시간에만, 수동 = 시간과 상관없이 온도로만, 가운데 = 정지', 'SS1 Auto = timer hours only, Manual = temperature only, centre = off'),
+    tr('측온저항체 선을 하나 빼면 TC1 이 oPEn 으로 출력을 끕니다', 'Remove an RTD lead and TC1 shows oPEn with its output off'),
+  ].forEach((x, k) => b.part('text', 24, 28 + k * 2, '', { text: x }));
+  routeNets(b, 'blower-timer', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [tL, ''], [elb, '1']);
+    net('blue', [tN, ''], [elb, '3']);
+    net('brown', [elb, '2'], [mc, '1/L1'], [f1, '1']);
+    net('blue', [elb, '4'], [mc, '3/L2'], [mc, 'A2'], [tc, 'N'], [tsw, 'N'], [gl, 'X2']);
+    net('brown', [mc, '2/T1'], [ht, 'L']);
+    net('blue', [mc, '4/T2'], [ht, 'N']);
+    // 조작 (퓨즈 뒤, 노랑): 조절기 · 타이머 전원, 타이머 COM, 수동 13, MC1 보조 13
+    net('yellow', [f1, '2'], [tc, 'L'], [tsw, 'L'], [tsw, 'COM'], [ss1, '13'], [mc, '13NO']);
+    net('yellow', [tsw, 'NO'], [ss1, '23']);
+    net('yellow', [ss1, '14'], [ss1, '24'], [tc, 'COM']);
+    net('yellow', [tc, 'NO'], [mc, 'A1']);
+    net('yellow', [mc, '14NO'], [gl, 'X1']);
+    // 측온저항체: A (빨강) · B · B' (흰색 두 가닥)
+    net('red', [rtd, 'A'], [tc, 'A']);
+    net('white', [rtd, 'B'], [tc, 'B']);
+    net('white', [rtd, "B'"], [tc, "B'"]);
+    net('gy', [tPE, ''], [peb, '1']);
+    net('gy', [ht, 'PE'], [peb, '2']);
+    return nets;
+  });
+  const c = b.done();
+  c.system = '1p2w';
+  // 19시에 잔업으로 수동 운전, 20시에 다시 자동 (타이머 시간이 지나 꺼짐)
+  c.ops = [
+    { id: uid('op'), wait: 19 * 3600000, tag: 'SS1', action: 'left', hold: 0, note: tr('잔업: 수동 운전', 'Overtime: manual') },
+    { id: uid('op'), wait: 3600000, tag: 'SS1', action: 'right', hold: 0, note: tr('자동으로 (타이머 밖이라 꺼짐)', 'Back to auto (outside the timer)') },
+  ];
+  return c;
+}
+
 // ───────────────────── 누전 · 지락: 접지와 누전차단기 (TT 계통) ─────────────────────
 
 /**
@@ -1929,6 +1992,7 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   substation: 'power',
   'plc-panel': 'panel',
   'earth-fault': 'power',
+  'blower-timer': 'panel',
 };
 
 export interface CircuitExample {
@@ -1977,6 +2041,12 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'timer', name: tr('타이머 지연 동작', 'Timer delay'), desc: tr('기동 3초 뒤 운전, 기다리는 동안 대기 표시', 'Run 3 s after start, waiting lamp meanwhile'), build: timerDelay },
     { id: 'cylinder', name: tr('공압 실린더 1사이클', 'Cylinder one cycle'), desc: tr('기동 → 전진 → 전진단 → 후진 → 후진단', 'Start → advance → end → return'), build: cylinderCycle },
     { id: 'pneumatic', name: tr('전공압 자동 왕복 (밸브 · 근접 센서)', 'Electro-pneumatic auto cycle'), desc: tr('공압원 → FRL → 5/2 양솔 밸브 → 속도 제어 → 실린더, 근접 센서로 왕복', 'Air supply, FRL, 5/2 valve, flow control, cylinder, proximity sensors'), build: electroPneumatic },
+    {
+      id: 'blower-timer',
+      name: tr('열풍기 온도 제어 + 24시간 타이머 (전기 요금)', 'Hot-air blower: temperature control + 24-h timer (energy cost)'),
+      desc: tr('측온저항체 Pt100 → 온도 조절기 (T3S 꼴) → 전자접촉기 → 열풍기 5 kW, 08~18시 자동 운전과 하루 전력량 · 요금', 'Pt100 RTD → controller (T3S type) → contactor → 5 kW blower, timer 08:00–18:00, daily energy and cost'),
+      build: blowerTimer,
+    },
     {
       id: 'earth-fault',
       name: tr('누전 · 지락: 접지와 누전차단기 (TT)', 'Earth faults: earthing and RCDs (TT)'),

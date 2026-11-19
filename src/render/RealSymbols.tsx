@@ -835,6 +835,7 @@ export function LoadGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColo
   const three = p.type === 'r_load3';
   const xs = three ? [-40, 0, 40] : [-20, 20];
   const names = three ? ['L1', 'L2', 'L3'] : ['L', 'N'];
+  const peX = p.pe ? (three ? 60 : 40) : null;
   const half = three ? 68 : 60;
   const r = loadRating(p);
   const kw = r ? r.out / 1000 : 0;
@@ -849,6 +850,12 @@ export function LoadGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColo
           <Label x={x} y={-33} text={names[i]} size={8} weight={800} />
         </g>
       ))}
+      {peX !== null && (
+        <g>
+          <Screw x={peX} y={-60} ring="green" />
+          <Label x={peX} y={-33} text="PE" size={8} weight={800} fill="#15803d" />
+        </g>
+      )}
       <Label x={0} y={-12} text={p.tag} fill="#111827" size={12} weight={800} />
       <Label x={0} y={6} text={`${kw >= 10 ? kw.toFixed(1) : Number(kw.toFixed(2))} kW`} fill="#111827" size={13} weight={800} />
       <Label x={0} y={20} text={`${three ? tr('3상', '3-ph') : tr('단상', '1-ph')} · pf ${r?.pf ?? 1}${p.lighting ? ` · ${tr('조명', 'light')}` : ''}`} fill="#64748b" size={8} weight={600} />
@@ -1519,6 +1526,109 @@ export function TcGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors
       <Label x={124} y={-90} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
       <SideNotes x={124} lines={[p.name, `SV ${sv}℃${typeof p.alarm === 'number' ? ` · AL ${p.alarm}℃` : ''}`, p.tcMode === 'cool' ? tr('냉각 동작', 'cooling') : tr('가열 동작', 'heating')]} c={c} />
       {t && !st.on && <Label x={124} y={40} text={tr('전원 없음', 'No power')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+    </g>
+  );
+}
+
+/**
+ * 온도 조절기 8핀 (T3S 꼴, 48×48): 앞면 PV (빨강) 와 썸휠 설정 SV (숫자 바퀴), OUT 램프. 8핀 소켓 위 단자 A · B · B' (측온저항체),
+ * 아래 L · N (전원) · COM · NO · NC (릴레이 출력 1c). 센서가 끊기면 oPEn 을 띄우고 출력을 끈다
+ */
+export function Tc8Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const t = st.temp;
+  const { sv } = tempSetting(p);
+  const powered = !t || st.on;
+  const top = [
+    [-40, 'A', 'grey'],
+    [0, 'B', 'grey'],
+    [40, "B'", 'grey'],
+  ] as const;
+  const bottom = [
+    [-80, 'L', 'orange'],
+    [-40, 'N', 'orange'],
+    [0, 'COM', 'grey'],
+    [40, 'NO', 'green'],
+    [80, 'NC', 'yellow'],
+  ] as const;
+  const digits = String(Math.max(0, Math.min(999, Math.round(sv)))).padStart(3, '0').split('');
+  return (
+    <g>
+      <rect x={-116} y={-128} width={232} height={256} rx={7} fill={BODY} stroke={BODY_EDGE} />
+      <rect x={-116} y={-128} width={232} height={44} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={-116} y={84} width={232} height={44} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      {top.map(([x, label, ring]) => (
+        <g key={label}>
+          <Screw x={x} y={-120} ring={ring} />
+          <Label x={x} y={-98} text={label} size={8.5} weight={800} />
+        </g>
+      ))}
+      <Label x={-108} y={-98} text="RTD" anchor="start" fill="#64748b" size={7} weight={700} />
+      {bottom.map(([x, label, ring]) => (
+        <g key={label}>
+          <Screw x={x} y={120} ring={ring} />
+          <Label x={x} y={98} text={label} size={8.5} weight={800} />
+        </g>
+      ))}
+      <rect x={-74} y={-80} width={148} height={160} rx={5} fill="#1f2937" stroke="#030712" />
+      <rect x={-64} y={-72} width={128} height={46} rx={3} fill="#0b1120" />
+      <Label x={-58} y={-60} text="PV" anchor="start" fill="#64748b" size={7} weight={700} />
+      <Label x={56} y={-34} text={!powered ? '' : st.sensorBad ? 'oPEn' : tempText(t ? t.pv : sv)} anchor="end" fill="#f87171" size={st.sensorBad ? 22 : 28} weight={800} />
+      <circle cx={-52} cy={-14} r={4.5} fill={t?.out ? '#f59e0b' : '#475569'} />
+      <Label x={-44} y={-11} text="OUT" anchor="start" fill={t?.out ? '#fde68a' : '#94a3b8'} size={7.5} weight={800} />
+      <Label x={56} y={-11} text="℃" anchor="end" fill="#94a3b8" size={9} weight={700} />
+      {/* 썸휠 스위치: 숫자 바퀴 세 개 (+ / −) */}
+      <Label x={-58} y={6} text="SV" anchor="start" fill="#64748b" size={7} weight={700} />
+      {digits.map((d, i) => (
+        <g key={i}>
+          <rect x={-30 + i * 30} y={0} width={24} height={52} rx={3} fill="#e5e7eb" stroke="#0f172a" />
+          <Label x={-18 + i * 30} y={12} text="+" fill="#334155" size={9} weight={800} />
+          <rect x={-28 + i * 30} y={17} width={20} height={18} rx={2} fill="#fff" stroke="#94a3b8" />
+          <Label x={-18 + i * 30} y={31} text={d} fill="#0f172a" size={14} weight={800} />
+          <Label x={-18 + i * 30} y={48} text="−" fill="#334155" size={10} weight={800} />
+        </g>
+      ))}
+      <Label x={0} y={70} text="Pt100 · 1c" fill="#94a3b8" size={7.5} weight={700} />
+      {t && (
+        <>
+          <Label x={-94} y={-30} text="−5" fill="#2563eb" size={9} weight={800} />
+          <Label x={94} y={-30} text="+5" fill="#dc2626" size={9} weight={800} />
+        </>
+      )}
+      <Label x={124} y={-110} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={124} lines={[p.name, p.spec, `SV ${sv}℃ · ${tr('히스', 'hys')} ${tempSetting(p).hys}℃`, p.tcMode === 'cool' ? tr('냉각 동작', 'cooling') : tr('가열 동작', 'heating')]} c={c} />
+      {t && !st.on && <Label x={124} y={50} text={tr('전원 없음', 'No power')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+      {st.sensorBad && <Label x={124} y={64} text={tr('센서 끊김 → 출력 꺼짐', 'Sensor open → output off')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+    </g>
+  );
+}
+
+/** 측온저항체 Pt100 3선식: 보호관 (위로) · 나사 고정 · 편조 케이블, 아래 리드선 A (빨강) · B · B' (흰색 두 가닥) */
+export function RtdGlyph({ p, c }: { p: Part; c: CircuitColors }) {
+  return (
+    <g>
+      {/* 보호관 */}
+      <rect x={-5} y={-136} width={10} height={64} rx={5} fill="#cbd5e1" stroke="#64748b" />
+      <rect x={-12} y={-74} width={24} height={14} rx={2} fill="#94a3b8" stroke="#475569" />
+      <path d="M-8,-60h16v22h-16z" fill="#cbd5e1" stroke="#64748b" />
+      {[-56, -50, -44].map((y) => (
+        <path key={y} d={`M-8,${y}h16`} stroke="#64748b" strokeWidth={0.8} />
+      ))}
+      {/* 편조 케이블 */}
+      <path d="M0,-38C-4,-20 6,-8 0,10C-4,24 2,34 0,44" stroke="#9ca3af" strokeWidth={7} fill="none" strokeDasharray="3 2" />
+      <rect x={-50} y={44} width={100} height={18} rx={3} fill="#e5e7eb" stroke={BODY_EDGE} />
+      {[
+        [-40, '#dc2626', 'A'],
+        [0, '#f8fafc', 'B'],
+        [40, '#f8fafc', "B'"],
+      ].map(([x, col, t]) => (
+        <g key={t as string}>
+          <path d={`M0,62 L${x as number},72 V80`} stroke="#64748b" strokeWidth={4.4} fill="none" />
+          <path d={`M0,62 L${x as number},72 V80`} stroke={col as string} strokeWidth={3} fill="none" />
+          <Label x={(x as number) + 6} y={76} text={t as string} anchor="start" size={7.5} weight={800} />
+        </g>
+      ))}
+      <Label x={20} y={-120} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={20} lines={[p.name ?? 'Pt100 Ω', tr('3선식 (A · B · B\')', '3-wire (A, B, B\')')]} c={c} />
     </g>
   );
 }

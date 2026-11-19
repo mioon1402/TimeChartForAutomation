@@ -93,6 +93,8 @@ export type PartType =
   | 'r_ssr' // SSR (무접점 릴레이): 입력 3(+) · 4(-) DC, 출력 1-2 AC
   | 'r_tc' // 온도 조절기 (48×48): 전원 A1 · A2, 제어 출력 C1-OUT, 경보 출력 C2-AL (릴레이 a접점)
   | 'r_thermo' // 판넬 서모스탯 (바이메탈): 1-2 접점. NC = 난방 (오르면 열림), NO = 냉방 · 팬 (오르면 닫힘)
+  | 'r_tc8' // 온도 조절기 8핀 (T3S 꼴, 썸휠 설정): 전원 L · N, 릴레이 출력 COM → NO · NC, 측온저항체 입력 A · B · B'. 센서가 끊기면 출력 끔
+  | 'r_rtd' // 측온저항체 Pt100 (3선식 보호관): A · B · B' 세 가닥을 온도 조절기 센서 단자에
   | 'r_plc' // PLC (실물): 전원 + · − · FG, 입력 16 + 공통 COM (싱크 · 소스), 릴레이 출력 16 (8점마다 공통 COM0 · COM1). 전원이 있어야 돈다
   | 'r_hmi' // HMI (터치 판넬): 전원 + · − · FG. 화면의 버튼 · 램프가 PLC 디바이스 (M 등) 를 쓰고 읽는다 (통신, 선 없음)
   | 'text';
@@ -144,6 +146,8 @@ export interface Part {
   /** PLC: 입력·출력 첫 주소 (X0 / Y0, P00000 / P00040, I0.0 / Q0.0, %IX0.0 / %QX0.0) */
   inBase?: string;
   outBase?: string;
+  /** 부하 상자 (히터 · 열풍기): 외함 접지 단자 PE 가 있다 (금속 외함) */
+  pe?: boolean;
   /** HMI: 화면의 버튼 · 스위치 · 램프 (위에서 아래, 왼쪽에서 오른쪽) */
   hmi?: HmiItem[];
   /** 센서 종류: 3선식(inductive 유도형 · capacitive 정전용량형 · photo 광전), 리밋 스위치(reed 리드 · float 플로트 · pressure 압력) */
@@ -304,6 +308,10 @@ export interface Circuit {
   clock?: number;
   /** 전기 해석: 수전 유형 (lv = 저압 수전, hv = 고압 이상 수전) */
   supply?: 'lv' | 'hv';
+  /** 전기 요금: 전력량 단가 (원/kWh, 없으면 182 = 2025 산업용 평균), 기본요금 (원/kW · 월, 없으면 0), 계약 전력 (kW, 없으면 부하 합계) */
+  price?: number;
+  basePrice?: number;
+  contractKw?: number;
   /** 전원 계통 (없으면 3상 4선식) */
   system?: PowerSystem;
   /** 릴레이 · 전자접촉기 · 타이머 코일이 붙고 떨어지는 데 걸리는 시간 (ms). 없으면 0 (바로) */

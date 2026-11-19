@@ -117,6 +117,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     }
     if (q.pos0 === -1 || q.pos0 === 1) p.pos0 = q.pos0;
     if (typeof q.idn === 'number' && q.idn > 0 && q.idn <= 3000) p.idn = q.idn;
+    if (q.pe === true) p.pe = true;
     if (Array.isArray(q.hmi)) {
       // HMI 화면 칸: 버튼 · 스위치 · 램프 (최대 12)
       p.hmi = q.hmi
@@ -157,6 +158,9 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   if (typeof o.applied === 'string') c.applied = o.applied;
   if (typeof o.clock === 'number' && o.clock > 0 && o.clock < 86400000) c.clock = o.clock;
   if (o.supply === 'hv') c.supply = 'hv';
+  if (typeof o.price === 'number' && o.price >= 0 && o.price < 1e5) c.price = o.price;
+  if (typeof o.basePrice === 'number' && o.basePrice >= 0 && o.basePrice < 1e6) c.basePrice = o.basePrice;
+  if (typeof o.contractKw === 'number' && o.contractKw > 0 && o.contractKw < 1e6) c.contractKw = o.contractKw;
   if (typeof o.relayMs === 'number' && o.relayMs > 0 && o.relayMs <= 1000) c.relayMs = o.relayMs;
   if (typeof o.vll === 'number' && o.vll > 0 && o.vll < 1e5) c.vll = o.vll;
   if (o.system === '3p3w' || o.system === '1p3w' || o.system === '1p2w') c.system = o.system;
