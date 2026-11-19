@@ -392,6 +392,40 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('시뮬레이션에서는 CP-COM 이 이어지는 순간마다 하나씩 세고, 센 수와 출력이 타임차트의 카운터 칸에 나옵니다.', 'In the simulation each closing of CP-COM counts one; the count and the output appear in the chart.'),
         'counter',
       );
+    case 'r_tc8':
+      return g(
+        tr('8핀 소켓에 꽂는 온도 조절기 (48×48, 오토닉스 T3S 꼴: 앞면 썸휠 스위치로 설정) 입니다. 측온저항체 (Pt100) 로 잰 온도가 설정보다 낮으면 출력 릴레이를 붙여 히터 · 열풍기의 전자접촉기를 켭니다 (ON/OFF 제어). 센서가 끊기면 oPEn 을 띄우고 출력을 끕니다.', 'A plug-in 48×48 temperature controller (Autonics T3S type, thumbwheel set point) on an 8-pin socket. Below the set point (Pt100 RTD) it closes its output relay to drive the heater contactor (ON/OFF control). With the sensor open it shows oPEn and switches the output off.'),
+        [
+          ['L · N', tr('조절기 전원 (AC 100-240V)', 'controller supply (AC 100-240V)')],
+          ['COM → NO', tr('제어 출력 (릴레이 a접점, 250VAC 5A): 가열이면 온도가 낮을 때 닫힘 → 전자접촉기 코일로', 'control output (NO, 250 VAC 5 A): closes while too cold when heating → contactor coil')],
+          ['COM → NC', tr('같은 릴레이의 b접점 (설정에 닿으면 닫힘)', 'NC contact of the same relay (closes at the set point)')],
+          ["A · B · B'", tr("측온저항체 입력: A 에 한 가닥, B · B' 에 같은 색 두 가닥 (3선식). 굵기 · 길이가 같은 선으로", "RTD input: the single lead on A, the two same-colour leads on B and B' (3-wire), same size and length")],
+        ],
+        [
+          tr('L → 차단기 · 퓨즈 → L, N → N 으로 전원', 'Feed L → breaker / fuse → L, N → N'),
+          tr('조작 L → COM, NO → 전자접촉기 A1, A2 → N. 열풍기 · 히터는 접촉기 주접점 뒤에 (출력 릴레이 5 A 로 히터를 바로 켜지 마세요)', 'Control L → COM, NO → contactor A1, A2 → N; the heater goes after the contactor (do not run a heater straight off the 5 A relay)'),
+          tr("측온저항체 A · B · B' → 조절기 A · B · B' (단자대를 거쳐도 됨). 전원선과 따로 배선", "RTD A, B, B' → controller A, B, B' (through a terminal block is fine); keep away from power wiring"),
+          tr('속성에서 설정 온도 · 히스테리시스와 [온도를 바꾸는 부하] (히터 기호) · 오르내리는 속도를 정합니다', 'Set the set point, hysteresis, the heating load and the rates in the properties'),
+          tr('단자 번호 (1~8) 는 기종마다 다르니 기기 옆면의 결선도대로 기능 이름 (L N COM NO NC A B B\') 을 맞춥니다', "Pin numbers (1–8) differ by model; match the function names to the label on the side"),
+        ],
+        tr('히터가 켜지면 온도가 오르고 설정 온도에서 출력이 꺼졌다가 히스테리시스만큼 내려가면 다시 켜집니다. 센서 선을 하나라도 빼면 oPEn 으로 출력이 꺼집니다 (번아웃 보호). 시뮬레이션 중 기기의 왼쪽 · 오른쪽을 누르면 온도가 5℃ 내리고 오릅니다.', 'With the heater on the temperature rises; the output opens at the set point and closes again one hysteresis lower. Remove any sensor lead and it shows oPEn and opens its output (burn-out protection). Click its left or right side while simulating to change the temperature by 5℃.'),
+        'blower-timer',
+      );
+    case 'r_rtd':
+      return g(
+        tr("측온저항체 (Pt100 Ω, 0℃ 에서 100 Ω) 입니다. 백금의 저항이 온도에 따라 바뀌는 것을 온도 조절기가 읽습니다. 리드선 세 가닥 (3선식) 은 선 저항을 빼 주려는 것입니다.", 'A Pt100 RTD (100 Ω at 0℃): the controller reads the platinum resistance that changes with temperature; the third lead cancels the wire resistance.'),
+        [
+          ['A', tr('한 가닥 (보통 빨강) → 조절기 A', 'the single lead (often red) → controller A')],
+          ["B · B'", tr("같은 색 두 가닥 (보통 흰색) → 조절기 B · B' (서로 바뀌어도 됨)", "the two same-colour leads (often white) → controller B and B' (either way round)")],
+        ],
+        [
+          tr('보호관을 재려는 곳 (덕트 · 탱크 · 열풍 출구) 에 나사로 고정합니다', 'Screw the sheath into the place to measure (duct, tank, hot-air outlet)'),
+          tr('세 가닥 모두 굵기 · 길이가 같아야 하고 (선 저항 한 가닥 5 Ω 이하), 동력선과 떨어뜨려 배선합니다', 'All three leads must match in size and length (≤ 5 Ω each) and run away from power cables'),
+          tr('리드선 색은 제조사 · 규격 (IEC · JIS) 마다 다르니 한 가닥 = A, 같은 색 두 가닥 = B · B\' 로 구분합니다', "Lead colours differ by maker and standard; the odd one is A, the matching pair is B and B'"),
+        ],
+        tr('조절기 A · B · B\' 에 제대로 이어지면 조절기가 묶음 온도를 읽고, 빠지거나 바뀌면 [검사] 가 알리고 조절기가 oPEn 으로 출력을 끕니다.', "Wired to A, B, B' the controller reads the zone temperature; a missing or swapped lead is flagged in Check and the controller shows oPEn with its output off."),
+        'blower-timer',
+      );
     case 'r_tc':
       return g(
         tr('온도 조절기 (48×48) 입니다. 센서 (열전대 K) 로 잰 지금 온도 (PV) 를 설정 온도 (SV) 와 비교해서 출력 접점을 켜고 끕니다 (ON/OFF 제어). 히터 · 건조기 · 금형 온도 관리에 씁니다.', 'A 48×48 temperature controller: compares the measured temperature (PV, K thermocouple) with the set point (SV) and switches its output relay (ON/OFF control). Used for heaters, dryers and moulds.'),

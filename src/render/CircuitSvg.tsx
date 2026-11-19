@@ -3,7 +3,7 @@ import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
 import { busSize, isPlcPart, isTempDevice, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tempSetting, timerText, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TempView, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, RtdGlyph, Tc8Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
@@ -61,6 +61,8 @@ export interface PartState {
   mode?: 'Y' | 'D';
   /** 3단 셀렉터 자리 (-1 왼쪽, 0 가운데, 1 오른쪽) */
   sel?: -1 | 0 | 1;
+  /** 8핀 온도 조절기: 측온저항체가 이어지지 않음 (oPEn) */
+  sensorBad?: boolean;
   /** 실물 PLC: 도는 중, 프로그램 오류 */
   plcRun?: boolean;
   plcErr?: boolean;
@@ -115,6 +117,7 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     plcRun: p.type === 'r_plc' ? sim.plcRunning(p.id) && sim.hasPlc : undefined,
     plcErr: p.type === 'r_plc' ? !!sim.powered.get(p.id) && (!sim.hasPlc || model.plcIssues.length > 0) : undefined,
     hmi: p.type === 'r_hmi' ? sim.hmiView(p) : undefined,
+    sensorBad: p.type === 'r_tc8' ? model.tempDef.get(tag)?.sensorOk === false : undefined,
   };
 }
 
@@ -567,6 +570,10 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <HmiGlyph p={p} st={st} c={c} />;
     case 'r_tc':
       return <TcGlyph p={p} st={st} c={c} />;
+    case 'r_tc8':
+      return <Tc8Glyph p={p} st={st} c={c} />;
+    case 'r_rtd':
+      return <RtdGlyph p={p} c={c} />;
     case 'r_thermo':
       return <ThermoGlyph p={p} st={st} c={c} />;
     case 'r_ssr':

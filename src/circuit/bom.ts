@@ -93,6 +93,8 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_plc: 3,
   r_hmi: 3,
   r_tc: 4,
+  r_tc8: 4,
+  r_rtd: 7,
   r_thermo: 6,
   r_ssr: 3,
   r_estop: 6,
@@ -299,6 +301,17 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: tr('프리셋 카운터', 'Preset counter'), spec: tr(`설정 ${counterPreset(p)}, 무전압 입력, 출력 1c, AC 220V`, `preset ${counterPreset(p)}, dry-contact input, 1 c/o output, AC 220V`) };
     case 'r_ssr':
       return { kind: tr('SSR (무접점 릴레이)', 'Solid-state relay'), spec: tr('입력 DC 4-32V, 출력 AC 220V', 'in DC 4-32V, out AC 220V') };
+    case 'r_tc8': {
+      const { sv, hys } = tempSetting(p);
+      return {
+        kind: tr('온도 조절기 (48×48, 8핀 소켓)', 'Temperature controller (48×48, 8-pin socket)'),
+        spec: [p.spec?.trim(), tr('전원 AC 100-240V, 측온저항체 Pt100 입력, 릴레이 출력 1c', 'AC 100-240V, Pt100 RTD input, 1 c/o relay output'), tr(`ON/OFF ${p.tcMode === 'cool' ? '냉각' : '가열'}, 설정 ${sv}℃, 히스테리시스 ${hys}℃`, `ON/OFF ${p.tcMode === 'cool' ? 'cooling' : 'heating'}, set ${sv}℃, hysteresis ${hys}℃`), tr('8핀 소켓 별도', '8-pin socket separate')]
+          .filter(Boolean)
+          .join(', '),
+      };
+    }
+    case 'r_rtd':
+      return { kind: tr('측온저항체', 'RTD sensor'), spec: [p.spec?.trim() || 'Pt100 Ω', tr('3선식, 보호관 · 나사 고정', '3-wire, sheathed, threaded')].join(', ') };
     case 'r_tc': {
       const { sv, hys } = tempSetting(p);
       return {
