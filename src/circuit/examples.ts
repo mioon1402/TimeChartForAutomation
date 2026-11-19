@@ -1484,10 +1484,99 @@ function plcSelfHoldProgram(): PlcConfig {
   return { dialect: 'mitsubishi', source, comments, sim: { ...defaultSimSettings(), watch: ['X0', 'X1', 'Y0', 'T0', 'Y1'] }, view: 'ladder', ladder: ilToLadder(source, 'mitsubishi').ladder };
 }
 
-// ───────────────────── PLC 제어반: 급수 펌프 2대 (로컬 · HMI 원격) ─────────────────────
+// ───────────────────── 넷 목록으로 선 긋기 (설계한 연결 그대로) ─────────────────────
 
-/** 라우터가 그은 선 (그림은 늘 같으므로 한 번만 긋고, 부를 때마다 새 id 로) */
-let plcPanelWires: Omit<Wire, 'id'>[] | null = null;
+/** 단자: [기기, 단자 이름 또는 차례] */
+type NetPin = [Part, string | number];
+type NetList = [WireColor, NetPin[]][];
+
+/** 라우터가 그은 선 (예제마다 그림은 늘 같으므로 한 번만 긋고, 부를 때마다 새 id 로) */
+const routedWires = new Map<string, Omit<Wire, 'id'>[]>();
+
+/** 넷마다 단자를 잇는 선을 라우터로 긋는다 (다른 넷과 엉뚱하게 이어지지 않게) */
+function routeNets(b: Builder, key: string, nets: () => NetList): void {
+  if (!routedWires.has(key)) {
+    const devs = new Map<string, RouteDev>();
+    const colors: WireColor[] = [];
+    nets().forEach(([color, pins], id) => {
+      colors[id] = color;
+      for (const [part, at] of pins) {
+        const i = typeof at === 'number' ? at : partPins(part).findIndex((q) => q.label === at);
+        if (i < 0 || i >= partPins(part).length) throw new Error(`${key}: ${part.tag} 에 ${at} 단자가 없습니다`);
+        const d = devs.get(part.id) ?? { part, pins: new Map<number, number>() };
+        d.pins.set(i, id);
+        devs.set(part.id, d);
+      }
+    });
+    const r = routeAll([...devs.values()], (n) => colors[n]);
+    routedWires.set(
+      key,
+      r.wires.map(({ id: _id, ...w }) => w),
+    );
+  }
+  for (const w of routedWires.get(key)!) b.wires.push({ ...w, id: uid('cw') });
+}
+
+// ───────────────────── 누전 · 지락: 접지와 누전차단기 (TT 계통) ─────────────────────
+
+/**
+ * TT 계통 (저압 수전, 기기를 따로 접지) 의 작은 공장: 주 차단기 → 누전차단기 ELB1 → 전동기 M1, ELB2 → 콘센트 CON1.
+ * 전동기 · 콘센트 외함은 접지 바 PEB 로 접지 (PE). 조작 순서로 누전 (절연 불량) 을 일으켜 본다:
+ *  - 절연이 10 kΩ 으로 나빠짐 → 접지로 약 22 mA 가 새지만 감도 30 mA 보다 작아 ELB1 은 안 떨어짐
+ *  - 완전 지락 → 약 2 A (220 V ÷ (Ra 100 Ω + Rb 10 Ω)). 일반 차단기는 못 끊는 크기 → ELB1 이 0.03 초에 끊음
+ *  - 고치지 않고 ELB1 을 다시 넣으면 또 떨어짐, 콘센트에 꽂은 기기의 누전 → ELB2
+ */
+function earthFaultDemo(): Circuit {
+  const b = new Builder();
+  const T = (pole: 'L1' | 'L2' | 'L3' | 'N' | 'PE', x: number) => b.part('r_term', x, 0, '', { pole });
+  const t = [T('L1', 4), T('L2', 6), T('L3', 8), T('N', 10)];
+  const tPE = T('PE', 30);
+  const main = b.part('r_mcb4', 7, 6, 'MCCB', { name: tr('주 차단기', 'Main breaker'), spec: 'AC 380V 30A' });
+  const elb1 = b.part('r_mcb3', 6, 17, 'ELB1', { name: tr('전동기 누전차단기', 'Motor RCD'), spec: 'AC 380V 20A', elb: true, idn: 30 });
+  const m1 = b.part('r_motor3', 6, 28, 'M1', { name: tr('펌프', 'Pump'), spec: 'AC 380V 2.2kW' });
+  const elb2 = b.part('r_mcb2', 20, 17, 'ELB2', { name: tr('콘센트 누전차단기', 'Outlet RCD'), spec: 'AC 220V 20A', elb: true, idn: 30 });
+  const con = b.part('r_outlet', 20, 27, 'CON1', { name: tr('콘센트 (세척기)', 'Outlet (washer)') });
+  const peb = b.part('r_nbar', 24, 36, 'PEB', { n: 4, pole: 'PE', name: tr('접지 바', 'Earth bar') });
+  b.part('text', 0, -5, '', { text: tr('누전 · 지락: TT 계통 (기기 접지 Ra 100 Ω · 계통 접지 Rb 10 Ω). 외함은 접지하고 누전차단기가 끊는다', 'Earth faults on a TT system (Ra 100 Ω, Rb 10 Ω): frames earthed, RCDs disconnect') });
+  [
+    tr('▶ 시뮬레이션 중 전동기 · 콘센트를 Shift+클릭하면 누전', '▶ While simulating, Shift+click the motor or outlet for an earth fault'),
+    tr('[해석] 탭 아래 [누전 · 지락 검토]: 기기마다 지락 전류 · 외함 전압 · 끊는 차단기', 'Analysis tab → Earth faults: current, frame voltage and the breaker that clears it'),
+    tr('PE 선을 지우거나 ELB 를 일반 차단기로 바꿔 보면 위험이 보입니다', 'Delete a PE wire or untick ELB to see the danger'),
+  ].forEach((x, k) => b.part('text', 32, 14 + k * 2, '', { text: x }));
+  routeNets(b, 'earth-fault', () => {
+    const PH: WireColor[] = ['brown', 'black', 'grey'];
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    // 전원 → 주 차단기 (4P: 1 3 5 N / 2 4 6 N)
+    t.forEach((x, k) => net(k < 3 ? PH[k] : 'blue', [x, ''], [main, k]));
+    // 주 차단기 → ELB1 (3상), L3 · N → ELB2 (단상 220 V)
+    net('brown', [main, 4], [elb1, '1']);
+    net('black', [main, 5], [elb1, '3']);
+    net('grey', [main, 6], [elb1, '5'], [elb2, '1']);
+    net('blue', [main, 7], [elb2, '3']);
+    net('brown', [elb1, '2'], [m1, 'U']);
+    net('black', [elb1, '4'], [m1, 'V']);
+    net('grey', [elb1, '6'], [m1, 'W']);
+    net('grey', [elb2, '2'], [con, 'L']);
+    net('blue', [elb2, '4'], [con, 'N']);
+    // 접지: 접지 바의 나사 하나에 기기 하나씩
+    net('gy', [tPE, ''], [peb, '1']);
+    net('gy', [m1, 'PE'], [peb, '2']);
+    net('gy', [con, 'PE'], [peb, '3']);
+    return nets;
+  });
+  const c = b.done();
+  c.earthing = 'TT';
+  c.ops = [
+    { id: uid('op'), wait: 1000, tag: 'M1', action: 'leak', value: 10000, hold: 3000, note: tr('M1 절연 나빠짐 (10 kΩ, 3초)', 'M1 insulation down to 10 kΩ (3 s)') },
+    { id: uid('op'), wait: 4000, tag: 'M1', action: 'leak', value: 0, hold: 0, note: tr('M1 완전 지락', 'M1 solid earth fault') },
+    { id: uid('op'), wait: 2000, tag: 'ELB1', action: 'on', hold: 0, note: tr('고치지 않고 다시 넣음', 'Reclosed without repair') },
+    { id: uid('op'), wait: 2000, tag: 'CON1', action: 'leak', value: 0, hold: 0, note: tr('콘센트 기기 누전', 'Appliance fault on the outlet') },
+  ];
+  return c;
+}
+
+// ───────────────────── PLC 제어반: 급수 펌프 2대 (로컬 · HMI 원격) ─────────────────────
 
 /**
  * 실제 설계처럼 그린 PLC 제어반 (펌프 2대).
@@ -1568,10 +1657,10 @@ function plcPanel(): Circuit {
   b.part('text', 0, 61, '', { text: tr('전선 색: 주회로 L1 갈색 · L2 검정 · L3 회색 / N · 0V 파랑 / AC 220V 조작 노랑 / DC 24V 빨강 / 접지 녹황', 'Wire colours: L1 brown · L2 black · L3 grey / N and 0 V blue / 220 V AC control yellow / 24 V DC red / earth green-yellow') });
   b.part('text', 0, 63, '', { text: tr('PLC 보호: 입력 DC 24V 만 · 출력 공통 COM0 퓨즈 F3 · 출력은 DC 24V 보조 릴레이 RY1 · RY2 만 켜고 MC 는 릴레이 접점이 켬 · PLC · HMI 전원 퓨즈 F1 · FG 접지', 'PLC protection: 24 V DC inputs only · fused output common (F3) · outputs drive 24 V DC interposing relays only · PLC/HMI supply fused (F1) · FG earthed') });
 
-  if (!plcPanelWires) {
+  routeNets(b, 'plc-panel', () => {
     // 넷: [색, 단자 …]. 단자는 [기기, 단자 이름]
-    const nets: [WireColor, [Part, string][]][] = [];
-    const net = (color: WireColor, ...pins: [Part, string][]) => nets.push([color, pins]);
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
     const PH: WireColor[] = ['brown', 'black', 'grey'];
     const MAIN = ['1', '3', '5'];
     const LOADSIDE = ['2', '4', '6'];
@@ -1637,22 +1726,9 @@ function plcPanel(): Circuit {
       [hmi, 'FG'],
     ].forEach((pin, k) => net('gy', pin as [Part, string], [peBar, String(k + 1)]));
 
-    const devs = new Map<string, RouteDev>();
-    const colors: WireColor[] = [];
-    nets.forEach(([color, pins], id) => {
-      colors[id] = color;
-      for (const [part, label] of pins) {
-        const i = partPins(part).findIndex((q) => q.label === label);
-        if (i < 0) throw new Error(`plcPanel: ${part.tag} 에 ${label} 단자가 없습니다`);
-        const d = devs.get(part.id) ?? { part, pins: new Map<number, number>() };
-        d.pins.set(i, id);
-        devs.set(part.id, d);
-      }
-    });
-    const r = routeAll([...devs.values()], (n) => colors[n]);
-    plcPanelWires = r.wires.map(({ id: _id, ...w }) => w);
-  }
-  for (const w of plcPanelWires) b.wires.push({ ...w, id: uid('cw') });
+    return nets;
+  });
+
 
   // 조작 순서: 로컬 운전 → HMI 는 막힘 → 원격 (HMI) → 과부하 · 리셋 → 비상정지 · 리셋
   // SS1 은 로컬 자리에서 시작
@@ -1852,6 +1928,7 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   feeders: 'power',
   substation: 'power',
   'plc-panel': 'panel',
+  'earth-fault': 'power',
 };
 
 export interface CircuitExample {
@@ -1900,6 +1977,12 @@ export function circuitExamples(): CircuitExample[] {
     { id: 'timer', name: tr('타이머 지연 동작', 'Timer delay'), desc: tr('기동 3초 뒤 운전, 기다리는 동안 대기 표시', 'Run 3 s after start, waiting lamp meanwhile'), build: timerDelay },
     { id: 'cylinder', name: tr('공압 실린더 1사이클', 'Cylinder one cycle'), desc: tr('기동 → 전진 → 전진단 → 후진 → 후진단', 'Start → advance → end → return'), build: cylinderCycle },
     { id: 'pneumatic', name: tr('전공압 자동 왕복 (밸브 · 근접 센서)', 'Electro-pneumatic auto cycle'), desc: tr('공압원 → FRL → 5/2 양솔 밸브 → 속도 제어 → 실린더, 근접 센서로 왕복', 'Air supply, FRL, 5/2 valve, flow control, cylinder, proximity sensors'), build: electroPneumatic },
+    {
+      id: 'earth-fault',
+      name: tr('누전 · 지락: 접지와 누전차단기 (TT)', 'Earth faults: earthing and RCDs (TT)'),
+      desc: tr('전동기 · 콘센트에 누전을 일으켜 지락 전류 · 외함 전압 · 누전차단기 트립을 봅니다', 'Earth faults on a motor and an outlet: earth current, frame voltage and RCD trips'),
+      build: earthFaultDemo,
+    },
     {
       id: 'plc-panel',
       name: tr('PLC 제어반: 펌프 2대 (로컬 · HMI)', 'PLC panel: two pumps (local / HMI)'),

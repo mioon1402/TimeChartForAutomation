@@ -116,6 +116,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
       p.sched = sched;
     }
     if (q.pos0 === -1 || q.pos0 === 1) p.pos0 = q.pos0;
+    if (typeof q.idn === 'number' && q.idn > 0 && q.idn <= 3000) p.idn = q.idn;
     if (Array.isArray(q.hmi)) {
       // HMI 화면 칸: 버튼 · 스위치 · 램프 (최대 12)
       p.hmi = q.hmi
@@ -143,9 +144,10 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   for (const r of Array.isArray(o.ops) ? o.ops : []) {
     if (!r || typeof r !== 'object') continue;
     const q = r as Record<string, unknown>;
-    const action = q.action === 'on' || q.action === 'off' || q.action === 'left' || q.action === 'right' || q.action === 'temp' ? q.action : 'press';
-    const op: OpStep = { id: str(q.id) || uid('op'), wait: Math.max(0, num(q.wait)), tag: str(q.tag), action, hold: Math.max(0, num(q.hold, action === 'temp' ? 0 : 300)) };
+    const action = q.action === 'on' || q.action === 'off' || q.action === 'left' || q.action === 'right' || q.action === 'temp' || q.action === 'leak' ? q.action : 'press';
+    const op: OpStep = { id: str(q.id) || uid('op'), wait: Math.max(0, num(q.wait)), tag: str(q.tag), action, hold: Math.max(0, num(q.hold, action === 'temp' || action === 'leak' ? 0 : 300)) };
     if (action === 'temp') op.value = Math.min(2000, Math.max(-100, num(q.value, 20)));
+    if (action === 'leak') op.value = Math.min(1e8, Math.max(0, num(q.value, 0)));
     if (optStr(q.note)) op.note = str(q.note);
     ops.push(op);
   }
@@ -158,6 +160,9 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   if (typeof o.relayMs === 'number' && o.relayMs > 0 && o.relayMs <= 1000) c.relayMs = o.relayMs;
   if (typeof o.vll === 'number' && o.vll > 0 && o.vll < 1e5) c.vll = o.vll;
   if (o.system === '3p3w' || o.system === '1p3w' || o.system === '1p2w') c.system = o.system;
+  if (o.earthing === 'TT') c.earthing = 'TT';
+  if (typeof o.ra === 'number' && o.ra > 0 && o.ra < 1e6) c.ra = o.ra;
+  if (typeof o.rb === 'number' && o.rb > 0 && o.rb < 1e6) c.rb = o.rb;
   if (Array.isArray(o.wired)) {
     const wired = o.wired.filter((x): x is string => typeof x === 'string' && x.length < 200);
     if (wired.length) c.wired = wired;

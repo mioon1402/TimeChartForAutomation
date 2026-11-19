@@ -259,6 +259,26 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     }
   }
 
+  // 누전 · 지락: 누전이 난 기기만 (누전 여부 + 접지로 흐르는 전류)
+  for (const tr of res.tracks.filter((t) => t.kind === 'leak' && pts(t).length > 1)) {
+    const tag = keyTag(tr);
+    const name = nameOf(c, tag, tr.part);
+    out.push(bit(tr, 'internal', t_('누전 · 지락', 'Earth faults'), { address: `${tr.tag}.F`, name: `${name} ${t_('누전', 'earth fault')}` }));
+    const ie = res.tracks.find((t) => t.key === `ie:${tag}`);
+    if (!ie) continue;
+    const p = normalize(
+      ie.points.filter((q) => q.t <= until + 1e-9),
+      'analog',
+      0,
+    );
+    const top = Math.max(...p.map((q) => Number(q.v)), 0);
+    if (top <= 0) continue;
+    // 눈금: 0.05 · 0.1 · 0.5 · 1 · 5 · 10 … A 중 가장 가까운 위쪽
+    const steps = [0.05, 0.1, 0.5, 1, 2, 5, 10, 50, 100, 500, 1000, 5000];
+    const hi = steps.find((x) => x >= top * 1.1) ?? Math.ceil(top);
+    out.push({ ...bit(ie, 'internal', t_('누전 · 지락', 'Earth faults'), { address: `${tr.tag}.IE`, name: `${name} ${t_('지락 전류', 'earth current')} (A)` }), kind: 'analog', points: p, analogMin: 0, analogMax: hi, unit: 'A' });
+  }
+
   // 타임 스위치: 접점 (설정 시각은 이름에 넣지 않는다: 이름은 한 번 정해지면 유지되므로 설정을 바꾸면 틀려진다)
   for (const tr of res.tracks.filter((t) => t.kind === 'tsw')) {
     out.push(bit(tr, 'timer', G.timer, { name: `${nameOf(c, keyTag(tr), tr.part)} ${t_('접점', 'contact')}`, onLabel: 'ON', offLabel: 'OFF' }));
@@ -315,7 +335,7 @@ function opSteps(c: Circuit, res: ScenarioResult, until: number): Step[] {
 export function circuitSig(c: Circuit, plcSource = ''): string {
   const plc = c.parts.some((p) => p.type === 'plc' || p.type === 'r_plc') ? plcSource : '';
   // 시작 시각 · 전원 계통은 있을 때만 넣는다 (예전 회로의 서명이 바뀌지 않게). 계통에 없는 극은 전압이 없어 동작이 바뀐다
-  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc, ...(c.clock ? [c.clock] : []), ...(c.system ? [c.system] : []), ...(c.relayMs ? [`relay${c.relayMs}`] : [])]);
+  const s = JSON.stringify([c.parts.filter((p) => p.type !== 'text'), c.wires.map((w) => [w.a, w.b]), c.ops, c.duration ?? 0, plc, ...(c.clock ? [c.clock] : []), ...(c.system ? [c.system] : []), ...(c.relayMs ? [`relay${c.relayMs}`] : []), ...(c.earthing || c.ra || c.rb ? [`earth${c.earthing ?? 'TN'}/${c.ra ?? ''}/${c.rb ?? ''}`] : [])]);
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);

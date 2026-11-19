@@ -635,8 +635,13 @@ export function pos3Labels(p: Pick<Part, 'pos3'>): [string, string, string] {
 }
 
 /** 조작 순서의 동작 이름 (3단 셀렉터는 자리 이름) */
-export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp', part?: Part, op?: { value?: number; hold?: number }): string {
+export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp' | 'leak', part?: Part, op?: { value?: number; hold?: number }): string {
   if (action === 'temp') return `${tr('온도', 'Temp.')} → ${op?.value ?? 0}℃${op?.hold ? ` (${formatTime(op.hold, 's')})` : ''}`;
+  if (action === 'leak') {
+    const rf = op?.value ?? 0;
+    const ins = rf > 0 ? `${tr('절연', 'insulation')} ${rf >= 1000 ? `${rf / 1000} kΩ` : `${rf} Ω`}` : tr('완전 지락', 'solid fault');
+    return `${tr('누전', 'Earth fault')} (${ins})${op?.hold ? ` ${formatTime(op.hold, 's')}` : ''}`;
+  }
   if (part?.type === 'r_ss3') {
     const [l, m, r] = pos3Labels(part);
     return action === 'left' ? `← ${l}` : action === 'right' || action === 'on' ? `${r} →` : m;

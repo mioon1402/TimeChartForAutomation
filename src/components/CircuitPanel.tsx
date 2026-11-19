@@ -6,6 +6,7 @@ import { defaultVolt, poleLive, POWER_SYSTEMS, systemLabel, systemName, systemOf
 import { partGuide } from '../circuit/guide';
 import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes, cableZ, groupFactor, isBreaker, loadRating, nominalVolt, PowerModel, tableIz, tempFactor, trImpedance, type PowerAnalysis, type PowerState } from '../circuit/power';
 import { parallelWires, wireChain } from '../circuit/wires';
+import { BODY_OHM, earthingOf, earthStudy, ZLOOP_TN, type EarthRow } from '../circuit/earth';
 import { changeSocketLayout } from '../circuit/socket';
 import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempDevice, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
@@ -101,6 +102,15 @@ function actionsToOps(actions: OpEvent[], model: CircuitModel): OpStep[] {
   let prev = 0;
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
+    // 누전: 시작 → (끝날 때까지의 시간)
+    if (a.leak !== undefined) {
+      if (a.leak === null) continue;
+      const t = r10(a.t);
+      const end = actions.slice(i + 1).find((b) => b.tag === a.tag && b.leak === null);
+      ops.push({ id: uid('op'), wait: Math.max(0, t - prev), tag: model.label(a.tag), action: 'leak', value: a.leak, hold: end ? Math.max(10, r10(end.t - a.t)) : 0 });
+      prev = t;
+      continue;
+    }
     const momentary = model.momentary(a.tag);
     if (momentary && !a.on) continue;
     const t = r10(a.t);
@@ -290,6 +300,22 @@ export function CircuitPanel() {
     if (phase === 'down') v = momentary ? true : !r.sim.on(tag);
     else if (momentary) v = false;
     if (v !== null && r.sim.setAct(tag, v)) r.actions.push({ t, tag, on: v });
+    setTick((x) => x + 1);
+  };
+
+  /** 시뮬레이션 중 Shift+클릭: 누전을 켜고 끈다 */
+  const onLeak = (tag: string) => {
+    const r = runRef.current;
+    if (!r) return;
+    const t = simTime(performance.now());
+    r.sim.advanceTo(t);
+    const on = r.sim.faults.has(tag);
+    const before = r.sim.faultLog.length;
+    if (r.sim.setLeak(tag, on ? null : 0)) r.actions.push({ t, tag, on: false, leak: on ? null : 0 });
+    const log = r.sim.faultLog.slice(before);
+    if (on) toast(tr(`${model.label(tag)} 누전을 없앴습니다`, `${model.label(tag)} earth fault cleared`), 'ok');
+    else if (log.length) toast(log[log.length - 1].text, log[log.length - 1].level === 'danger' ? 'warn' : 'ok');
+    else toast(tr(`${model.label(tag)} 누전: 지금은 전원이 없어 흐르지 않습니다`, `${model.label(tag)} earth fault: not energised now`), 'ok');
     setTick((x) => x + 1);
   };
 
@@ -587,7 +613,7 @@ export function CircuitPanel() {
         <span className="grow" />
         <span className="cc-hint muted small">
           {running
-            ? tr('버튼을 누르고 있으면 ON, 스위치·차단기·THR 은 누를 때마다 바뀝니다. 끝나면 [정지]', 'Hold push buttons; click switches, breakers and THR to toggle')
+            ? tr('버튼을 누르고 있으면 ON, 스위치·차단기·THR 은 누를 때마다 바뀝니다. 전동기 · 히터 · 콘센트를 Shift+클릭하면 누전. 끝나면 [정지]', 'Hold push buttons; click switches, breakers and THR to toggle; Shift+click a motor, heater or outlet for an earth fault')
             : placing
               ? tr('그림판을 누르면 놓입니다 (Shift: 계속 놓기, Esc: 취소)', 'Click to place (Shift: keep placing, Esc: cancel)')
               : tr('단자를 끌면 선, 몸통을 끌면 이동 · R 회전 · Del 삭제 · Ctrl+C/V · 두 번 누르면 기호', 'Drag a terminal to wire, the body to move · R rotate · Del')}
@@ -621,6 +647,7 @@ export function CircuitPanel() {
           setZoom={setZoom}
           sim={running ? r?.sim ?? null : null}
           onOperate={onOperate}
+          onLeak={onLeak}
           onCommit={commitCircuit}
           onEndMerge={endMerge}
           onEditPart={(p) => void editTag(p)}
@@ -720,6 +747,7 @@ export function CircuitPanel() {
                 title={project.meta.title}
               />
             )}
+            {side === 'power' && <EarthSection circuit={circuit} model={model} onPick={(parts) => (setSel({ parts, wires: [] }), setPowerPick({ parts, wires: [] }))} />}
             {side === 'check' && <CheckPane issues={issues} onPick={(ids, wires) => (setSel({ parts: ids, wires }), setPowerPick({ parts: ids, wires }), ids.length === 1 && !wires.length && setSide('props'))} />}
           </div>
         </aside>
@@ -1456,6 +1484,112 @@ function SupplyFields({ circuit, onChange }: { circuit: Circuit; onChange: (c: C
       <p className="small muted">
         {systemVoltText(sv)}. {tr('그림의 모든 전원 단자에 적용됩니다.', 'Applies to every supply terminal in this drawing.')}
       </p>
+      <EarthingFields circuit={circuit} onChange={onChange} />
+    </div>
+  );
+}
+
+/** 계통 접지 방식 (TN · TT) 과 접지 저항: 누전 · 지락 계산에 쓴다 */
+function EarthingFields({ circuit, onChange }: { circuit: Circuit; onChange: (c: Circuit) => void }) {
+  const e = earthingOf(circuit);
+  return (
+    <>
+      <div className="grid2">
+        <Field label={tr('계통 접지 (누전 계산)', 'Earthing (fault calc.)')} hint={e.kind === 'TN' ? tr('기기 접지선이 변압기 중성점으로: 지락 = 단락처럼 큰 전류', 'Protective earth back to the transformer neutral: an earth fault is like a short') : tr('기기를 따로 접지: 지락 전류가 작아 누전차단기로 끊음', 'Frames earthed locally: small fault current, cleared by an RCD')}>
+          <Select
+            value={e.kind}
+            onChange={(v: string) => onChange({ ...circuit, earthing: v === 'TT' ? 'TT' : undefined })}
+            options={[
+              { value: 'TN', label: tr('TN-C-S (특고압 수전 · 공장 · 빌딩)', 'TN-C-S (HV-fed plants, buildings)') },
+              { value: 'TT', label: tr('TT (저압 수전 · 주택 · 작은 공장)', 'TT (LV-fed houses, small shops)') },
+            ]}
+          />
+        </Field>
+        {e.kind === 'TT' && (
+          <div className="grid2">
+            <Field label={tr('기기 접지 Ra (Ω)', 'Ra (Ω)')}>
+              <NumberInput value={e.ra} min={0.1} step={10} onChange={(v) => onChange({ ...circuit, ra: v && v > 0 && v !== 100 ? v : undefined })} />
+            </Field>
+            <Field label={tr('계통 접지 Rb (Ω)', 'Rb (Ω)')}>
+              <NumberInput value={e.rb} min={0.1} step={1} onChange={(v) => onChange({ ...circuit, rb: v && v > 0 && v !== 10 ? v : undefined })} />
+            </Field>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** [해석] 의 지락 · 누전 검토: 기기마다 완전 지락이면 흐르는 전류 · 외함 전압 · 끊는 차단기, 누전차단기마다 평상시 누설 */
+function EarthSection({ circuit, model, onPick }: { circuit: Circuit; model: CircuitModel; onPick: (parts: string[]) => void }) {
+  const st = useMemo(() => earthStudy(circuit, model), [circuit, model]);
+  if (!st.rows.length) return null;
+  const amp = (x: number) => (x >= 1 ? `${x.toFixed(x >= 100 ? 0 : 1)} A` : `${Math.round(x * 1000)} mA`);
+  const verdict = (r: EarthRow) => (r.r.level === 'danger' ? tr('위험', 'Danger') : r.r.level === 'ok' ? tr('끊김', 'Cleared') : tr('누설', 'Leak'));
+  return (
+    <div className="cc-earth">
+      <h4>{tr('누전 · 지락 검토', 'Earth faults')}</h4>
+      <p className="small muted">
+        {tr(
+          `기기마다 충전부가 외함에 완전히 닿았다고 (절연 0 Ω) 보고, 접지로 흐르는 전류와 외함 전압, 끊는 차단기를 어림합니다 (${st.kind === 'TN' ? `TN: 고장 루프 ${ZLOOP_TN} Ω` : `TT: Ra ${st.ra} Ω · Rb ${st.rb} Ω`}, 사람 몸 ${BODY_OHM} Ω, 순시 트립 = 정격 × 10). 시뮬레이션에서는 기기를 Shift+클릭하거나 조작 순서에 [누전] 을 넣어 봅니다.`,
+          `Assumes a solid fault (0 Ω) from live parts to the frame of each device: earth current, frame voltage and the breaker that clears it (${st.kind === 'TN' ? `TN: loop ${ZLOOP_TN} Ω` : `TT: Ra ${st.ra} Ω · Rb ${st.rb} Ω`}, body ${BODY_OHM} Ω, instantaneous trip = 10 × In). In the simulation Shift+click a device or add an [Earth fault] step.`,
+        )}
+      </p>
+      <table className="cc-table">
+        <thead>
+          <tr>
+            <th>{tr('기기', 'Device')}</th>
+            <th>{tr('지락 전류', 'Fault I')}</th>
+            <th>{tr('외함', 'Frame')}</th>
+            <th>{tr('결과', 'Result')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {st.rows.map((row) => (
+            <tr key={row.part.id} className={row.r.level === 'danger' ? 'bad' : ''} onClick={() => onPick([row.part.id])} title={row.text}>
+              <td className="mono">
+                <b>{row.name}</b>
+                {row.part.name && <div className="small muted">{row.part.name}</div>}
+                {!row.r.earthed && <div className="small cc-bad">{tr('외함 접지 없음', 'frame not earthed')}</div>}
+              </td>
+              <td className="num">{row.r.earthed ? amp(row.r.ifA) : <span className="small">{tr(`만지면 ${Math.round(row.r.bodyMa ?? 0)} mA`, `touch ${Math.round(row.r.bodyMa ?? 0)} mA`)}</span>}</td>
+              <td className="num">{Math.round(row.r.touchV)} V</td>
+              <td className={row.r.level === 'danger' ? 'cc-bad' : row.r.level === 'ok' ? 'cc-good' : 'muted'}>
+                {row.r.trip ? `${row.r.trip.part.tag} ${row.r.trip.why === 'rcd' ? tr('누전 트립', 'RCD trip') : tr('순시 트립', 'instant trip')}` : row.r.touchTrip ? tr(`${row.r.touchTrip.tag} (만질 때)`, `${row.r.touchTrip.tag} (on touch)`) : verdict(row)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {st.rows
+        .filter((r) => r.r.level === 'danger')
+        .map((r) => (
+          <p key={r.part.id} className="small cc-bad">
+            {r.text}
+          </p>
+        ))}
+      {st.leaks.length > 0 && (
+        <>
+          <div className="field-label">{tr('누전차단기마다 평상시 누설 전류 (어림)', 'Standing leakage per RCD (estimate)')}</div>
+          <table className="cc-table">
+            <tbody>
+              {st.leaks.map((l) => {
+                const bad = l.ma > l.idnMa * 0.3;
+                return (
+                  <tr key={l.part.id} className={bad ? 'bad' : ''} onClick={() => onPick([l.part.id])}>
+                    <td className="mono">
+                      <b>{l.part.tag}</b> <span className="small muted">{l.idnMa} mA</span>
+                    </td>
+                    <td className="num">{l.ma} mA</td>
+                    <td className="small">{bad ? tr(`감도의 30% (${Math.round(l.idnMa * 0.3)} mA) 를 넘어 이유 없이 떨어질 수 있음 → 회로를 나누세요`, `over 30% of the rating (${Math.round(l.idnMa * 0.3)} mA): nuisance trips likely — split the circuit`) : l.devices.join(' · ')}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="small muted">{tr('전동기 · 케이블의 정전 용량, SMPS 노이즈 필터로 평상시에도 접지로 조금씩 샙니다. 합이 감도의 30% 를 넘지 않게 회로를 나눕니다 (실제 값은 누설 전류계로 재세요).', 'Motors, cables and SMPS filters leak a little to earth all the time; keep the total under 30% of the RCD rating (measure with a leakage clamp).')}</p>
+        </>
+      )}
     </div>
   );
 }
@@ -1567,6 +1701,11 @@ function RatingFields({ p, set, circuit }: { p: Part; set: (patch: Partial<Part>
           </Field>
         </div>
         {p.type.startsWith('r_mcb') && p.type !== 'r_mcb1' && <Check checked={!!p.elb} onChange={(v) => set({ elb: v || undefined })} label={tr('누전차단기 (ELB)', 'Earth leakage breaker (ELB)')} />}
+        {p.elb && (
+          <Field label={tr('정격 감도 전류 (mA)', 'Rated residual current (mA)')} hint={tr('접지로 새는 전류가 이 이상이면 0.03 초 안에 끊습니다 (사람 보호 30 mA)', 'Trips within 0.03 s when the earth leakage reaches this (30 mA protects people)')}>
+            <Select value={String(p.idn ?? 30)} onChange={(v: string) => set({ idn: v === '30' ? undefined : Number(v) })} options={['15', '30', '100', '200', '500'].map((x) => ({ value: x, label: `${x} mA` }))} />
+          </Field>
+        )}
       </>
     );
   if (!big && p.type !== 'r_light') return null;
@@ -1885,13 +2024,22 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
   const devices = model.operable().map((t) => {
     const p = model.mainPart.get(t)!;
     const name = model.hmiDef.get(t) ? `HMI ${model.hmiDef.get(t)!.label}` : circuit.parts.find((q) => tagKey(q) === t && q.name)?.name;
-    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: model.momentary(t), sel3: p.type === 'r_ss3' ? p : undefined, temp: model.tagKind.get(t) === 'temp' ? p : undefined };
+    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: model.momentary(t), sel3: p.type === 'r_ss3' ? p : undefined, temp: model.tagKind.get(t) === 'temp' ? p : undefined, leak: false };
   });
+  // 누전을 일으킬 수 있는 기기 (전동기 · 히터 · 콘센트 …): 동작은 누전 하나
+  for (const [t, d] of model.faultDev) {
+    if (devices.some((x) => normTag(x.value) === t)) continue;
+    devices.push({ value: model.label(t), label: `${model.label(t)}  ${d.part.name ?? ''} · ${tr('누전', 'fault')}`, momentary: false, sel3: undefined, temp: undefined, leak: true });
+  }
   const setOps = (next: OpStep[]) => onChange({ ...circuit, ops: next });
   const setOp = (i: number, patch: Partial<OpStep>) => setOps(ops.map((o, k) => (k === i ? { ...o, ...patch } : o)));
   const add = () => {
     const used = new Set(ops.map((o) => normTag(o.tag)));
-    const d = devices.find((x) => !used.has(normTag(x.value))) ?? devices[0];
+    const d = devices.find((x) => !x.leak && !used.has(normTag(x.value))) ?? devices.find((x) => !x.leak) ?? devices[0];
+    if (d?.leak) {
+      setOps([...ops, { id: uid('op'), wait: ops.length ? 2000 : 500, tag: d.value, action: 'leak', value: 0, hold: 0 }]);
+      return;
+    }
     if (d?.temp) {
       setOps([...ops, { id: uid('op'), wait: ops.length ? 2000 : 500, tag: d.value, action: 'temp', value: tempSetting(d.temp).sv + 5, hold: 0 }]);
       return;
@@ -1917,6 +2065,7 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
             const known = devices.some((d) => normTag(d.value) === normTag(o.tag));
             const sel3 = devices.find((d) => normTag(d.value) === normTag(o.tag))?.sel3;
             const tempDev = devices.find((d) => normTag(d.value) === normTag(o.tag))?.temp;
+            const leakDev = devices.find((d) => normTag(d.value) === normTag(o.tag))?.leak;
             return (
               <div className="cc-op" key={o.id}>
                 <div className="cc-op-top">
@@ -1927,8 +2076,9 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                     onChange={(e) => {
                       // 온도 기기로 바꾸면 동작도 온도로 (반대로도)
                       const d = devices.find((x) => x.value === e.target.value);
-                      if (d?.temp) setOp(i, { tag: e.target.value, action: 'temp', value: o.value ?? tempSetting(d.temp).sv + 5, hold: o.action === 'temp' ? o.hold : 0 });
-                      else setOp(i, { tag: e.target.value, ...(o.action === 'temp' ? { action: d?.sel3 ? 'right' : d && !d.momentary ? 'on' : 'press', hold: 300, value: undefined } : {}) });
+                      if (d?.leak) setOp(i, { tag: e.target.value, action: 'leak', value: o.action === 'leak' ? o.value : 0, hold: o.action === 'leak' ? o.hold : 0 });
+                      else if (d?.temp) setOp(i, { tag: e.target.value, action: 'temp', value: o.value ?? tempSetting(d.temp).sv + 5, hold: o.action === 'temp' ? o.hold : 0 });
+                      else setOp(i, { tag: e.target.value, ...(o.action === 'temp' || o.action === 'leak' ? { action: d?.sel3 ? 'right' : d && !d.momentary ? 'on' : 'press', hold: 300, value: undefined } : {}) });
                     }}
                     aria-label={tr('기기', 'Device')}
                   >
@@ -1940,7 +2090,9 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                     ))}
                   </select>
                   <select className="input cc-op-act" value={o.action} onChange={(e) => setOp(i, { action: e.target.value as OpStep['action'] })} aria-label={tr('동작', 'Action')}>
-                    {tempDev ? (
+                    {leakDev ? (
+                      <option value="leak">{tr('누전 (절연 불량)', 'Earth fault')}</option>
+                    ) : tempDev ? (
                       <option value="temp">{tr('온도 →', 'Temp. →')}</option>
                     ) : sel3 ? (
                       <>
@@ -1973,6 +2125,16 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                     <label title={tr('누르고 있는 시간', 'How long it is held')}>
                       {tr('누름', 'Hold')} <TimeInput value={o.hold} onChange={(v) => v !== undefined && setOp(i, { hold: v })} />
                     </label>
+                  )}
+                  {o.action === 'leak' && (
+                    <>
+                      <label title={tr('충전부와 외함 사이의 절연 저항 (0 = 완전히 닿음, 10 kΩ 쯤이면 약 22 mA 누설)', 'Insulation resistance between live parts and the frame (0 = solid contact; about 10 kΩ leaks 22 mA)')}>
+                        {tr('절연', 'Insul.')} Ω <NumberInput value={o.value ?? 0} min={0} max={1e8} step={100} onChange={(v) => v !== undefined && setOp(i, { value: Math.max(0, v) })} />
+                      </label>
+                      <label title={tr('누전이 이어지는 시간 (0 = 끝까지)', 'How long the fault lasts (0 = to the end)')}>
+                        {tr('지속', 'Lasts')} <TimeInput value={o.hold} onChange={(v) => v !== undefined && setOp(i, { hold: v })} />
+                      </label>
+                    </>
                   )}
                   {o.action === 'temp' && (
                     <>

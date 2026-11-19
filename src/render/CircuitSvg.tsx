@@ -7,6 +7,7 @@ import { BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, TcGlyph, ThermoGlyph, Prox
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
+import { tr } from '../i18n';
 
 /** 격자 한 칸 (px) */
 export const G = 20;
@@ -858,6 +859,7 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         );
       })}
       <WireEnds circuit={circuit} model={model} sim={sim} c={c} doneEnds={doneEnds} />
+      {sim && <FaultBadges model={model} sim={sim} ls={ls} />}
       {circuit.parts
         .filter((p) => p.type === 'r_panel')
         .map((p) => (
@@ -989,6 +991,39 @@ function wireHops(wires: Wire[]): Map<string, number[]> {
  * 실물 기기의 나사에 닿는 전선 끝: 몸통 그림이 선을 덮으므로 끝부분만 위에 다시 그려
  * 전선이 어느 나사로 들어가는지 보이게 한다.
  */
+/** 누전 중인 기기: 번개 표시와 지락 전류 · 외함 전압 · 끊은 차단기 */
+function FaultBadges({ model, sim, ls }: { model: CircuitModel; sim: CircuitSim; ls: number }) {
+  const amp = (x: number) => (x >= 1 ? `${x.toFixed(x >= 100 ? 0 : 1)} A` : `${Math.round(x * 1000)} mA`);
+  return (
+    <g pointerEvents="none">
+      {[...sim.faults.keys()].map((tag) => {
+        const d = model.faultDev.get(tag);
+        const r = sim.faultView.get(tag);
+        if (!d) return null;
+        const [, y0, x1] = partBox(d.part);
+        const lines = !r || r.u0 <= 0 ? [tr('전원 끊김', 'Disconnected')] : r.earthed ? [`${tr('지락', 'Earth')} ${amp(r.ifA)}`, `${tr('외함', 'Frame')} ${Math.round(r.touchV)} V`] : [`${tr('외함', 'Frame')} ${Math.round(r.touchV)} V`, `${tr('만지면', 'Touch')} ${Math.round(r.bodyMa ?? 0)} mA`];
+        const danger = r?.level === 'danger';
+        const col = danger ? '#dc2626' : '#d97706';
+        const w = Math.max(...lines.map((l) => l.length)) * 7 + 34;
+        return (
+          <g key={tag} transform={`translate(${x1 * G + 4},${y0 * G}) scale(${ls})`}>
+            <rect x={0} y={0} width={w} height={16 + lines.length * 13} rx={4} fill="#fff7ed" stroke={col} strokeWidth={1.6} />
+            <path d="M14,3 L7,13 L12,13 L9,22 L18,10 L13,10 Z" fill={col} />
+            <text x={24} y={13} fontSize={10.5} fontWeight={800} fill={col} stroke="none">
+              {tr('누전', 'FAULT')}
+            </text>
+            {lines.map((l, i) => (
+              <text key={i} x={24} y={26 + i * 13} fontSize={10} fontWeight={700} fill="#7c2d12" stroke="none">
+                {l}
+              </text>
+            ))}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 function WireEnds({ circuit, model, sim, c, doneEnds }: { circuit: Circuit; model: CircuitModel; sim: CircuitSim | null; c: CircuitColors; doneEnds?: Set<string> | null }) {
   const real = new Set<string>();
   for (const p of circuit.parts) if (REAL.has(p.type)) pinPositions(p).forEach(([x, y]) => real.add(`${x},${y}`));
