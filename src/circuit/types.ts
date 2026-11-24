@@ -7,6 +7,7 @@ export type PartType =
   | 'src' // 전원 단자 하나 (극 선택)
   | 'src3' // 3상 전원 L1 L2 L3
   | 'fuse'
+  | 'sk' // 스파크 킬러 (CR 서지 흡수기) 기호: 코일 양단에
   | 'fuse3'
   | 'mcb' // 배선용 차단기 1P (클릭: ON/OFF)
   | 'mcb3'
@@ -55,6 +56,7 @@ export type PartType =
   | 'r_my2' // 각형 릴레이 2c + 소켓 (MY2N · PYF08A 꼴): 13-14 코일, 9-5 · 12-8 a, 9-1 · 12-4 b
   | 'r_my4' // 각형 릴레이 4c + 소켓 (MY4N · PYF14A 꼴): 13-14 코일, 9~12 공통, 5~8 a, 1~4 b
   | 'r_fuse' // 퓨즈 홀더 1P
+  | 'r_sk' // 스파크 킬러 (CR 서지 흡수기, 리드선 2가닥): 교류 SOL · MC · 릴레이 코일 양단에
   | 'r_smps' // SMPS (실물): L N FG → +V -V
   | 'r_prox' // 근접 · 광전 센서 3선식 (실물): 갈색 +, 검정 출력, 파랑 0V
   | 'r_prox2' // 근접 센서 2선식 (실물): 갈색 · 파랑 두 선이 부하와 직렬 (스위치처럼). 직류는 갈색이 + 쪽
@@ -224,6 +226,9 @@ export interface Part {
   alarm?: number;
   /** 온도 조절기 제어 출력: heat = 가열 (설정보다 낮으면 OUT), cool = 냉각 (설정 이상이면 OUT) */
   tcMode?: 'heat' | 'cool';
+  /** 스파크 킬러: 정전 용량 (µF, 없으면 0.1) · 저항 (Ω, 없으면 120) */
+  uf?: number;
+  ohm?: number;
   /** PID 온도 조절기 (TK4S 꼴) 제어 방식: 없으면 PID (시간 비례), onoff = ON/OFF (히스테리시스) */
   ctrl?: 'onoff';
   /** PID: 비례대 P (℃), 적분 시간 I (초, 0 = 안 씀), 미분 시간 D (초, 0 = 안 씀), 제어 주기 T (초, 릴레이 출력이면 보통 20) */

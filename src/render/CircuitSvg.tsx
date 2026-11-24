@@ -5,7 +5,7 @@ import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
 import { contactNumbers, parseTerm } from '../circuit/contacts';
 import { planGroups } from '../circuit/plan';
-import { BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { SkGlyph, BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
@@ -332,6 +332,17 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
           <path d="M0,-16V16" stroke={c.ink} />
         </g>
       );
+    case 'sk':
+      // 스파크 킬러: 저항 (네모) 과 콘덴서 (판 두 장) 를 직렬로
+      return (
+        <g>
+          <path d="M0,-40V-26M0,-6V6M0,12V40" stroke={c.ink} />
+          <rect x={-5} y={-26} width={10} height={20} fill={c.bg} stroke={c.ink} />
+          <path d="M-11,6H11M-11,12H11" stroke={c.ink} strokeWidth={2.4} />
+        </g>
+      );
+    case 'r_sk':
+      return <SkGlyph p={p} c={c} />;
     case 'fuse3':
       return (
         <g>

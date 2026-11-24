@@ -143,6 +143,20 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('늘 통합니다 (끊어지는 것은 흉내 내지 않고, 정격을 넘으면 [해석] 에서 알려 줍니다).', 'Always conducts; the Analysis tab reports overload.'),
         'dc-sensor',
       );
+    case 'r_sk':
+    case 'sk':
+      return g(
+        tr('스파크 킬러 (CR 서지 흡수기: 저항 + 콘덴서) 입니다. 교류 코일 (SOL · 전자접촉기 · 릴레이) 은 접점이 끊는 순간 큰 서지 전압을 내서 접점을 태우고 노이즈를 만듭니다. 코일 양단에 달아 그 서지를 흡수합니다.', 'A spark killer (RC snubber). An AC coil (solenoid, contactor, relay) throws a voltage spike when its contact breaks, burning the contact and making noise; this absorbs it.'),
+        [[tr('1 · 2 (리드선)', '1, 2 (leads)'), tr('극성 없음. 코일의 두 단자에 나란히', 'no polarity; across the two coil terminals')]],
+        [
+          tr('교류 SOL (2선식 리드선 · DIN 커넥터 1 · 2) 의 두 단자에 나란히 답니다. 밸브 가까이 (커넥터 · 단자대) 일수록 좋습니다', 'Across the two terminals of the AC solenoid, as close to the valve as possible'),
+          tr('접점 양단에 달지 마세요: 접점이 열려도 0.1 µF 면 220 V 에서 약 8 mA 가 새어 소형 릴레이 (코일 ≈ 5 mA) · LED 램프가 꺼지지 않습니다', 'Not across the contact: 0.1 µF leaks about 8 mA at 220 V even with the contact open, enough to hold a small relay or light an LED'),
+          tr('직류 코일 (DC 24V) 에는 스파크 킬러 대신 환류 다이오드 · TVS 를 씁니다. 서지 흡수가 들어 있는 밸브 · 커넥터면 따로 달지 않아도 됩니다', 'For DC coils use a flyback diode or TVS instead; valves with built-in suppression need nothing extra'),
+          tr('380 V 코일에는 AC 440V · 600V 용을 씁니다 (사양에 적으면 [검사] 가 봄)', 'Use a 440 V / 600 V type on 380 V coils (Check compares with the spec)'),
+        ],
+        tr('시뮬레이션 동작에는 영향이 없고, [검사] 가 자리 (접점 양단 · 전원 양단 · 직류 회로) 와 정격 전압을 봅니다.', 'It does not change the simulation; Check looks at where it is fitted and its voltage rating.'),
+        'sol-alternate',
+      );
     case 'r_smps':
       return g(
         tr('SMPS (직류 전원 장치) 입니다. 교류 L · N 을 받아 직류 24V 를 만듭니다. 센서 · PLC · 직류 릴레이 · 솔레노이드의 전원입니다.', 'A switching power supply: AC in, 24 V DC out, for sensors, PLCs, DC relays and solenoids.'),

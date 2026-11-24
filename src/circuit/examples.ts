@@ -754,12 +754,15 @@ function lampDelay(): Circuit {
 function solAlternate(): Circuit {
   const b = new Builder();
   b.part('r_term', 2, 0, '', { pole: 'L' });
-  b.part('r_term', 34, 0, '', { pole: 'N' });
+  b.part('r_term', 38, 0, '', { pole: 'N' });
   b.part('r_mcb1', 2, 6, 'MCB1', { name: tr('조작 전원', 'Control supply'), spec: 'AC/10A' });
   b.part('r_sw', 9, 10, 'S1', { name: tr('운전 스위치', 'Run switch') });
   b.part('r_timer8', 18, 20, 'T1', { name: tr('교번 (1초)', 'Alternate (1 s)'), timerMode: 'flicker', preset: 1000, sock: 'pf' });
   b.part('r_sol', 28, 10, 'SOL1', { name: tr('밸브 A', 'Valve A'), spec: 'AC 220V' });
   b.part('r_sol', 28, 22, 'SOL2', { name: tr('밸브 B', 'Valve B'), spec: 'AC 220V' });
+  // 스파크 킬러: 교류 SOL 코일의 두 단자에 나란히 (끊을 때의 서지를 흡수해 타이머 접점을 보호)
+  b.part('r_sk', 33, 11, 'SK1', { name: tr('SOL1 서지 흡수', 'SOL1 surge') });
+  b.part('r_sk', 33, 23, 'SK2', { name: tr('SOL2 서지 흡수', 'SOL2 surge') });
   b.cable('brown', [2, 0], [2, 2]);
   b.cable('brown', [2, 10], [2, 14], [8, 14], [8, 12]);
   b.cable('red', [10, 12], [10, 28], [21, 28], [21, 23]);
@@ -768,10 +771,15 @@ function solAlternate(): Circuit {
   b.cable('yellow', [15, 17], [15, 14], [27, 14], [27, 12]);
   b.cable('orange', [17, 17], [17, 13], [24, 13], [24, 26], [27, 26], [27, 24]);
   // N
-  b.cable('blue', [34, 0], [34, 30], [15, 30], [15, 23]);
-  b.cable('blue', [29, 12], [29, 15], [34, 15]);
-  b.cable('blue', [29, 24], [29, 27], [34, 27]);
-  b.part('text', 1, -4, '', { text: tr('솔레노이드 밸브 2개 교번: 플리커 타이머의 a · b 접점이 1초마다 번갈아 여자', 'Two solenoid valves alternating on a flicker timer') });
+  b.cable('blue', [38, 0], [38, 30], [15, 30], [15, 23]);
+  b.cable('blue', [29, 12], [29, 15], [38, 15]);
+  b.cable('blue', [29, 24], [29, 27], [38, 27]);
+  // 스파크 킬러 리드선: 1 → SOL 의 1 쪽 선, 2 → N
+  b.cable('yellow', [32, 13], [32, 14], [27, 14]);
+  b.cable('blue', [34, 13], [34, 15]);
+  b.cable('orange', [32, 25], [32, 26], [27, 26]);
+  b.cable('blue', [34, 25], [34, 27]);
+  b.part('text', 1, -4, '', { text: tr('솔레노이드 밸브 2개 교번: 플리커 타이머의 a · b 접점이 1초마다 번갈아 여자 (교류 SOL 코일마다 스파크 킬러)', 'Two solenoid valves alternating on a flicker timer (a spark killer across each AC coil)') });
   b.op(1000, 'S1', 'on', tr('운전', 'Run'));
   b.op(4500, 'S1', 'off', tr('정지', 'Stop'));
   return b.done();

@@ -55,6 +55,7 @@ const ROW: Partial<Record<PartType, number>> = {
   r_ssr: 2,
   r_tc: 2,
   r_tc8: 3,
+  r_sk: 4,
   r_tk4: 3,
   r_rtd2: 4,
   r_rtd: 4,
@@ -377,6 +378,9 @@ export function toWiring(c: Circuit, opts: { wires?: boolean } = {}): WiringResu
         break;
       case 'fuse':
         two('r_fuse', p.amps ? { amps: p.amps } : {});
+        break;
+      case 'sk':
+        two('r_sk', { ...(p.uf ? { uf: p.uf } : {}), ...(p.ohm ? { ohm: p.ohm } : {}), ...(p.spec ? { spec: p.spec } : {}) });
         break;
       case 'fuse3':
         for (let i = 0; i < 3; i++) {
