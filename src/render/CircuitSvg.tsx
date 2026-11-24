@@ -4,6 +4,7 @@ import { busSize, isPlcPart, isTempDevice, rtdInputPins, LAMP_HEX, PARTS, partBo
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TempView, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
 import { contactNumbers, parseTerm } from '../circuit/contacts';
+import { planGroups } from '../circuit/plan';
 import { BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -625,6 +626,39 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
   }
 }
 
+/** 배선 계획의 남은 연결: 넷마다 이미 이어진 덩어리끼리 가장 가까운 단자를 점선으로 (가장 짧은 나무) */
+function PlanLines({ circuit, model, c }: { circuit: Circuit; model: CircuitModel; c: CircuitColors }) {
+  const lines: { a: [number, number]; b: [number, number]; col: string }[] = [];
+  for (const { color, groups } of planGroups(circuit, model)) {
+    const col = color ? WIRE_HEX[color] : c.accent;
+    const inTree = [groups[0]];
+    const rest = groups.slice(1);
+    while (rest.length) {
+      let best: { k: number; a: [number, number]; b: [number, number]; d: number } | null = null;
+      rest.forEach((g, k) => {
+        for (const a of inTree.flat())
+          for (const b of g) {
+            const d = Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+            if (!best || d < best.d) best = { k, a, b, d };
+          }
+      });
+      const hit = best!;
+      lines.push({ a: hit.a, b: hit.b, col });
+      inTree.push(rest.splice(hit.k, 1)[0]);
+    }
+  }
+  return (
+    <g pointerEvents="none" fill="none">
+      {lines.map((l, i) => (
+        <g key={i}>
+          <line x1={l.a[0] * G} y1={l.a[1] * G} x2={l.b[0] * G} y2={l.b[1] * G} stroke={c.bg} strokeWidth={3.2} opacity={0.7} />
+          <line x1={l.a[0] * G} y1={l.a[1] * G} x2={l.b[0] * G} y2={l.b[1] * G} stroke={l.col} strokeWidth={1.9} strokeDasharray="6 4" opacity={0.9} />
+        </g>
+      ))}
+    </g>
+  );
+}
+
 /** 기호·설명·단자 번호 (글자는 돌리지 않는다) */
 export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: CircuitColors }) {
   // 실물 기기는 기호를 몸에 직접 적는다
@@ -839,6 +873,8 @@ export function CircuitLayer({ circuit, model, c, o = {} }: { circuit: Circuit; 
         <circle key={`j${x},${y}`} cx={x * G} cy={y * G} r={3.4} fill={c.ink} />
       ))}
       </g>
+      {/* 배선 계획: 아직 이을 단자끼리 가는 점선 (넷마다 가장 짧은 나무) */}
+      {circuit.plan?.length ? <PlanLines circuit={circuit} model={model} c={c} /> : null}
       {/* 배선 덕트는 선 위에 덮인다 (선이 덕트 안으로 지나가는 모양) */}
       {circuit.parts
         .filter((p) => p.type === 'r_duct')

@@ -83,7 +83,11 @@ const TEMP_KEYS = ['sv', 'hys', 'zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'ri
 const relBox = (p: Part) => partBox({ ...p, x: 0, y: 0 });
 
 /** 회로도 → 실물 배선도 */
-export function toWiring(c: Circuit): WiringResult {
+/**
+ * wires: false 면 기기만 놓고 선은 긋지 않는다. 이을 연결은 `Circuit.plan` 에 남겨 두어,
+ * 사용자가 기기를 옮긴 뒤 [배선 잇기] (`wirePlan`) 로 지금 자리에서 긋는다
+ */
+export function toWiring(c: Circuit, opts: { wires?: boolean } = {}): WiringResult {
   const model = new CircuitModel(c);
   const notes: string[] = [];
   // 넷 묶기: 같은 극의 전원 단자는 한 넷 (실물에서는 전원 단자 하나에 모인다)
@@ -471,7 +475,13 @@ export function toWiring(c: Circuit): WiringResult {
   };
   let best: { wires: Wire[]; failed: number; length: number } | null = null;
   let bestPos: [number, number][] = [];
-  for (let attempt = 0; attempt < 4; attempt++) {
+  // 기기만 놓기: 선이 지나갈 자리를 넉넉히 두고 한 번만 놓는다
+  if (opts.wires === false) {
+    place(devs, 6, 14);
+    best = { wires: [], failed: 0, length: 0 };
+    bestPos = devs.map((d) => [d.part.x, d.part.y]);
+  }
+  for (let attempt = 0; attempt < 4 && opts.wires !== false; attempt++) {
     place(devs, 4 + attempt * 2, 9 + attempt * 5);
     const r = routeAll(devs, colorOf);
     if (!best || r.failed < best.failed) {
@@ -501,7 +511,40 @@ export function toWiring(c: Circuit): WiringResult {
   };
   const pinNets = new Map<string, number>();
   for (const d of devs) for (const [i, n] of d.pins) pinNets.set(`${d.part.id}:${i}`, n);
+  if (opts.wires === false) {
+    // 넷마다 단자 목록 (단자 둘 이상) 과 전선 색
+    const nets = new Map<number, [string, number][]>();
+    for (const d of devs) for (const [i, n] of d.pins) nets.set(n, [...(nets.get(n) ?? []), [d.part.id, i]]);
+    out.plan = [...nets].filter(([, ps]) => ps.length > 1).map(([n, pins]) => ({ pins, ...(colorOf(n) ? { color: colorOf(n) } : {}) }));
+  }
   return { circuit: out, notes, length: res.length, failed: res.failed, pinNets };
+}
+
+// ───────────────────────── 배선 계획 (기기만 놓기 → 배선 잇기) ─────────────────────────
+
+/**
+ * 배선 잇기: 계획 (`Circuit.plan`) 의 넷을 지금 기기 자리에서 격자 길 찾기로 긋는다. 그려 둔 선은 지우고 다시 긋는다.
+ * 다 이으면 계획을 지우고, 못 이은 것이 있으면 계획을 남겨 기기를 옮긴 뒤 다시 누를 수 있게 한다
+ */
+export function wirePlan(c: Circuit): { circuit: Circuit; failed: number; length: number; dropped: number } {
+  const plan = c.plan ?? [];
+  const byId = new Map(c.parts.map((p) => [p.id, p]));
+  const pinsOf = new Map<string, Map<number, number>>();
+  let dropped = 0;
+  plan.forEach((pn, n) => {
+    const live = pn.pins.filter(([id, i]) => byId.has(id) && i < partPins(byId.get(id)!).length);
+    if (live.length < pn.pins.length) dropped += pn.pins.length - live.length;
+    for (const [id, i] of live) {
+      const m = pinsOf.get(id) ?? new Map<number, number>();
+      m.set(i, n);
+      pinsOf.set(id, m);
+    }
+  });
+  const devs: RouteDev[] = c.parts.filter((p) => !DRAWING.has(p.type)).map((p) => ({ part: p, pins: pinsOf.get(p.id) ?? new Map() }));
+  const r = routeAll(devs, (n) => plan[n]?.color);
+  const next: Circuit = { ...c, wires: r.wires };
+  if (!r.failed) delete next.plan;
+  return { circuit: next, failed: r.failed, length: r.length, dropped };
 }
 
 // ───────────────────────── 놓기 ─────────────────────────

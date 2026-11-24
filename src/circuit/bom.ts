@@ -7,6 +7,7 @@ import { loadRating } from './power';
 import { supplyProblems } from './supply';
 import { verifyWiring } from './verify';
 import { contactNumbers, parseTerm, termChoices } from './contacts';
+import { planLeft } from './plan';
 import { tr } from '../i18n';
 
 /** 부품 리스트 한 줄 = 기호 하나 (코일과 그 접점들은 한 기기) */
@@ -489,6 +490,16 @@ export interface CircuitIssue {
 export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(c)): CircuitIssue[] {
   const out: CircuitIssue[] = [];
   const kinds = model.tagKind;
+  // 기기만 놓은 실물 배선도: 선을 긋기 전에는 떠 있는 단자 검사가 모두 걸리므로 안내 하나만
+  const planned = planLeft(c, model);
+  if (planned)
+    return [
+      {
+        level: 'warn',
+        msg: tr(`아직 배선 전입니다: 이을 연결 ${planned}개가 점선으로 남아 있습니다. 기기를 판넬 자리에 놓은 뒤 위쪽 [배선 잇기] 를 누르세요 (그 전에는 다른 검사를 하지 않음)`, `Not wired yet: ${planned} planned connection(s) are dashed. Arrange the devices and press [Wire up] (other checks wait until then)`),
+        partIds: [],
+      },
+    ];
   // 접점 번호: 같은 기호에서 두 번 쓴 번호, 실물 기기에 맞출 수 없는 번호
   const seen = new Map<string, Part>();
   for (const p of c.parts) {

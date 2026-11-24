@@ -104,8 +104,11 @@ export function makeSchematicSheet() {
   );
 }
 
-/** 회로도 (기호) → 실물 배선도: 새 차트 탭으로 (기기는 판넬처럼 줄로 놓고 전선이 짧아지게 차례를 정함) */
-export function makeWiringSheet() {
+/**
+ * 회로도 (기호) → 실물 배선도: 새 차트 탭으로 (기기는 판넬처럼 줄로 놓고 전선이 짧아지게 차례를 정함).
+ * wires = false 면 기기만 놓고, 이을 연결은 점선으로 남겨 [배선 잇기] 로 긋게 한다
+ */
+export function makeWiringSheet(wires = true) {
   const cur = g().project;
   const c = cur.circuit;
   if (!c?.parts.length) {
@@ -114,7 +117,7 @@ export function makeWiringSheet() {
   }
   let res;
   try {
-    res = toWiring(c);
+    res = toWiring(c, { wires });
   } catch (e) {
     g().toast(tr(`실물 배선도를 만들지 못했습니다: ${(e as Error).message}`, `Could not make the wiring diagram: ${(e as Error).message}`), 'error');
     return;
@@ -125,6 +128,17 @@ export function makeWiringSheet() {
   g().addSheet(p);
   g().setTab('circuit');
   const m = (res.length / 100).toFixed(1);
+  if (!wires) {
+    const n = res.circuit.plan?.length ?? 0;
+    g().toast(
+      tr(
+        `기기만 놓았습니다 (이을 넷 ${n}개는 점선). 기기를 실제 판넬 자리로 끌어 옮긴 뒤 위쪽 [배선 잇기] 를 누르면 그 자리에서 선을 긋습니다${res.notes.length ? `. 확인할 것: ${res.notes.join(' · ')}` : ''}`,
+        `Devices placed (${n} nets to connect, shown dashed). Drag them to their panel positions, then press [Wire up] to draw the wires there${res.notes.length ? `. Note: ${res.notes.join(' · ')}` : ''}`,
+      ),
+      res.notes.length ? 'warn' : 'ok',
+    );
+    return;
+  }
   g().toast(
     res.notes.length
       ? tr(`실물 배선도를 새 차트 탭에 그렸습니다 (전선 약 ${m} m). 확인할 것: ${res.notes.join(' · ')}`, `Wiring diagram drawn in a new chart tab (about ${m} m of wire). Note: ${res.notes.join(' · ')}`)
