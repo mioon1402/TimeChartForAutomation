@@ -98,6 +98,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (temp(q.alarm)) p.alarm = q.alarm as number;
     if (q.tcMode === 'heat' || q.tcMode === 'cool') p.tcMode = q.tcMode;
     if (q.ctrl === 'onoff') p.ctrl = 'onoff';
+    for (const k of ['uf', 'ohm'] as const) if (typeof q[k] === 'number' && Number.isFinite(q[k]) && (q[k] as number) > 0 && (q[k] as number) < 1e6) p[k] = q[k] as number;
     for (const k of ['pb', 'ti', 'td', 'cycle'] as const) if (typeof q[k] === 'number' && Number.isFinite(q[k]) && (q[k] as number) >= 0) p[k] = q[k] as number;
     if (typeof q.zone === 'string' && q.zone.trim()) p.zone = q.zone.slice(0, 40);
     if (typeof q.tLoad === 'string' && q.tLoad.trim()) p.tLoad = q.tLoad.slice(0, 40);

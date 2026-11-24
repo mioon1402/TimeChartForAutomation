@@ -10,7 +10,7 @@ import { BODY_OHM, earthingOf, earthStudy, ZLOOP_TN, type EarthRow } from '../ci
 import { DEFAULT_PRICE, energyUse } from '../circuit/energy';
 import { contactNumbers, parseTerm, termChoices } from '../circuit/contacts';
 import { changeSocketLayout } from '../circuit/socket';
-import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempCtrl, isTempDevice, pidSetting, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempCtrl, isTempDevice, pidSetting, skLeakMa, skValues, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -1077,6 +1077,7 @@ function PropsPane({
             </p>
           )}
           {(p.type === 'no' || p.type === 'nc') && <ContactTerm p={p} circuit={circuit} model={model} set={set} onCircuit={setCircuit} />}
+          {(p.type === 'sk' || p.type === 'r_sk') && <SkProps p={p} set={set} />}
           {(p.type === 'timer' || p.type === 'r_timer8') && (
             <div className="grid2">
               <Field label={tr('동작', 'Mode')}>
@@ -2090,6 +2091,30 @@ function Tips() {
 // ───────────────────────── 조작 순서 ─────────────────────────
 
 /** 온도 기기 속성: 설정 · 히스테리시스 · 경보 · 동작, 온도가 바뀌는 방식 (묶음 · 연결 부하 · 속도) */
+/** 스파크 킬러: 정전 용량 · 저항, 220 V 에서 흐르는 전류 (접점 양단에 달면 이만큼 샌다) */
+function SkProps({ p, set }: { p: Part; set: (patch: Partial<Part>) => void }) {
+  const { uf, ohm } = skValues(p);
+  const ma = skLeakMa(p, 220);
+  return (
+    <>
+      <div className="grid2">
+        <Field label={tr('정전 용량 (µF)', 'Capacitance (µF)')} hint={tr('보통 0.1 · 0.2 · 0.5', 'usually 0.1, 0.2 or 0.5')}>
+          <NumberInput value={uf} min={0.01} max={10} step={0.1} onChange={(v) => v !== undefined && set({ uf: v > 0 ? v : undefined })} />
+        </Field>
+        <Field label={tr('저항 (Ω)', 'Resistance (Ω)')} hint={tr('보통 120 · 50', 'usually 120 or 50')}>
+          <NumberInput value={ohm} min={1} max={100000} step={10} onChange={(v) => v !== undefined && set({ ohm: v > 0 ? v : undefined })} />
+        </Field>
+      </div>
+      <p className="small muted">
+        {tr(
+          `교류 SOL · MC · 릴레이 코일의 두 단자에 나란히 답니다 (극성 없음). 접점이 끊을 때 코일이 내는 서지를 흡수해 접점 (특히 PLC 릴레이 출력) 이 덜 타고 노이즈가 줄어듭니다. 220 V · 60 Hz 에서 이 값으로 약 ${ma.toFixed(1)} mA 가 흐르므로 접점 양단에 달면 접점이 열려도 그만큼 새어 소형 릴레이 · LED 램프가 꺼지지 않을 수 있습니다 ([검사] 가 알림). 직류 코일에는 다이오드를 씁니다. 정격 전압은 사양에 (비우면 AC 250V).`,
+          `Fit it across the coil of an AC solenoid, contactor or relay (no polarity). It absorbs the coil's surge when a contact breaks, saving the contact (especially PLC relay outputs) and cutting noise. At 220 V / 60 Hz about ${ma.toFixed(1)} mA flows through it, so across a contact it leaks that much and small relays or LED lamps may not switch off (Check warns). Use a diode on DC coils. Rated voltage in the spec (default AC 250V).`,
+        )}
+      </p>
+    </>
+  );
+}
+
 /** 접점 번호: 비우면 [실물 배선도 만들기] 가 쓸 단자 (자동), 적으면 그 단자에 */
 function ContactTerm({ p, circuit, model, set, onCircuit }: { p: Part; circuit: Circuit; model: CircuitModel; set: (patch: Partial<Part>) => void; onCircuit: (c: Circuit) => void }) {
   const nums = contactNumbers(circuit, model);

@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isPlcPart, isTempDevice, pidSetting, pos3Labels, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isPlcPart, isTempDevice, pidSetting, pos3Labels, skValues, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
@@ -37,6 +37,7 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   mcb: 0,
   fuse3: 1,
   fuse: 1,
+  sk: 1,
   ol3: 2,
   coil: 3,
   km3: 3,
@@ -70,6 +71,7 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_my2: 3,
   r_my4: 3,
   r_fuse: 0,
+  r_sk: 0,
   r_smps: 1,
   r_pbl: 5,
   r_ls: 6,
@@ -232,6 +234,11 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: p.elb ? tr('누전차단기 (ELB)', 'Earth leakage breaker (ELB)') : tr('배선용 차단기', 'Circuit breaker'), spec: `${p.type.slice(-1)}P${p.amps ? ` ${p.amps}A` : ''}${p.ka ? ` ${p.ka}kA` : ''}` };
     case 'r_fuse':
       return { kind: tr('퓨즈 홀더', 'Fuse holder'), spec: `1P${p.amps ? ` ${p.amps}A` : ''}` };
+    case 'r_sk':
+    case 'sk': {
+      const { uf, ohm } = skValues(p);
+      return { kind: tr('스파크 킬러 (CR 서지 흡수기)', 'Spark killer (RC snubber)'), spec: `${uf} µF + ${ohm} Ω, ${p.spec?.trim() || 'AC 250V'}` };
+    }
     case 'r_smps':
       return { kind: 'SMPS', spec: tr('입력 AC 100-240V, 출력 DC 24V', 'in AC 100-240V, out DC 24V') };
     case 'r_prox':

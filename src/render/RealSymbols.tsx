@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, counterPreset, hmiCells, LAMP_HEX, plcAddresses, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, pidSetting, tempSetting, timerText, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, counterPreset, hmiCells, LAMP_HEX, plcAddresses, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, pidSetting, skValues, tempSetting, timerText, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -936,6 +936,27 @@ function TagAt({ p, x, y, c }: { p: Part; x: number; y: number; c: CircuitColors
 }
 
 /** 퓨즈 홀더: 위 1 · 아래 2, 늘 통한다 */
+/** 스파크 킬러 (CR, 오카야 CRE 꼴): 검은 몸통에 값, 아래 리드선 두 가닥 (1 · 2) */
+export function SkGlyph({ p, c }: { p: Part; c: CircuitColors }) {
+  const { uf, ohm } = skValues(p);
+  return (
+    <g>
+      {[-20, 20].map((x) => (
+        <g key={x}>
+          <path d={`M${x * 0.6},14 L${x},26 V40`} stroke="#64748b" strokeWidth={4.2} fill="none" />
+          <path d={`M${x * 0.6},14 L${x},26 V40`} stroke="#e5e7eb" strokeWidth={2.6} fill="none" />
+        </g>
+      ))}
+      <rect x={-30} y={-34} width={60} height={48} rx={5} fill="#1f2937" stroke="#030712" />
+      <Label x={0} y={-20} text="SPARK KILLER" fill="#e5e7eb" size={6.2} weight={800} />
+      <Label x={0} y={-6} text={`${uf}µF`} fill="#fde68a" size={8} weight={800} />
+      <Label x={0} y={7} text={`${ohm}Ω`} fill="#fde68a" size={8} weight={800} />
+      <Label x={36} y={-22} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={36} lines={[p.name, p.spec?.trim() || 'AC 250V']} c={c} />
+    </g>
+  );
+}
+
 export function FuseGlyph({ p, st }: { p: Part; st: PartState }) {
   return (
     <g>

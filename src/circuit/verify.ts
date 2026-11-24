@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType, WireColor } from './types';
-import { circuitWires, hmiTag, rtdInputPins, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL, RPLC, solAc } from './parts';
+import { circuitWires, hmiTag, rtdInputPins, skLeakMa, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL, RPLC, solAc } from './parts';
 import { onWireInterior } from './netlist';
 import type { CircuitModel } from './engine';
 import { nominalVolt, poleLive, systemVolts } from './supply';
@@ -67,7 +67,7 @@ const COLOR_NAME: Record<WireColor, [string, string]> = {
 /** 기기에 적힌 정격 전압: 교류 · 직류와 전압 범위 (없으면 null) */
 export function ratedVoltage(p: Part): { kind: 'ac' | 'dc' | 'any'; lo: number; hi: number; text: string } | null {
   // 덮개에 AC 220V 가 적혀 나오는 기기는 사양을 비워도 그 전압으로 본다
-  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_tk4' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' || p.type === 'r_plc' || p.type === 'r_hmi' ? 'DC 24V' : '';
+  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_tk4' ? 'AC 100-240V' : p.type === 'r_sk' || p.type === 'sk' ? 'AC 250V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' || p.type === 'r_plc' || p.type === 'r_hmi' ? 'DC 24V' : '';
   const text = p.spec?.trim() || shown;
   if (text) {
     const m = /(\d+(?:\.\d+)?)\s*(?:[~\-–]\s*(\d+(?:\.\d+)?))?\s*V/i.exec(text);
@@ -263,6 +263,38 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       if (![a, b].some(wired)) continue;
       const [A, B] = [allPoles(a), allPoles(b)];
       if (B.has('+24V') && A.has('0V') && !A.has('+24V')) out.push({ level: 'error', msg: tr(`${name(p)}: 입력 극성이 반대입니다. 3 에 + (24V), 4 에 0V 를 잇습니다`, `${name(p)}: input polarity is reversed (3 = +, 4 = 0 V)`), partIds: [p.id] });
+    } else if (p.type === 'sk' || p.type === 'r_sk') {
+      // 스파크 킬러 (CR): 교류 코일 양단이 제자리. 접점 양단이면 열려도 새고, 직류는 다이오드, 전원 양단은 늘 흐름
+      const [a, b] = [pinNet(p, 0), pinNet(p, 1)];
+      if (![a, b].every(wired)) continue;
+      const [A, B] = [allPoles(a), allPoles(b)];
+      const pr = pair(A, B);
+      const v = pr ? volt(pr[0], pr[1]) : 0;
+      if ([...A, ...B].some((id) => POLE_SYSTEM[id] === 'dc')) {
+        out.push({ level: 'warn', msg: tr(`${name(p)}: 직류 회로입니다. 직류 코일 (DC 24V SOL · 릴레이) 의 서지는 스파크 킬러가 아니라 다이오드 (코일과 반대 방향, 환류) 나 TVS 로 흡수합니다. 서지 흡수 내장 코일이면 따로 달지 않아도 됩니다`, `${name(p)}: this is a DC circuit; suppress DC coils with a flyback diode or TVS instead`), partIds: [p.id] });
+        continue;
+      }
+      const fp = pair(feedPoles(a), feedPoles(b));
+      const across = model.conductors.find((k) => !k.always && !FEED.has(k.part.type) && k.part.id !== p.id && ((tie.find(k.a) === tie.find(a) && tie.find(k.b) === tie.find(b)) || (tie.find(k.a) === tie.find(b) && tie.find(k.b) === tie.find(a))));
+      if (fp) {
+        const ma = skLeakMa(p, volt(fp[0], fp[1]));
+        out.push({ level: 'warn', msg: tr(`${name(p)}: 전원 (${fp[0]} · ${fp[1]}) 양단에 바로 물려 늘 약 ${ma.toFixed(1)} mA 가 흐릅니다 (서지를 흡수하지 못함). 스파크 킬러는 끄고 켜는 코일 (SOL · MC · 릴레이) 의 두 단자에 답니다`, `${name(p)}: across the supply (${fp[0]}, ${fp[1]}): about ${ma.toFixed(1)} mA flows all the time. Fit it across the coil that is switched`), partIds: [p.id] });
+      } else if (across) {
+        const ma = skLeakMa(p, v || 220);
+        const g = [tie.find(a), tie.find(b)];
+        const loads = model.loads.filter((q) => q.id !== p.id && loadPins(q).some((i) => g.includes(tie.find(pinNet(q, i)))));
+        const who = loads.map(name).join(' · ');
+        out.push({
+          level: 'warn',
+          msg: tr(
+            `${name(p)}: 접점 ${name(across.part)} 의 양단에 달려 있어, 접점이 열려도 약 ${ma.toFixed(1)} mA 가 ${who || '부하'} 쪽으로 샙니다. 소형 릴레이 (1 VA 급 코일 ≈ 5 mA) · LED 램프 · PLC 입력은 꺼지지 않거나 희미하게 켜질 수 있습니다. 스파크 킬러는 접점이 아니라 코일 (부하) 양단에 다세요`,
+            `${name(p)}: fitted across contact ${name(across.part)}, so about ${ma.toFixed(1)} mA leaks to ${who || 'the load'} when it is open; small relays, LED lamps and PLC inputs may not switch off. Fit it across the coil instead`,
+          ),
+          partIds: [p.id, across.part.id, ...loads.map((q) => q.id)],
+        });
+      }
+      const rated = ratedVoltage(p)?.hi ?? 250;
+      if (v > rated * 1.1) out.push({ level: 'warn', msg: tr(`${name(p)}: 걸리는 전압 약 ${Math.round(v)} V 가 정격 ${rated} V 를 넘습니다. 그 전압용 (AC 440V · 600V) 을 쓰세요`, `${name(p)}: about ${Math.round(v)} V exceeds its ${rated} V rating`), partIds: [p.id] });
     } else if (rtdInputPins(p)) {
       // 측온저항체 입력 A · B · B': 센서 세 가닥이 같은 이름 단자에. 전원이 닿으면 입력 회로가 탄다
       const sensor = rtdInputPins(p)!.map((i) => pinNet(p, i));

@@ -172,6 +172,8 @@ export const PARTS: Record<PartType, PartDef> = {
     prefix: '',
   },
   fuse: { type: 'fuse', cat: 'protect', pins: V2, poles: [[0, 1]], box: BOX2, prefix: 'F' },
+  // 스파크 킬러 (CR): 시뮬레이션에서는 아무것도 하지 않는다 (서지 흡수 · 누설은 [검사] 가 본다)
+  sk: { type: 'sk', cat: 'protect', pins: V2, box: BOX2, prefix: 'SK' },
   fuse3: { type: 'fuse3', cat: 'protect', pins: P3, poles: POLES3, box: BOX3, prefix: 'F' },
   mcb: { type: 'mcb', cat: 'protect', pins: pins2('1', '2'), poles: [[0, 1]], operate: 'toggle', defaultOn: true, box: BOX2W, prefix: 'CB' },
   mcb3: { type: 'mcb3', cat: 'protect', pins: P3, poles: POLES3, operate: 'toggle', defaultOn: true, box: BOX3, prefix: 'MCCB' },
@@ -410,6 +412,8 @@ export const PARTS: Record<PartType, PartDef> = {
   },
   r_buzzer: { type: 'r_buzzer', cat: 'output', pins: [pin(-1, 1, 'X1'), pin(1, 1, 'X2')], load: true, box: [-1.8, -2.8, 1.8, 1.8], prefix: 'BZ' },
   // 솔레노이드 밸브 (5포트 공압 밸브 + 코일). 단자 이름은 partPins 가 결선 방식에 따라 (리드선 + · - / DIN 1 · 2 · 접지)
+  // 스파크 킬러 (CR 서지 흡수기, 오카야 CRE 꼴): 몸통 아래 리드선 1 · 2 를 코일 양단에
+  r_sk: { type: 'r_sk', cat: 'protect', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], box: [-1.8, -1.8, 1.8, 2.4], prefix: 'SK' },
   r_sol: { type: 'r_sol', cat: 'output', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], load: true, box: [-2.9, -3.4, 2.9, 2.9], prefix: 'SOL' },
   r_fan: { type: 'r_fan', cat: 'output', pins: [pin(-1, 3, 'L'), pin(1, 3, 'N')], load: true, box: [-3, -3, 3, 3.8], prefix: 'FAN' },
   r_pbl: {
@@ -590,7 +594,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd', 'r_rtd2', 'r_tk4']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd', 'r_rtd2', 'r_tk4', 'r_sk']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -689,6 +693,18 @@ export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right' 
     return action === 'left' ? `← ${l}` : action === 'right' || action === 'on' ? `${r} →` : m;
   }
   return action === 'press' ? tr('누름 → 뗌', 'Press') : action === 'on' ? 'ON' : action === 'off' ? 'OFF' : action === 'left' ? tr('왼쪽', 'Left') : tr('오른쪽', 'Right');
+}
+
+/** 스파크 킬러 값 (없으면 0.1 µF + 120 Ω) */
+export function skValues(p: Pick<Part, 'uf' | 'ohm'>): { uf: number; ohm: number } {
+  return { uf: p.uf && p.uf > 0 ? p.uf : 0.1, ohm: p.ohm && p.ohm > 0 ? p.ohm : 120 };
+}
+
+/** 스파크 킬러를 지나는 교류 전류 (mA): volts / √(R² + Xc²), Xc = 1 / (2π f C). 접점 양단에 달면 접점이 열려도 이만큼 샌다 */
+export function skLeakMa(p: Pick<Part, 'uf' | 'ohm'>, volts: number, hz = 60): number {
+  const { uf, ohm } = skValues(p);
+  const xc = 1e6 / (2 * Math.PI * hz * uf);
+  return (volts / Math.hypot(ohm, xc)) * 1000;
 }
 
 /** 온도 조절기 (전원이 있어야 출력): 48×48 · 8핀 (T3S 꼴) · PID (TK4S 꼴) */
@@ -970,6 +986,9 @@ export function partKindName(type: PartType): string {
       return tr('각형 릴레이 4c (소켓)', 'Blade relay 4-pole (socket)');
     case 'r_fuse':
       return tr('퓨즈 홀더', 'Fuse holder');
+    case 'r_sk':
+    case 'sk':
+      return tr('스파크 킬러 (CR 서지 흡수기)', 'Spark killer (RC snubber)');
     case 'r_smps':
       return tr('SMPS (DC 24V 전원)', 'SMPS (24 V DC supply)');
     case 'r_prox':
@@ -1099,6 +1118,7 @@ export function palette(): PaletteGroup[] {
         it('r_mcb3', tr('누전차단기 3P', 'ELB 3P'), { elb: true }, 'elb3', 'ELB'),
         it('r_mcb2', tr('누전차단기 2P', 'ELB 2P'), { elb: true }, 'elb2', 'ELB'),
         it('r_fuse', tr('퓨즈 홀더', 'Fuse holder'), { amps: 10 }),
+        it('r_sk', tr('스파크 킬러 (CR)', 'Spark killer (RC)')),
         it('r_thr', tr('열동 계전기 THR', 'Overload THR')),
       ],
     },
@@ -1225,7 +1245,7 @@ export function palette(): PaletteGroup[] {
     {
       title: tr('보호 기기', 'Protection'),
       mode: 'symbol',
-      items: [it('mcb3', 'MCCB 3P'), it('mcb', tr('차단기 1P', 'Breaker 1P')), it('fuse', tr('퓨즈', 'Fuse')), it('fuse3', tr('퓨즈 3P', 'Fuse 3P')), it('ol3', 'THR 3P')],
+      items: [it('mcb3', 'MCCB 3P'), it('mcb', tr('차단기 1P', 'Breaker 1P')), it('fuse', tr('퓨즈', 'Fuse')), it('fuse3', tr('퓨즈 3P', 'Fuse 3P')), it('ol3', 'THR 3P'), it('sk', tr('스파크 킬러 (CR)', 'Spark killer (RC)'))],
     },
     {
       title: tr('조작 스위치', 'Switches'),
