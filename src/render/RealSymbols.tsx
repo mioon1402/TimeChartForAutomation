@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, counterPreset, hmiCells, LAMP_HEX, plcAddresses, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, tempSetting, timerText, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, counterPreset, hmiCells, LAMP_HEX, plcAddresses, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, pidSetting, tempSetting, timerText, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -1598,6 +1598,133 @@ export function Tc8Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColor
       <SideNotes x={124} lines={[p.name, p.spec, `SV ${sv}℃ · ${tr('히스', 'hys')} ${tempSetting(p).hys}℃`, p.tcMode === 'cool' ? tr('냉각 동작', 'cooling') : tr('가열 동작', 'heating')]} c={c} />
       {t && !st.on && <Label x={124} y={50} text={tr('전원 없음', 'No power')} anchor="start" size={9} weight={700} fill="#dc2626" />}
       {st.sensorBad && <Label x={124} y={64} text={tr('센서 끊김 → 출력 꺼짐', 'Sensor open → output off')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+    </g>
+  );
+}
+
+/**
+ * PID 온도 조절기 (TK4S 꼴, 48×48 나사 단자): 앞면 PV (빨강 4자리) · SV (초록 4자리), OUT1 · AL1 램프, 키 4개.
+ * 단자는 위 RS485 + · − 와 센서 A · B · B' (10 · 11 · 12), 아래 전원 L · N · 출력 C1-OUT1 · 경보 C2-AL1
+ */
+export function Tk4Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const t = st.temp;
+  const { sv, hys } = tempSetting(p);
+  const pid = pidSetting(p);
+  const powered = !t || st.on;
+  const top = [
+    [-100, '485+', 'grey', ''],
+    [-60, '485-', 'grey', ''],
+    [20, 'A', 'grey', '10'],
+    [60, 'B', 'grey', '11'],
+    [100, "B'", 'grey', '12'],
+  ] as const;
+  const bottom = [
+    [-100, 'L', 'orange'],
+    [-60, 'N', 'orange'],
+    [-20, 'C1', 'grey'],
+    [20, 'OUT1', 'green'],
+    [60, 'C2', 'grey'],
+    [100, 'AL1', 'green'],
+  ] as const;
+  const led = (on: boolean | undefined, col: string) => (on ? col : '#475569');
+  return (
+    <g>
+      <rect x={-130} y={-130} width={260} height={260} rx={7} fill={BODY} stroke={BODY_EDGE} />
+      <rect x={-130} y={-130} width={260} height={42} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={-130} y={88} width={260} height={42} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      {top.map(([x, label, ring, no]) => (
+        <g key={label}>
+          <Screw x={x} y={-120} ring={ring} />
+          <Label x={x} y={-98} text={no ? `${no} ${label}` : label} size={8} weight={800} />
+        </g>
+      ))}
+      {bottom.map(([x, label, ring]) => (
+        <g key={label}>
+          <Screw x={x} y={120} ring={ring} />
+          <Label x={x} y={102} text={label} size={8} weight={800} />
+        </g>
+      ))}
+      {/* 앞면: 검은 테두리, PV · SV 표시, 램프, 키 */}
+      <rect x={-84} y={-84} width={168} height={168} rx={6} fill="#111827" stroke="#030712" />
+      <rect x={-74} y={-74} width={148} height={50} rx={3} fill="#0b1120" />
+      <Label x={-68} y={-62} text="PV" anchor="start" fill="#64748b" size={7} weight={700} />
+      <Label x={66} y={-32} text={!powered ? '' : st.sensorBad ? 'oPEn' : tempText(t ? t.pv : sv)} anchor="end" fill="#f87171" size={st.sensorBad ? 22 : 26} weight={800} />
+      <rect x={-74} y={-20} width={148} height={34} rx={3} fill="#0b1120" />
+      <Label x={-68} y={-8} text="SV" anchor="start" fill="#64748b" size={7} weight={700} />
+      <Label x={66} y={8} text={powered ? tempText(sv) : ''} anchor="end" fill="#4ade80" size={18} weight={800} />
+      {[
+        [-66, 'OUT1', led(t?.out, '#f59e0b')],
+        [-26, 'AL1', led(t?.al, '#ef4444')],
+        [14, pid ? 'PID' : 'ON/OFF', powered && t ? '#22c55e' : '#475569'],
+      ].map(([x, text, fill]) => (
+        <g key={text as string}>
+          <circle cx={(x as number) + 4} cy={26} r={4} fill={fill as string} />
+          <Label x={(x as number) + 11} y={29} text={text as string} anchor="start" fill="#cbd5e1" size={7} weight={800} />
+        </g>
+      ))}
+      {pid && t && powered && !st.sensorBad && <Label x={-68} y={8} text={`MV ${Math.round(t.mv ?? 0)}%`} anchor="start" fill="#fde68a" size={7.5} weight={800} />}
+      {['MODE', '◀', '▼', '▲'].map((k, i) => (
+        <g key={k}>
+          <rect x={-70 + i * 36} y={42} width={30} height={20} rx={4} fill="#374151" stroke="#0f172a" />
+          <Label x={-55 + i * 36} y={56} text={k} fill="#e5e7eb" size={k === 'MODE' ? 6.5 : 9} weight={800} />
+        </g>
+      ))}
+      <Label x={0} y={76} text="TK" fill="#6b7280" size={6.5} weight={700} />
+      {t && (
+        <>
+          <Label x={-106} y={-30} text="−5" fill="#2563eb" size={9} weight={800} />
+          <Label x={106} y={-30} text="+5" fill="#dc2626" size={9} weight={800} />
+        </>
+      )}
+      <Label x={138} y={-110} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes
+        x={138}
+        lines={[
+          p.name,
+          p.spec,
+          pid ? `SV ${sv}℃ · P ${pid.pb} · I ${pid.ti} · D ${pid.td}` : `SV ${sv}℃ · ${tr('히스', 'hys')} ${hys}℃`,
+          pid ? tr(`PID 제어 주기 ${pid.cycle}초 (${p.tcMode === 'cool' ? '냉각' : '가열'})`, `PID, cycle ${pid.cycle} s (${p.tcMode === 'cool' ? 'cooling' : 'heating'})`) : p.tcMode === 'cool' ? tr('ON/OFF 냉각', 'ON/OFF cooling') : tr('ON/OFF 가열', 'ON/OFF heating'),
+          typeof p.alarm === 'number' ? tr(`AL1 ${p.alarm}℃ 이상`, `AL1 at ${p.alarm}℃`) : '',
+        ]}
+        c={c}
+      />
+      {t && !st.on && <Label x={138} y={60} text={tr('전원 없음', 'No power')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+      {st.sensorBad && <Label x={138} y={74} text={tr('센서 끊김 → 출력 꺼짐', 'Sensor open → output off')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+    </g>
+  );
+}
+
+/** 측온저항체 Pt100 더블: 보호관 하나에 소자 둘, 아래 리드선 6가닥 (1번 A 빨강 · B · B' 흰색, 2번은 다른 색 — 색은 제조사마다 다름) */
+export function Rtd2Glyph({ p, c }: { p: Part; c: CircuitColors }) {
+  const leads = [
+    [-100, '#dc2626', 'A1'],
+    [-60, '#f8fafc', 'B1'],
+    [-20, '#f8fafc', "B1'"],
+    [20, '#1f2937', 'A2'],
+    [60, '#9ca3af', 'B2'],
+    [100, '#9ca3af', "B2'"],
+  ] as const;
+  return (
+    <g>
+      <rect x={-5} y={-136} width={10} height={64} rx={5} fill="#cbd5e1" stroke="#64748b" />
+      <rect x={-12} y={-74} width={24} height={14} rx={2} fill="#94a3b8" stroke="#475569" />
+      <path d="M-8,-60h16v22h-16z" fill="#cbd5e1" stroke="#64748b" />
+      {[-56, -50, -44].map((y) => (
+        <path key={y} d={`M-8,${y}h16`} stroke="#64748b" strokeWidth={0.8} />
+      ))}
+      <path d="M0,-38C-4,-20 6,-8 0,10C-4,24 2,34 0,44" stroke="#9ca3af" strokeWidth={9} fill="none" strokeDasharray="3 2" />
+      <rect x={-116} y={44} width={232} height={18} rx={3} fill="#e5e7eb" stroke={BODY_EDGE} />
+      <Label x={-60} y={57} text={tr('1번 소자', 'Element 1')} fill="#64748b" size={7} weight={700} />
+      <Label x={60} y={57} text={tr('2번 소자', 'Element 2')} fill="#64748b" size={7} weight={700} />
+      {leads.map(([x, col, t]) => (
+        <g key={t}>
+          <path d={`M${x * 0.5},62 L${x},72 V80`} stroke="#64748b" strokeWidth={4.4} fill="none" />
+          <path d={`M${x * 0.5},62 L${x},72 V80`} stroke={col} strokeWidth={3} fill="none" />
+          <Label x={x + 6} y={76} text={t} anchor="start" size={7.5} weight={800} />
+        </g>
+      ))}
+      <Label x={20} y={-120} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={20} lines={[p.name ?? 'Pt100 Ω × 2', tr('더블 3선식 (소자 2개)', 'duplex, 2 × 3-wire'), tr('2번 소자 색은 예시', 'element 2 colours: example')]} c={c} />
     </g>
   );
 }

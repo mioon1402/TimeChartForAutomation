@@ -9,7 +9,7 @@ import { parallelWires, wireChain } from '../circuit/wires';
 import { BODY_OHM, earthingOf, earthStudy, ZLOOP_TN, type EarthRow } from '../circuit/earth';
 import { DEFAULT_PRICE, energyUse } from '../circuit/energy';
 import { changeSocketLayout } from '../circuit/socket';
-import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempDevice, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempCtrl, isTempDevice, pidSetting, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -2065,24 +2065,46 @@ function Tips() {
 /** 온도 기기 속성: 설정 · 히스테리시스 · 경보 · 동작, 온도가 바뀌는 방식 (묶음 · 연결 부하 · 속도) */
 function TempProps({ p, circuit, set }: { p: Part; circuit: Circuit; set: (patch: Partial<Part>) => void }) {
   const { sv, hys } = tempSetting(p);
-  const loads = [...new Set(circuit.parts.filter((q) => PARTS[q.type].load && !PARTS[q.type].selfCoil && q.type !== 'coil' && q.type !== 'timer' && q.type !== 'r_tc' && q.type !== 'r_tc8' && q.type !== 'r_counter' && q.tag.trim()).map((q) => q.tag.trim()))];
-  const tc = p.type === 'r_tc' || p.type === 'r_tc8';
+  const loads = [...new Set(circuit.parts.filter((q) => PARTS[q.type].load && !PARTS[q.type].selfCoil && q.type !== 'coil' && q.type !== 'timer' && !isTempCtrl(q) && q.type !== 'r_counter' && q.tag.trim()).map((q) => q.tag.trim()))];
+  const tc = isTempCtrl(p);
+  const pid = pidSetting(p);
   return (
     <>
       <div className="grid2">
         <Field label={tr('설정 온도 (℃)', 'Set point (℃)')}>
           <NumberInput value={sv} min={-100} max={2000} step={1} onChange={(v) => v !== undefined && set({ sv: v })} />
         </Field>
-        <Field label={tr('히스테리시스 (℃)', 'Hysteresis (℃)')} hint={tr('설정에서 이만큼 내려가야 되돌아갑니다', 'Returns once it drops this far below the set point')}>
+        {p.type === 'r_tk4' && (
+          <Field label={tr('제어 방식', 'Control method')}>
+            <Select value={p.ctrl === 'onoff' ? 'onoff' : 'pid'} onChange={(v) => set({ ctrl: v === 'onoff' ? 'onoff' : undefined })} options={[{ value: 'pid', label: tr('PID (시간 비례)', 'PID (time-proportional)') }, { value: 'onoff', label: tr('ON/OFF (히스테리시스)', 'ON/OFF (hysteresis)') }]} />
+          </Field>
+        )}
+        <Field label={tr('히스테리시스 (℃)', 'Hysteresis (℃)')} hint={pid ? tr('PID 에서는 경보 AL1 이 되돌아가는 폭', 'With PID: alarm AL1 reset band') : tr('설정에서 이만큼 내려가야 되돌아갑니다', 'Returns once it drops this far below the set point')}>
           <NumberInput value={hys} min={0.1} max={500} step={1} onChange={(v) => v !== undefined && set({ hys: v })} />
         </Field>
+        {pid && (
+          <>
+            <Field label={tr('비례대 P (℃)', 'Proportional band P (℃)')} hint={tr('편차가 이만큼이면 출력 100%', 'Output is 100% at this deviation')}>
+              <NumberInput value={pid.pb} min={0.1} max={999} step={1} onChange={(v) => v !== undefined && set({ pb: Math.max(0.1, v) })} />
+            </Field>
+            <Field label={tr('적분 시간 I (초)', 'Integral time I (s)')} hint={tr('남은 편차를 없앰. 0 = 안 씀', 'Removes offset. 0 = off')}>
+              <NumberInput value={pid.ti} min={0} max={9999} step={10} onChange={(v) => v !== undefined && set({ ti: Math.max(0, v) })} />
+            </Field>
+            <Field label={tr('미분 시간 D (초)', 'Derivative time D (s)')} hint={tr('빨리 오를 때 미리 줄여 넘침을 막음. 0 = 안 씀', 'Brakes a fast rise to limit overshoot. 0 = off')}>
+              <NumberInput value={pid.td} min={0} max={9999} step={10} onChange={(v) => v !== undefined && set({ td: Math.max(0, v) })} />
+            </Field>
+            <Field label={tr('제어 주기 T (초)', 'Control cycle T (s)')} hint={tr('릴레이 출력은 보통 20초, SSR 은 2초', 'Relay output: about 20 s, SSR: 2 s')}>
+              <NumberInput value={pid.cycle} min={0.5} max={120} step={1} onChange={(v) => v !== undefined && set({ cycle: Math.max(0.5, v) })} />
+            </Field>
+          </>
+        )}
         {tc && (
           <>
             <Field label={tr('제어 동작', 'Control action')}>
               <Select value={p.tcMode ?? 'heat'} onChange={(v: 'heat' | 'cool') => set({ tcMode: v === 'cool' ? 'cool' : undefined })} options={[{ value: 'heat', label: tr('가열 (설정보다 낮으면 OUT)', 'Heating (OUT below set)') }, { value: 'cool', label: tr('냉각 (설정 이상이면 OUT)', 'Cooling (OUT above set)') }]} />
             </Field>
-            {p.type === 'r_tc' && (
-              <Field label={tr('경보 온도 AL (℃)', 'Alarm AL (℃)')} hint={tr('이 온도 이상이면 C2-AL 닫힘. 비우면 경보 없음', 'C2-AL closes at or above this. Empty = no alarm')}>
+            {(p.type === 'r_tc' || p.type === 'r_tk4') && (
+              <Field label={p.type === 'r_tk4' ? tr('경보 온도 AL1 (℃)', 'Alarm AL1 (℃)') : tr('경보 온도 AL (℃)', 'Alarm AL (℃)')} hint={p.type === 'r_tk4' ? tr('이 온도 이상이면 C2-AL1 닫힘 (절대값 상한 경보). 비우면 경보 없음', 'C2-AL1 closes at or above this (absolute high). Empty = no alarm') : tr('이 온도 이상이면 C2-AL 닫힘. 비우면 경보 없음', 'C2-AL closes at or above this. Empty = no alarm')}>
                 <NumberInput value={p.alarm} allowEmpty placeholder={tr('없음', 'none')} min={-100} max={2000} step={1} onChange={(v) => set({ alarm: v })} />
               </Field>
             )}
@@ -2095,7 +2117,14 @@ function TempProps({ p, circuit, set }: { p: Part; circuit: Circuit; set: (patch
         )}
       </div>
       <p className="small muted">
-        {tc
+        {pid
+          ? tr(
+              `L · N 전원 (AC 100-240V). 제어 주기 ${pid.cycle}초마다 조작량 MV = 100 / P × (편차 + 적분 / I + D × 편차 변화율) 를 계산해서 그 비율만큼 C1-OUT1 을 닫아 둡니다 (설정 ${sv}℃ 근처에서 켜짐 · 꺼짐이 짧게 되풀이). 실제 기기는 오토튜닝 (AT) 으로 P · I · D 를 정합니다. 센서는 10 A (빨강) · 11 B · 12 B', 멀티 입력이라 파라미터에서 입력 종류를 Pt100 으로 맞춥니다. 나머지 단자 번호는 기기 옆면 결선도를 따르세요`,
+              `Power L/N (AC 100-240V). Every ${pid.cycle} s it computes MV = 100 / P × (error + integral / I + D × error rate) and keeps C1-OUT1 closed for that share of the cycle. Real units set P, I, D by auto-tuning. Sensor on 10 A (red), 11 B, 12 B'; set the input type to Pt100. Other terminal numbers: see the label`,
+            )
+          : p.type === 'r_tk4'
+            ? tr(`L · N 전원. ${p.tcMode === 'cool' ? `${sv}℃ 이상이면 C1-OUT1 닫힘, ${sv - hys}℃ 이하로 내려가면 열림` : `${sv - hys}℃ 이하이면 C1-OUT1 닫힘, ${sv}℃ 에 닿으면 열림`}. 센서는 10 A · 11 B · 12 B'`, `Power L/N. ${p.tcMode === 'cool' ? `C1-OUT1 closes at ${sv}℃, opens at ${sv - hys}℃` : `C1-OUT1 closes at ${sv - hys}℃, opens at ${sv}℃`}. Sensor on 10 A, 11 B, 12 B'`)
+            : tc
           ? tr(`A1 · A2 전원. ${p.tcMode === 'cool' ? `${sv}℃ 이상이면 C1-OUT 닫힘, ${sv - hys}℃ 이하로 내려가면 열림` : `${sv - hys}℃ 이하이면 C1-OUT 닫힘 (히터 켜짐), ${sv}℃ 에 닿으면 열림`}. 단자 번호는 기종마다 다르니 기기 옆면 결선도를 따르세요`, `Power A1/A2. ${p.tcMode === 'cool' ? `C1-OUT closes at ${sv}℃ and opens at ${sv - hys}℃` : `C1-OUT closes at ${sv - hys}℃ and opens at ${sv}℃`}. Terminal numbers differ by model`)
           : tr(`${sv}℃ 에 닿으면 접점이 바뀌고 ${sv - hys}℃ 까지 내려가야 되돌아갑니다. 전원이 필요 없는 무전압 접점입니다`, `Switches at ${sv}℃ and back at ${sv - hys}℃. Dry contact, no supply needed`)}
       </p>

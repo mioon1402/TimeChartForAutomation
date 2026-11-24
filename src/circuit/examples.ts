@@ -1580,6 +1580,75 @@ function blowerTimer(): Circuit {
   return c;
 }
 
+// ───────────────────── 건조로 PID 온도 제어 (TK4S 꼴 · 더블 Pt100 · 과열 차단) ─────────────────────
+
+/**
+ * 단상 220 V 건조로 히터 3 kW: 누전차단기 → 전자접촉기 → 히터. 조작은 퓨즈 F1 뒤에서
+ *  - PID 조절기 TK1 (TK4S 꼴): 더블 Pt100 의 1번 소자로 재서 120℃ 를 PID (제어 주기 20초) 로 유지, OUT1 → MC1 코일
+ *  - 과열 차단 TS1 (T3S 꼴): 같은 보호관의 2번 소자로 따로 재서 150℃ 이상이면 COM-NO 가 열려 MC1 을 끊는다
+ *  - 경보 AL1 (135℃ 이상) → 적색등 RL1, 히터 동작 → 녹색등 GL1 (MC1 보조 a)
+ * 40분에 조절기가 고장 난 것처럼 온도를 160℃ 까지 올려 보면 AL1 이 켜지고 TS1 이 히터를 끊는다
+ */
+function ovenPid(): Circuit {
+  const b = new Builder();
+  const tL = b.part('r_term', 2, 0, '', { pole: 'L' });
+  const tN = b.part('r_term', 4, 0, '', { pole: 'N' });
+  const tPE = b.part('r_term', 7, 0, '', { pole: 'PE' });
+  const elb = b.part('r_mcb2', 3, 6, 'ELB1', { name: tr('주 차단기', 'Main RCD'), spec: 'AC 220V 20A', amps: 20, elb: true, idn: 30 });
+  const f1 = b.part('r_fuse', 10, 6, 'F1', { name: tr('조작 회로', 'Control'), amps: 2 });
+  const ss1 = b.part('r_ss', 16, 7, 'SS1', { name: tr('운전', 'Run') });
+  const zone = { zone: tr('건조로', 'Oven'), tLoad: 'HT1', amb: 20, tmax: 200, rise: 0.1, fall: 0.03 };
+  const tk = b.part('r_tk4', 28, 9, 'TK1', { name: tr('건조로 온도', 'Oven temp.'), spec: 'TK4S-T4RN', sv: 120, hys: 2, alarm: 135, ...zone });
+  const ts = b.part('r_tc8', 51, 9, 'TS1', { name: tr('과열 차단', 'Over-temp cut-off'), spec: 'T3S-B4RP2C-N', sv: 150, hys: 5, zone: zone.zone });
+  const pt = b.part('r_rtd2', 42, -4, 'PT1', { name: tr('Pt100 더블', 'Pt100 duplex') });
+  const mc = b.part('r_mc', 5, 25, 'MC1', { name: tr('히터 개폐', 'Heater contactor'), spec: tr('코일 AC 220V, 주접점 AC-1 25A', 'coil AC 220V, AC-1 25 A') });
+  const ht = b.part('r_load1', 3, 39, 'HT1', { name: tr('건조로 히터 3 kW', 'Oven heater 3 kW'), watt: 3000, pf: 1, pe: true });
+  const gl = b.part('r_lamp', 14, 39, 'GL1', { name: tr('히터 동작', 'Heating'), color: 'green' });
+  const rl = b.part('r_lamp', 20, 39, 'RL1', { name: tr('과열 경보', 'Over-temp alarm'), color: 'red' });
+  const peb = b.part('r_nbar', 8, 47, 'PEB', { n: 3, pole: 'PE', name: tr('접지 바', 'Earth bar') });
+  b.part('text', 0, -14, '', { text: tr('건조로 PID 온도 제어: 더블 Pt100 → 1번 소자 PID 조절기 (TK4S 꼴) · 2번 소자 과열 차단 (T3S 꼴) → 전자접촉기 → 히터 3 kW', 'Oven PID control: duplex Pt100 → element 1 PID controller (TK4S type), element 2 over-temp cut-off (T3S type) → contactor → 3 kW heater') });
+  [
+    tr('▶ TK1 은 PID: 120℃ 근처에서 20초마다 켜 둘 비율 (MV) 을 바꿔 온도가 거의 흔들리지 않습니다', '▶ TK1 runs PID: every 20 s it sets the on-ratio (MV), so the temperature hardly swings'),
+    tr('한 소자를 두 기기에 같이 물리면 측정 전류가 섞여 둘 다 틀립니다 → 더블 Pt100 의 소자를 하나씩', 'Never share one element between two instruments; use one element of the duplex each'),
+    tr('40분: 온도를 160℃ 까지 올려 봄 → 135℃ AL1 경보, 150℃ TS1 이 히터를 끊음', '40 min: temperature forced to 160℃ → AL1 at 135℃, TS1 cuts the heater at 150℃'),
+  ].forEach((x, k) => b.part('text', 26, 26 + k * 2, '', { text: x }));
+  routeNets(b, 'oven-pid', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [tL, ''], [elb, '1']);
+    net('blue', [tN, ''], [elb, '3']);
+    net('brown', [elb, '2'], [mc, '1/L1'], [f1, '1']);
+    net('blue', [elb, '4'], [mc, '3/L2'], [mc, 'A2'], [tk, 'N'], [ts, 'N'], [gl, 'X2'], [rl, 'X2']);
+    net('brown', [mc, '2/T1'], [ht, 'L']);
+    net('blue', [mc, '4/T2'], [ht, 'N']);
+    // 조작 (퓨즈 뒤): 조절기 전원, 운전 스위치, 경보 공통, MC1 보조 13
+    net('yellow', [f1, '2'], [tk, 'L'], [ts, 'L'], [ss1, '23'], [tk, 'C2'], [mc, '13NO']);
+    net('yellow', [ss1, '24'], [ts, 'COM']);
+    net('yellow', [ts, 'NO'], [tk, 'C1']);
+    net('yellow', [tk, 'OUT1'], [mc, 'A1']);
+    net('yellow', [tk, 'AL1'], [rl, 'X1']);
+    net('yellow', [mc, '14NO'], [gl, 'X1']);
+    // 더블 Pt100: 1번 소자 (빨강 · 흰색 두 가닥) → TK1 10 · 11 · 12, 2번 소자 (예: 검정 · 회색 두 가닥) → TS1
+    net('red', [pt, 'A1'], [tk, 'A']);
+    net('white', [pt, 'B1'], [tk, 'B']);
+    net('white', [pt, "B1'"], [tk, "B'"]);
+    net('black', [pt, 'A2'], [ts, 'A']);
+    net('grey', [pt, 'B2'], [ts, 'B']);
+    net('grey', [pt, "B2'"], [ts, "B'"]);
+    net('gy', [tPE, ''], [peb, '1']);
+    net('gy', [ht, 'PE'], [peb, '2']);
+    return nets;
+  });
+  const c = b.done();
+  c.system = '1p2w';
+  c.duration = 60 * 60000;
+  c.ops = [
+    { id: uid('op'), wait: 10000, tag: 'SS1', action: 'on', hold: 0, note: tr('운전', 'Run') },
+    { id: uid('op'), wait: 40 * 60000 - 10000, tag: 'TK1', action: 'temp', value: 160, hold: 120000, note: tr('조절기 고장 가정: 160℃ 까지', 'Assume a controller fault: up to 160℃') },
+  ];
+  return c;
+}
+
 // ───────────────────── 누전 · 지락: 접지와 누전차단기 (TT 계통) ─────────────────────
 
 /**
@@ -1993,6 +2062,7 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'plc-panel': 'panel',
   'earth-fault': 'power',
   'blower-timer': 'panel',
+  'oven-pid': 'panel',
 };
 
 export interface CircuitExample {
@@ -2046,6 +2116,12 @@ export function circuitExamples(): CircuitExample[] {
       name: tr('열풍기 온도 제어 + 24시간 타이머 (전기 요금)', 'Hot-air blower: temperature control + 24-h timer (energy cost)'),
       desc: tr('측온저항체 Pt100 → 온도 조절기 (T3S 꼴) → 전자접촉기 → 열풍기 5 kW, 08~18시 자동 운전과 하루 전력량 · 요금', 'Pt100 RTD → controller (T3S type) → contactor → 5 kW blower, timer 08:00–18:00, daily energy and cost'),
       build: blowerTimer,
+    },
+    {
+      id: 'oven-pid',
+      name: tr('건조로 PID 온도 제어 (TK4S 꼴 · 더블 Pt100 · 과열 차단)', 'Oven PID temperature control (TK4S type, duplex Pt100, over-temp cut-off)'),
+      desc: tr('더블 Pt100 의 1번 소자 → PID 조절기 (120℃), 2번 소자 → 과열 차단 (150℃), 경보 AL1 → 적색등', 'Duplex Pt100: element 1 → PID controller (120℃), element 2 → over-temp cut-off (150℃), AL1 → red lamp'),
+      build: ovenPid,
     },
     {
       id: 'earth-fault',

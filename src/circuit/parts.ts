@@ -487,6 +487,30 @@ export const PARTS: Record<PartType, PartDef> = {
   },
   // 측온저항체 Pt100 3선식 (보호관 · 나사 고정 · 편조 케이블): 리드선 A (한 가닥) · B · B' (같은 색 두 가닥)
   r_rtd: { type: 'r_rtd', cat: 'switch', pins: [pin(-2, 4, 'A'), pin(0, 4, 'B'), pin(2, 4, "B'")], box: [-3, -7, 3, 4.6], prefix: 'RTD' },
+  // 측온저항체 Pt100 더블: 한 보호관에 소자 두 개, 소자마다 A · B · B' (1 · 2 소자는 리드선 색이 다르다)
+  r_rtd2: {
+    type: 'r_rtd2',
+    cat: 'switch',
+    pins: [pin(-5, 4, 'A1'), pin(-3, 4, 'B1'), pin(-1, 4, "B1'"), pin(1, 4, 'A2'), pin(3, 4, 'B2'), pin(5, 4, "B2'")],
+    box: [-6, -7, 6, 4.6],
+    prefix: 'RTD',
+  },
+  // PID 온도 조절기 (TK4S 꼴, 48×48 나사 단자 · 소켓 없음): 아래 전원 L · N, 제어 출력 C1-OUT1 (릴레이 a), 경보 C2-AL1 (릴레이 a).
+  // 위 RS485 (+ · −, 시뮬레이션은 안 함), 센서 A · B · B' = 단자 10 · 11 · 12 (오토닉스 FAQ). 나머지 단자 번호는 기능 이름으로 적는다
+  r_tk4: {
+    type: 'r_tk4',
+    cat: 'relay',
+    pins: [pin(-5, 6, 'L'), pin(-3, 6, 'N'), pin(-1, 6, 'C1'), pin(1, 6, 'OUT1'), pin(3, 6, 'C2'), pin(5, 6, 'AL1'), pin(-5, -6, '485+'), pin(-3, -6, '485-'), pin(1, -6, 'A'), pin(3, -6, 'B'), pin(5, -6, "B'")],
+    poles: [
+      [2, 3],
+      [4, 5],
+    ],
+    polesNc: [false, false],
+    load: true,
+    loadPins: [0, 1],
+    box: [-6.6, -6.6, 6.6, 6.6],
+    prefix: 'TC',
+  },
   // 판넬 서모스탯 (바이메탈): 아래 단자 1 · 2. NC 는 온도가 오르면 열리고 (히터), NO 는 닫힌다 (팬)
   r_thermo: { type: 'r_thermo', cat: 'switch', pins: [pin(-1, 3, '1'), pin(1, 3, '2')], poles: [[0, 1]], box: [-2.4, -4, 2.4, 3.6], prefix: 'TS' },
   // SSR: 위 1 · 2 출력 (교류 부하), 아래 3 (+) · 4 (-) 입력 (직류)
@@ -566,7 +590,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd', 'r_rtd2', 'r_tk4']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -667,14 +691,43 @@ export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right' 
   return action === 'press' ? tr('누름 → 뗌', 'Press') : action === 'on' ? 'ON' : action === 'off' ? 'OFF' : action === 'left' ? tr('왼쪽', 'Left') : tr('오른쪽', 'Right');
 }
 
+/** 온도 조절기 (전원이 있어야 출력): 48×48 · 8핀 (T3S 꼴) · PID (TK4S 꼴) */
+export function isTempCtrl(p: Pick<Part, 'type'>): boolean {
+  return p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_tk4';
+}
+
+/** 측온저항체 센서 단자 (A · B · B') 를 가진 조절기: 단자 차례 */
+export function rtdInputPins(p: Pick<Part, 'type'>): [number, number, number] | null {
+  return p.type === 'r_tc8' ? [5, 6, 7] : p.type === 'r_tk4' ? [8, 9, 10] : null;
+}
+
+/** 측온저항체의 소자마다 리드선 A · B · B' 단자 차례 (더블은 소자 두 개) */
+export function rtdElements(p: Pick<Part, 'type'>): [number, number, number][] {
+  return p.type === 'r_rtd'
+    ? [[0, 1, 2]]
+    : p.type === 'r_rtd2'
+      ? [
+          [0, 1, 2],
+          [3, 4, 5],
+        ]
+      : [];
+}
+
+/** PID 조절기 (TK4S 꼴) 의 PID 값: 없으면 ON/OFF 동작 */
+export function pidSetting(p: Pick<Part, 'type' | 'ctrl' | 'pb' | 'ti' | 'td' | 'cycle'>): { pb: number; ti: number; td: number; cycle: number } | null {
+  if (p.type !== 'r_tk4' || p.ctrl === 'onoff') return null;
+  const num = (v: number | undefined, d: number, min: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(min, v) : d);
+  return { pb: num(p.pb, 10, 0.1), ti: num(p.ti, 240, 0), td: num(p.td, 60, 0), cycle: num(p.cycle, 20, 0.5) };
+}
+
 /** 온도 기기인가: 온도 조절기 · 판넬 서모스탯 · 온도 스위치 기호 */
 export function isTempDevice(p: Pick<Part, 'type' | 'sense'>): boolean {
-  return p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_thermo' || ((p.type === 'ls_no' || p.type === 'ls_nc') && p.sense === 'temp');
+  return isTempCtrl(p) || p.type === 'r_thermo' || ((p.type === 'ls_no' || p.type === 'ls_nc') && p.sense === 'temp');
 }
 
 /** 온도 기기의 설정 온도 · 히스테리시스 (℃) */
 export function tempSetting(p: Pick<Part, 'sv' | 'hys' | 'type'>): { sv: number; hys: number } {
-  const tc = p.type === 'r_tc' || p.type === 'r_tc8';
+  const tc = isTempCtrl(p);
   return { sv: typeof p.sv === 'number' ? p.sv : tc ? 60 : 40, hys: Math.max(0.1, typeof p.hys === 'number' ? p.hys : tc ? 2 : 5) };
 }
 
@@ -965,6 +1018,10 @@ export function partKindName(type: PartType): string {
       return tr('온도 조절기 (8핀, 측온저항체)', 'Temperature controller (8-pin, RTD)');
     case 'r_rtd':
       return tr('측온저항체 Pt100 (3선식)', 'RTD Pt100 (3-wire)');
+    case 'r_rtd2':
+      return tr('측온저항체 Pt100 더블 (3선식 × 2)', 'RTD Pt100 duplex (2 × 3-wire)');
+    case 'r_tk4':
+      return tr('PID 온도 조절기 (TK4S 꼴)', 'PID temperature controller (TK4S type)');
     case 'r_thermo':
       return tr('판넬 서모스탯', 'Panel thermostat');
     case 'r_plc':
@@ -1060,6 +1117,7 @@ export function palette(): PaletteGroup[] {
         it('r_counter', tr('카운터 (프리셋)', 'Counter (preset)'), { count: 5 }),
         it('r_tc', tr('온도 조절기 (48×48)', 'Temperature controller (48×48)'), { sv: 60, hys: 2, alarm: 80 }),
         it('r_tc8', tr('온도 조절기 8핀 (T3S 꼴 · Pt100)', 'Temp. controller 8-pin (T3S type, Pt100)'), { sv: 60, hys: 2 }),
+        it('r_tk4', tr('PID 온도 조절기 (TK4S 꼴)', 'PID temp. controller (TK4S type)'), { sv: 60, hys: 2, alarm: 80 }),
         it('r_ssr', tr('SSR (무접점 릴레이)', 'SSR (solid-state relay)')),
         it('r_tsw', tr('24시간 타임 스위치', '24-h time switch'), { sched: [[18 * 3600000, 23 * 3600000]] }),
         it('r_sol', tr('솔레노이드 밸브', 'Solenoid valve')),
@@ -1095,6 +1153,7 @@ export function palette(): PaletteGroup[] {
         it('r_float', tr('플로트 스위치 (수위)', 'Float switch')),
         it('r_psw', tr('압력 스위치', 'Pressure switch')),
         it('r_rtd', tr('측온저항체 Pt100 (3선식)', 'RTD Pt100 (3-wire)')),
+        it('r_rtd2', tr('측온저항체 Pt100 더블 (3선식 × 2)', 'RTD Pt100 duplex (2 × 3-wire)')),
         it('r_thermo', tr('판넬 서모스탯 (히터 · NC)', 'Panel thermostat (heater, NC)'), { ncOut: true, sv: 10, hys: 5 }, 'rthermo-nc'),
         it('r_thermo', tr('판넬 서모스탯 (팬 · NO)', 'Panel thermostat (fan, NO)'), { sv: 35, hys: 5 }, 'rthermo-no'),
       ],

@@ -1,9 +1,9 @@
 import type { ReactNode, JSX } from 'react';
 import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
-import { busSize, isPlcPart, isTempDevice, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tempSetting, timerText, tswSched } from '../circuit/parts';
+import { busSize, isPlcPart, isTempDevice, rtdInputPins, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tempSetting, timerText, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TempView, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
-import { BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, RtdGlyph, Tc8Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
@@ -117,7 +117,7 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     plcRun: p.type === 'r_plc' ? sim.plcRunning(p.id) && sim.hasPlc : undefined,
     plcErr: p.type === 'r_plc' ? !!sim.powered.get(p.id) && (!sim.hasPlc || model.plcIssues.length > 0) : undefined,
     hmi: p.type === 'r_hmi' ? sim.hmiView(p) : undefined,
-    sensorBad: p.type === 'r_tc8' ? model.tempDef.get(tag)?.sensorOk === false : undefined,
+    sensorBad: rtdInputPins(p) ? model.tempDef.get(tag)?.sensorOk === false : undefined,
   };
 }
 
@@ -574,6 +574,10 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <Tc8Glyph p={p} st={st} c={c} />;
     case 'r_rtd':
       return <RtdGlyph p={p} c={c} />;
+    case 'r_rtd2':
+      return <Rtd2Glyph p={p} c={c} />;
+    case 'r_tk4':
+      return <Tk4Glyph p={p} st={st} c={c} />;
     case 'r_thermo':
       return <ThermoGlyph p={p} st={st} c={c} />;
     case 'r_ssr':

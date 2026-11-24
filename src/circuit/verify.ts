@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType, WireColor } from './types';
-import { circuitWires, hmiTag, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL, RPLC, solAc } from './parts';
+import { circuitWires, hmiTag, rtdInputPins, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL, RPLC, solAc } from './parts';
 import { onWireInterior } from './netlist';
 import type { CircuitModel } from './engine';
 import { nominalVolt, poleLive, systemVolts } from './supply';
@@ -67,7 +67,7 @@ const COLOR_NAME: Record<WireColor, [string, string]> = {
 /** 기기에 적힌 정격 전압: 교류 · 직류와 전압 범위 (없으면 null) */
 export function ratedVoltage(p: Part): { kind: 'ac' | 'dc' | 'any'; lo: number; hi: number; text: string } | null {
   // 덮개에 AC 220V 가 적혀 나오는 기기는 사양을 비워도 그 전압으로 본다
-  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' || p.type === 'r_tc8' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' || p.type === 'r_plc' || p.type === 'r_hmi' ? 'DC 24V' : '';
+  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_tk4' ? 'AC 100-240V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' || p.type === 'r_plc' || p.type === 'r_hmi' ? 'DC 24V' : '';
   const text = p.spec?.trim() || shown;
   if (text) {
     const m = /(\d+(?:\.\d+)?)\s*(?:[~\-–]\s*(\d+(?:\.\d+)?))?\s*V/i.exec(text);
@@ -263,13 +263,22 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       if (![a, b].some(wired)) continue;
       const [A, B] = [allPoles(a), allPoles(b)];
       if (B.has('+24V') && A.has('0V') && !A.has('+24V')) out.push({ level: 'error', msg: tr(`${name(p)}: 입력 극성이 반대입니다. 3 에 + (24V), 4 에 0V 를 잇습니다`, `${name(p)}: input polarity is reversed (3 = +, 4 = 0 V)`), partIds: [p.id] });
-    } else if (p.type === 'r_tc8') {
+    } else if (rtdInputPins(p)) {
       // 측온저항체 입력 A · B · B': 센서 세 가닥이 같은 이름 단자에. 전원이 닿으면 입력 회로가 탄다
-      const sensor = [5, 6, 7].map((i) => pinNet(p, i));
+      const sensor = rtdInputPins(p)!.map((i) => pinNet(p, i));
       const hot = new Set(sensor.flatMap((x) => [...allPoles(x)].filter(live)));
       if (hot.size) out.push({ level: 'error', msg: tr(`${name(p)}: 센서 단자 (A · B · B') 에 전원 (${[...hot].join(' · ')}) 이 닿습니다. 측온저항체 리드선만 잇습니다 (입력 회로가 탑니다)`, `${name(p)}: supply (${[...hot].join(', ')}) reaches the sensor terminals; connect only the RTD leads`), partIds: [p.id] });
-      else if ([...model.tempDef.values()].some((d) => d.part.id === p.id && !d.sensorOk))
-        out.push({ level: 'warn', msg: tr(`${name(p)}: 측온저항체가 A · B · B' 에 제대로 이어지지 않았습니다 (A ↔ A, B · B' ↔ 같은 색 두 가닥). 센서가 끊긴 것으로 보고 출력을 끕니다 (oPEn)`, `${name(p)}: the RTD is not wired A↔A and B/B'↔the two same-colour leads; the controller reads an open sensor and switches its output off`), partIds: [p.id] });
+      else {
+        const d = [...model.tempDef.values()].find((x) => x.part.id === p.id);
+        if (d && !d.sensorOk)
+          out.push({ level: 'warn', msg: tr(`${name(p)}: 측온저항체가 A · B · B' 에 제대로 이어지지 않았습니다 (A ↔ A, B · B' ↔ 같은 색 두 가닥). 센서가 끊긴 것으로 보고 출력을 끕니다 (oPEn)`, `${name(p)}: the RTD is not wired A↔A and B/B'↔the two same-colour leads; the controller reads an open sensor and switches its output off`), partIds: [p.id] });
+        else if (d?.rtdEl) {
+          // 한 소자를 두 기기가 같이 쓰면 두 기기의 측정 전류가 한 저항에 섞여 둘 다 틀린 값을 읽는다 (앞 기기에서 한 번만 알린다)
+          const share = [...model.tempDef.values()].filter((x) => x.rtdEl === d.rtdEl);
+          if (share.length > 1 && share[0].part.id === p.id)
+            out.push({ level: 'warn', msg: tr(`${share.map((x) => name(x.part)).join(' · ')}: 측온저항체 소자 하나를 같이 씁니다. 두 기기의 측정 전류가 섞여 둘 다 온도가 틀어집니다. 더블 Pt100 (소자 2개) 을 써서 기기마다 소자를 따로 잇습니다`, `${share.map((x) => name(x.part)).join(', ')} share one RTD element; their measuring currents mix and both read wrong. Use a duplex Pt100, one element each`), partIds: share.map((x) => x.part.id) });
+        }
+      }
     } else if (p.type === 'r_counter') {
       const hot = new Set([2, 3, 4].flatMap((i) => [...allPoles(pinNet(p, i))].filter(live)));
       if (hot.size) out.push({ level: 'error', msg: tr(`${name(p)}: 입력 (CP · RST · COM) 은 무전압 접점 입력인데 전원 (${[...hot].join(' · ')}) 이 닿습니다. 리밋 스위치 · 버튼의 접점만 CP-COM, RST-COM 사이에 넣으세요`, `${name(p)}: the inputs (CP, RST, COM) are dry contacts but ${[...hot].join(', ')} reaches them; put only switch contacts between CP/RST and COM`), partIds: [p.id] });

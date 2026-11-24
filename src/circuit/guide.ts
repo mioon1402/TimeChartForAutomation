@@ -426,6 +426,42 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('조절기 A · B · B\' 에 제대로 이어지면 조절기가 묶음 온도를 읽고, 빠지거나 바뀌면 [검사] 가 알리고 조절기가 oPEn 으로 출력을 끕니다.', "Wired to A, B, B' the controller reads the zone temperature; a missing or swapped lead is flagged in Check and the controller shows oPEn with its output off."),
         'blower-timer',
       );
+    case 'r_tk4':
+      return g(
+        tr('PID 온도 조절기 (48×48 나사 단자, 오토닉스 TK4S 꼴) 입니다. T3S 처럼 설정에서 켜고 끄기만 하는 것이 아니라, 제어 주기 (릴레이 출력이면 보통 20초) 마다 편차 · 적분 · 미분으로 조작량 MV (%) 를 계산해 그 비율만큼 출력을 닫아 둡니다 (시간 비례). 그래서 온도가 설정 근처에서 거의 흔들리지 않습니다. 앞면에 PV (지금 온도) · SV (설정) 두 줄이 나오고 키로 설정하며, 소켓 없이 뒤쪽 나사 단자에 바로 배선합니다. 입력은 열전대 · 측온저항체 · 아날로그를 다 받는 멀티 입력이라 파라미터에서 입력 종류를 맞춥니다.', 'A 48×48 screw-terminal PID controller (Autonics TK4S type). Unlike the T3S, which only switches at the set point, every control cycle (about 20 s for a relay output) it computes MV (%) from error, integral and derivative and keeps the output closed for that share (time-proportional), so the temperature hardly swings. PV and SV are shown on two lines, set with keys; it is wired straight to its rear screws (no socket). Multi-input: set the input type in the parameters.'),
+        [
+          ['L · N', tr('전원 (AC 100-240V)', 'supply (AC 100-240V)')],
+          ['C1 → OUT1', tr('제어 출력 (릴레이 a접점, 250VAC 3A) → 전자접촉기 코일. SSR 구동 출력 기종 (TK4S-T4SN 등) 은 SSR 입력으로', 'control output (relay NO, 250 VAC 3 A) → contactor coil; SSR-drive models go to an SSR input')],
+          ['C2 → AL1', tr('경보 출력 (릴레이 a접점): 경보 온도 이상이면 닫힘 → 경보등 · 부저', 'alarm output (relay NO): closes above the alarm temperature → lamp / buzzer')],
+          ["10 A · 11 B · 12 B'", tr("측온저항체 Pt100 3선식: 빨강 (다른 색 한 가닥) → 10, 같은 색 두 가닥 → 11 · 12 (서로 바뀌어도 됨)", "Pt100 3-wire RTD: the red (odd) lead → 10, the matching pair → 11 and 12 (either way)")],
+          ['485+ · 485-', tr('RS485 통신 (PLC · HMI 에서 SV 쓰기 · PV 읽기). 시뮬레이션은 하지 않음', 'RS485 (read PV / write SV from a PLC or HMI); not simulated')],
+        ],
+        [
+          tr('L → 차단기 · 퓨즈 → L, N → N 으로 전원', 'Feed L → breaker / fuse → L, N → N'),
+          tr('조작 L → C1, OUT1 → 전자접촉기 A1, A2 → N (과열 차단 접점이 있으면 C1 앞에 직렬로)', 'Control L → C1, OUT1 → contactor A1, A2 → N (an over-temperature cut-off goes in series before C1)'),
+          tr('조작 L → C2, AL1 → 경보등 X1, X2 → N', 'Control L → C2, AL1 → alarm lamp X1, X2 → N'),
+          tr("측온저항체를 10 · 11 · 12 에. 파라미터의 입력 종류를 Pt100 (DPt100) 으로 바꿉니다 (다른 센서로 두면 온도가 틀립니다)", 'RTD on 10, 11, 12; set the input type parameter to Pt100 (DPt100), otherwise the reading is wrong'),
+          tr('속성에서 설정 온도 · P · I · D · 제어 주기 · 경보 온도를 정합니다. 실제 기기는 오토튜닝 (AT) 으로 P · I · D 를 구합니다', 'Set SV, P, I, D, cycle and alarm in the properties; real units find P, I, D by auto-tuning (AT)'),
+          tr('나머지 단자 (전원 · 출력 · 경보 · 통신) 번호는 기종 (옵션 기호) 마다 다르니 기기 옆면 결선도를 따르세요', 'Other terminal numbers depend on the option code; follow the label on the side'),
+        ],
+        tr('처음에는 MV 100% 로 계속 켜져 있다가 설정에 가까워지면 20초 중 켜 두는 시간이 줄어들고, 설정 온도에 머무르면 열이 빠지는 만큼만 켭니다. 앞면에 MV % 가 보입니다. 센서가 끊기면 oPEn 으로 출력을 끕니다. 제어 방식을 ON/OFF 로 바꾸면 T3S 처럼 히스테리시스로 동작합니다.', 'It starts at MV 100%, then shortens the on-time per 20 s as it nears SV and settles at just enough heat to cover the losses; MV % is shown on the front. An open sensor shows oPEn and switches the output off. Set the method to ON/OFF to behave like the T3S.'),
+        'oven-pid',
+      );
+    case 'r_rtd2':
+      return g(
+        tr('측온저항체 Pt100 더블 (소자 2개, 3선식 × 2 = 6가닥) 입니다. 한 보호관 안의 두 소자를 서로 다른 기기 (예: PID 조절기 + 과열 차단 · 기록계 · PLC 아날로그 입력) 에 따로 잇습니다. 한 소자를 두 기기에 같이 물리면 두 기기의 측정 전류가 섞여 둘 다 온도가 틀어지기 때문입니다.', 'A duplex Pt100 RTD (two elements, 2 × 3 wires). Each element goes to a different instrument (e.g. the PID controller and an over-temperature cut-off, recorder or PLC input); sharing one element between two instruments mixes their measuring currents and both read wrong.'),
+        [
+          ["A1 · B1 · B1'", tr("1번 소자 (보통 빨강 한 가닥 · 흰색 두 가닥) → 첫 기기의 A · B · B'", "element 1 (often red + two whites) → first instrument's A, B, B'")],
+          ["A2 · B2 · B2'", tr("2번 소자 (다른 색. 이 그림의 검정 · 회색은 예시) → 둘째 기기의 A · B · B'", "element 2 (other colours; black / grey here are an example) → second instrument's A, B, B'")],
+        ],
+        [
+          tr("소자마다 한 가닥만 색이 다른 것이 A, 같은 색 두 가닥이 B · B' 입니다. 색은 제조사마다 다르니 성적서 · 라벨을 보고, 모르면 테스터로 잽니다 (같은 소자의 B-B' 는 거의 0 Ω, A-B 는 약 100 Ω 이상)", "In each element the odd-coloured lead is A and the matching pair is B and B'. Colours vary by maker; check the label or measure (B–B' ≈ 0 Ω, A–B ≈ 100 Ω or more)"),
+          tr('1번 소자를 주 조절기에, 2번 소자를 과열 차단 · 기록계에 잇습니다', 'Element 1 to the main controller, element 2 to the cut-off or recorder'),
+          tr('쓰지 않는 소자는 끝을 절연해서 단자대에 남겨 둡니다 (예비)', 'Insulate and park an unused element on the terminal block as a spare'),
+        ],
+        tr("각 소자가 이어진 기기는 같은 온도 묶음을 읽습니다. 한 소자에 두 기기를 물리면 [검사] 가 알립니다.", 'Each instrument reads the zone temperature through its own element; Check warns when two instruments share one element.'),
+        'oven-pid',
+      );
     case 'r_tc':
       return g(
         tr('온도 조절기 (48×48) 입니다. 센서 (열전대 K) 로 잰 지금 온도 (PV) 를 설정 온도 (SV) 와 비교해서 출력 접점을 켜고 끕니다 (ON/OFF 제어). 히터 · 건조기 · 금형 온도 관리에 씁니다.', 'A 48×48 temperature controller: compares the measured temperature (PV, K thermocouple) with the set point (SV) and switches its output relay (ON/OFF control). Used for heaters, dryers and moulds.'),
