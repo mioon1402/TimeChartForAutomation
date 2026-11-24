@@ -301,6 +301,12 @@ export interface OpStep {
   note?: string;
 }
 
+/** 이을 넷 하나 (배선 전 계획): 같은 넷이 될 단자들 (부품 id, 단자 차례) 과 전선 색 */
+export interface PlanNet {
+  pins: [string, number][];
+  color?: WireColor;
+}
+
 export interface Circuit {
   parts: Part[];
   wires: Wire[];
@@ -321,6 +327,8 @@ export interface Circuit {
   price?: number;
   basePrice?: number;
   contractKw?: number;
+  /** 배선 계획: [실물 배선도 만들기 → 기기만 놓기] 로 만든 그림에서 아직 긋지 않은 연결. [배선 잇기] 가 지금 기기 자리로 긋고 지운다 */
+  plan?: PlanNet[];
   /** 전원 계통 (없으면 3상 4선식) */
   system?: PowerSystem;
   /** 릴레이 · 전자접촉기 · 타이머 코일이 붙고 떨어지는 데 걸리는 시간 (ms). 없으면 0 (바로) */

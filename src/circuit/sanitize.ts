@@ -163,6 +163,18 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   if (typeof o.price === 'number' && o.price >= 0 && o.price < 1e5) c.price = o.price;
   if (typeof o.basePrice === 'number' && o.basePrice >= 0 && o.basePrice < 1e6) c.basePrice = o.basePrice;
   if (typeof o.contractKw === 'number' && o.contractKw > 0 && o.contractKw < 1e6) c.contractKw = o.contractKw;
+  // 배선 계획: 있는 부품의 단자만, 단자 둘 이상인 넷만
+  if (Array.isArray(o.plan)) {
+    const ids = new Set(c.parts.map((p) => p.id));
+    const plan = (o.plan as unknown[]).slice(0, 5000).flatMap((n) => {
+      const q = n as { pins?: unknown; color?: unknown };
+      if (!q || !Array.isArray(q.pins)) return [];
+      const pins = (q.pins as unknown[]).filter((x): x is [string, number] => Array.isArray(x) && typeof x[0] === 'string' && ids.has(x[0]) && Number.isInteger(x[1]) && (x[1] as number) >= 0 && (x[1] as number) < 200).map(([id, i]) => [id, i] as [string, number]);
+      if (pins.length < 2) return [];
+      return [{ pins, ...(typeof q.color === 'string' && WIRE_COLORS.includes(q.color as WireColor) ? { color: q.color as WireColor } : {}) }];
+    });
+    if (plan.length) c.plan = plan;
+  }
   if (typeof o.relayMs === 'number' && o.relayMs > 0 && o.relayMs <= 1000) c.relayMs = o.relayMs;
   if (typeof o.vll === 'number' && o.vll > 0 && o.vll < 1e5) c.vll = o.vll;
   if (o.system === '3p3w' || o.system === '1p3w' || o.system === '1p2w') c.system = o.system;

@@ -26,7 +26,8 @@ import { downloadText, safeFileName } from '../io/files';
 import { niceCeil } from '../plc/simulator';
 import { askConfirm, askText, Check, Field, Icon, IconButton, Menu, NumberInput, Select, TimeInput } from './ui';
 import * as F from './fileActions';
-import { rerouteWiring, wireLength } from '../circuit/realize';
+import { rerouteWiring, wireLength, wirePlan } from '../circuit/realize';
+import { planLeft } from '../circuit/plan';
 import { ilToLadder, readLadder } from '../plc/ladder';
 import { parseDeviceComments } from '../plc/comments';
 import { LadderEditor } from './LadderEditor';
@@ -180,6 +181,20 @@ export function CircuitPanel() {
     let p: Project = { ...st.project, circuit: next };
     if (regen && autoChartOn(p)) p = applyCircuit(p);
     commit(p, mergeKey);
+  };
+  /** 배선 계획의 남은 연결 수 (기기만 놓은 실물 배선도) */
+  const planCount = useMemo(() => planLeft(circuit, model), [circuit, model]);
+  /** 기기만 놓은 그림: 지금 자리에서 계획한 연결을 모두 긋는다 */
+  const wireUp = async () => {
+    if (circuit.wires.length) {
+      const ok = await askConfirm(tr('배선 잇기', 'Wire up'), tr(`직접 그린 선 ${circuit.wires.length}개를 지우고 계획한 연결을 모두 다시 긋습니다. 계속할까요?`, `Remove the ${circuit.wires.length} wire(s) you drew and draw every planned connection?`), tr('잇기', 'Wire up'));
+      if (!ok) return;
+    }
+    const r = wirePlan(circuit);
+    commitCircuit(r.circuit);
+    const m = (r.length / 100).toFixed(1);
+    if (r.failed) toast(tr(`선 ${r.failed}개는 이을 자리가 없어 점선으로 남겼습니다. 기기 사이를 조금 띄운 뒤 다시 [배선 잇기] 를 누르세요`, `${r.failed} connection(s) had no room and stay dashed; space the devices out and press [Wire up] again`), 'warn');
+    else toast(tr(`배선을 이었습니다: 전선 약 ${m} m${r.dropped ? ` (지운 기기의 단자 ${r.dropped}개는 뺌)` : ''}. 기기를 더 옮기면 [배선 다시 그리기] 로 선을 다시 그을 수 있습니다`, `Wired: about ${m} m of wire${r.dropped ? ` (${r.dropped} terminal(s) of deleted devices skipped)` : ''}. Move devices later and use [Re-route wires]`), 'ok');
   };
   /** 기기 자리는 그대로, 전선만 가장 짧게 다시 긋는다 (연결은 그대로) */
   const reroute = () => {
@@ -561,9 +576,19 @@ export function CircuitPanel() {
             { label: tr('새 회로도 (새 차트 탭)', 'New circuit (new chart tab)'), icon: 'plus', onClick: F.addCircuitSheet },
           ]}
         />
-        {circuit.parts.some((p) => !REAL.has(p.type) && !NOT_SYMBOL.has(p.type)) && (
-          <button type="button" className="btn small" onClick={F.makeWiringSheet} disabled={running} title={tr('이 회로도를 실물 기기로 바꿔 판넬처럼 놓고 전선을 그어 새 차트 탭으로 엽니다 (전선이 짧아지게 차례를 정함, 시뮬레이션 결과가 같음)', 'Turn this schematic into real devices laid out like a panel with every wire drawn, in a new chart tab (ordered for short wires, same simulation)')}>
-            <Icon name="circuit" size={13} /> {tr('실물 배선도 만들기', 'Make wiring diagram')}
+        {!running && circuit.parts.some((p) => !REAL.has(p.type) && !NOT_SYMBOL.has(p.type)) && (
+          <Menu
+            label={tr('실물 배선도 만들기', 'Make wiring diagram')}
+            icon="circuit"
+            items={[
+              { label: tr('기기 놓고 배선까지 (자동)', 'Place devices and wire them'), icon: 'wire', onClick: () => F.makeWiringSheet(true) },
+              { label: tr('기기만 놓기 → 직접 배치 → [배선 잇기]', 'Place devices only → arrange → [Wire up]'), icon: 'select', onClick: () => F.makeWiringSheet(false) },
+            ]}
+          />
+        )}
+        {planCount > 0 && (
+          <button type="button" className="btn small primary" onClick={wireUp} disabled={running} title={tr('기기를 놓은 지금 자리에서 계획한 연결 (점선) 을 모두 전선으로 긋습니다. 연결은 회로도와 같습니다', 'Draw every planned connection (dashed) as a wire at the current device positions; connections match the schematic')}>
+            <Icon name="wire" size={13} /> {tr(`배선 잇기 (${planCount})`, `Wire up (${planCount})`)}
           </button>
         )}
         {circuit.parts.some((p) => REAL.has(p.type) && p.type !== 'r_panel') && circuit.wires.length > 0 && (
