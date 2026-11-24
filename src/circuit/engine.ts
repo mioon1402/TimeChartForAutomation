@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { ALWAYS_ON, counterPreset, hmiTag, isLinkedSensor, isPlcPart, isTempDevice, tempSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, REAL, RPLC, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
+import { ALWAYS_ON, counterPreset, hmiTag, isLinkedSensor, isPlcPart, isTempCtrl, isTempDevice, pidSetting, rtdElements, rtdInputPins, tempSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, REAL, RPLC, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import { poleLive } from './supply';
 import type { PlcConfig, SimSettings } from '../plc/types';
@@ -70,8 +70,12 @@ export interface TempDef {
   alarm: number | null;
   /** 냉각 동작: 설정 이상이면 OUT */
   cool: boolean;
-  /** 센서가 제대로 이어졌는가 (8핀 조절기의 측온저항체 A · B · B'). 끊기면 출력을 끈다 (번아웃) */
+  /** 센서가 제대로 이어졌는가 (8핀 · PID 조절기의 측온저항체 A · B · B'). 끊기면 출력을 끈다 (번아웃) */
   sensorOk: boolean;
+  /** 이어진 측온저항체 소자 ("부품 id:소자 번호", 더블은 0 · 1). 한 소자를 두 기기가 같이 쓰는지 [검사] 가 본다 */
+  rtdEl?: string | null;
+  /** PID 조절기 (TK4S 꼴): 비례대 ℃ · 적분 · 미분 시간 s · 제어 주기 s. 없으면 ON/OFF (히스테리시스) */
+  pid: { pb: number; ti: number; td: number; cycle: number } | null;
 }
 
 /** 온도 묶음: 처음 · 주위 온도, 최고 온도, 오르는 · 내리는 속도 (℃/s), 온도를 바꾸는 부하 */
@@ -93,6 +97,25 @@ export interface TempView {
   al: boolean;
   /** 온도가 바뀌는 중: 1 오름, -1 내림, 0 그대로 */
   dir: -1 | 0 | 1;
+  /** PID 조절기의 조작량 (%, 제어 주기 중 켜 두는 비율) */
+  mv?: number;
+}
+
+/** 온도 기기 하나의 시뮬레이션 상태 (PID 는 제어 주기 · 적분 값도) */
+export interface TempState {
+  hot: boolean;
+  alHot: boolean;
+  out: boolean;
+  al: boolean;
+  pidOn: boolean;
+  /** 다음 제어 주기 시작 · 이번 주기에 출력을 끄는 시각 (ms) */
+  cycleAt: number | null;
+  offAt: number | null;
+  /** 편차의 적분 (℃·s) */
+  integ: number;
+  /** 지난 주기 시작의 온도 */
+  lastPv: number | null;
+  mv: number;
 }
 
 /** 공압 포트 상태: P = 압력, E = 배기(대기), X = 막힘 */
@@ -104,8 +127,16 @@ function powerBetween(a: string | null, b: string | null, dcPolarity = false): b
   return !dcPolarity || POLE_SYSTEM[a] !== 'dc' || a === '+24V';
 }
 
-/** 8핀 온도 조절기의 센서 단자 A · B · B' 가 측온저항체의 A · B · B' 와 이어졌는가 (B · B' 는 바뀌어도 됨) */
+/**
+ * 온도 조절기의 센서 단자 A · B · B' 가 측온저항체 소자 하나의 A · B · B' 와 이어졌는가 (B · B' 는 바뀌어도 됨).
+ * 더블 (소자 두 개) 은 어느 한 소자와 맞으면 된다
+ */
 export function rtdWired(circuit: Circuit, net: Netlist, tc: Part, conductors: Conductor[] = []): boolean {
+  return rtdElementOf(circuit, net, tc, conductors) !== null;
+}
+
+/** 조절기에 이어진 측온저항체 소자 ("부품 id:소자 번호"), 맞게 이어진 것이 없으면 null */
+export function rtdElementOf(circuit: Circuit, net: Netlist, tc: Part, conductors: Conductor[] = []): string | null {
   // 단자대 · 바처럼 늘 통하는 것은 한 가닥으로 본다 (현장 센서는 단자대를 거쳐 들어온다)
   const parent = new Map<number, number>();
   const find = (x: number): number => {
@@ -117,12 +148,16 @@ export function rtdWired(circuit: Circuit, net: Netlist, tc: Part, conductors: C
     const n = net.pinNet.get(`${p.id}:${i}`);
     return n === undefined ? undefined : find(n);
   };
-  const [a, b, b2] = [5, 6, 7].map((i) => at(tc, i));
-  return circuit.parts.some((r) => {
-    if (r.type !== 'r_rtd') return false;
-    const [ra, rb, rb2] = [0, 1, 2].map((i) => at(r, i));
-    return ra === a && ((rb === b && rb2 === b2) || (rb === b2 && rb2 === b)) && rb !== rb2;
-  });
+  const ins = rtdInputPins(tc);
+  if (!ins) return null;
+  const [a, b, b2] = ins.map((i) => at(tc, i));
+  if (a === undefined) return null;
+  for (const r of circuit.parts)
+    for (const [k, el] of rtdElements(r).entries()) {
+      const [ra, rb, rb2] = el.map((i) => at(r, i));
+      if (ra === a && ((rb === b && rb2 === b2) || (rb === b2 && rb2 === b)) && rb !== rb2) return `${r.id}:${k}`;
+    }
+  return null;
 }
 
 /** 회로 안의 PLC: 입력 단자 넷과 프로그램 디바이스 */
@@ -262,7 +297,7 @@ export class CircuitModel {
         if (!this.tempDef.has(tag)) {
           const s = tempSetting(p);
           const zone = normTag(p.zone ?? '') || tag;
-          this.tempDef.set(tag, { part: p, zone, tc: p.type === 'r_tc' || p.type === 'r_tc8', sv: s.sv, hys: s.hys, alarm: p.type === 'r_tc' && typeof p.alarm === 'number' ? p.alarm : null, cool: p.tcMode === 'cool', sensorOk: true });
+          this.tempDef.set(tag, { part: p, zone, tc: isTempCtrl(p), sv: s.sv, hys: s.hys, alarm: (p.type === 'r_tc' || p.type === 'r_tk4') && typeof p.alarm === 'number' ? p.alarm : null, cool: p.tcMode === 'cool', sensorOk: true, pid: pidSetting(p) });
           zoneParts.set(zone, [...(zoneParts.get(zone) ?? []), p]);
         }
       } else if (p.type === 'r_tsw') {
@@ -303,7 +338,7 @@ export class CircuitModel {
         poles.forEach(([i, j], k) => {
           const a = this.net.pinNet.get(`${p.id}:${i}`)!;
           const b = this.net.pinNet.get(`${p.id}:${j}`)!;
-          if (p.type === 'r_tc' && k === 1) {
+          if ((p.type === 'r_tc' || p.type === 'r_tk4') && k === 1) {
             this.conductors.push({ part: p, a, b, ia: i, ib: j, tag, nc: false, always: false, al: true });
             return;
           }
@@ -343,8 +378,12 @@ export class CircuitModel {
         if (!this.tagLabel.has(tag)) this.tagLabel.set(tag, p.tag.trim());
       }
     }
-    // 8핀 조절기: 측온저항체가 A · B · B' 에 제대로 이어졌는가 (접점 · 단자대가 다 만들어진 뒤에)
-    for (const d of this.tempDef.values()) if (d.part.type === 'r_tc8') d.sensorOk = rtdWired(circuit, this.net, d.part, this.conductors);
+    // 8핀 · PID 조절기: 측온저항체가 A · B · B' 에 제대로 이어졌는가 (접점 · 단자대가 다 만들어진 뒤에)
+    for (const d of this.tempDef.values())
+      if (rtdInputPins(d.part)) {
+        d.rtdEl = rtdElementOf(circuit, this.net, d.part, this.conductors);
+        d.sensorOk = d.rtdEl !== null;
+      }
     // 온도 묶음: 값마다 그 값을 처음 적은 기기의 것을 쓴다 (부하 · 속도 · 주위 온도)
     for (const [zone, ps] of zoneParts) {
       const first = <K extends keyof Part>(k: K) => ps.find((q) => q[k] !== undefined && q[k] !== '')?.[k];
@@ -478,7 +517,7 @@ export class CircuitSim {
    */
   readonly zones = new Map<string, { pv: number; since: number; rate: number; goal: number; forced: boolean }>();
   /** 온도 기기: 설정 온도 이상 (hot, 히스테리시스), 경보 온도 이상, 제어 출력 · 경보 출력 */
-  readonly temps = new Map<string, { hot: boolean; alHot: boolean; out: boolean; al: boolean }>();
+  readonly temps = new Map<string, TempState>();
   /** 넷마다 이어진 묶음 (닫힌 접점까지 따라간 것) */
   private root: Int32Array = new Int32Array(0);
   /** 릴레이 동작 시간이 있을 때: 코일 · 타이머가 바뀔 예정 (c:태그 · t:태그) */
@@ -544,7 +583,7 @@ export class CircuitSim {
     }
     for (const tag of m.counterDef.keys()) this.counters.set(tag, { n: 0, out: false, cp: false, rst: false });
     for (const [z, d] of m.tempZones) this.zones.set(z, { pv: d.amb, since: 0, rate: 0, goal: d.amb, forced: false });
-    for (const tag of m.tempDef.keys()) this.temps.set(tag, { hot: false, alHot: false, out: false, al: false });
+    for (const tag of m.tempDef.keys()) this.temps.set(tag, { hot: false, alHot: false, out: false, al: false, pidOn: false, cycleAt: null, offAt: null, integ: 0, lastPv: null, mv: 0 });
     for (const tag of m.cylDef.keys()) this.cyl.set(tag, { pos: 0, target: 0, atPlus: false, atMinus: true, hold: false });
     for (const v of m.valves) this.valvePos.set(v.part.id, v.part.type === 'v53' ? 'c' : 'b');
     for (const b of m.plcs) {
@@ -717,7 +756,7 @@ export class CircuitSim {
     const st = this.temps.get(tag);
     const z = d && this.zones.get(d.zone);
     if (!d || !st || !z) return null;
-    return { pv: this.zoneTemp(d.zone), sv: d.sv, hot: st.hot, out: st.out, al: st.al, dir: z.rate > 0 ? 1 : z.rate < 0 ? -1 : 0 };
+    return { pv: this.zoneTemp(d.zone), sv: d.sv, hot: st.hot, out: st.out, al: st.al, dir: z.rate > 0 ? 1 : z.rate < 0 ? -1 : 0, ...(d.pid ? { mv: st.mv } : {}) };
   }
 
   /** 온도 기기가 재는 온도를 value 로 바꾼다 (ramp ms 동안 일정하게, 0 이면 바로) */
@@ -750,6 +789,28 @@ export class CircuitSim {
     this.settle();
     this.record();
     return true;
+  }
+
+  /**
+   * PID 제어 주기 하나 시작: 조작량 MV = 100 / P × (편차 + 적분 / I + D × 편차 변화율), 0~100 %.
+   * 주기 T 중 MV % 만큼 출력을 켜 둔다 (릴레이 · SSR 시간 비례). 적분은 MV 가 0~100 % 를 넘을 때 더하지 않는다 (와인드업 방지)
+   */
+  private pidCycle(d: TempDef, st: TempState, pv: number): void {
+    const P = d.pid!;
+    const cyc = P.cycle * 1000;
+    const e = d.cool ? pv - d.sv : d.sv - pv;
+    // 편차 변화율 (℃/s): 지난 주기 동안의 평균 기울기 (주기 안의 켜짐 · 꺼짐 기울기에 흔들리지 않게)
+    const slope = st.lastPv === null ? 0 : (pv - st.lastPv) / P.cycle;
+    const de = d.cool ? slope : -slope;
+    const mvOf = (integ: number) => (100 / P.pb) * (e + (P.ti > 0 ? integ / P.ti : 0) + P.td * de);
+    let integ = P.ti > 0 ? Math.max(0, Math.min(P.pb * P.ti, st.integ + e * P.cycle)) : 0;
+    const raw = mvOf(integ);
+    if ((raw > 100 && e > 0) || (raw < 0 && e < 0)) integ = st.integ;
+    const mv = Math.max(0, Math.min(100, mvOf(integ)));
+    let on = (mv / 100) * cyc;
+    if (on < 1) on = 0;
+    if (on > cyc - 1) on = cyc;
+    Object.assign(st, { integ, lastPv: pv, mv: Math.round(mv * 10) / 10, pidOn: on > 0, cycleAt: this.t + cyc, offAt: on > 0 && on < cyc ? this.t + on : null });
   }
 
   /** 부하 (히터 · 팬) 상태에 따라 온도가 향하는 곳과 속도를 다시 정한다 */
@@ -1129,7 +1190,15 @@ export class CircuitSim {
       const hot = st.hot ? pv > d.sv - d.hys + 1e-6 : pv >= d.sv - 1e-6;
       const alHot = d.alarm !== null && (st.alHot ? pv > d.alarm - d.hys + 1e-6 : pv >= d.alarm - 1e-6);
       const pw = !d.tc || this.energized.has(d.part.id);
-      const out = d.tc ? pw && d.sensorOk && (d.cool ? hot : !hot) : hot;
+      let out: boolean;
+      if (d.pid) {
+        // PID (시간 비례): 제어 주기마다 조작량을 계산해 그 비율만큼 켜 둔다. 전원 · 센서가 없으면 처음부터
+        const run = pw && d.sensorOk;
+        if (!run) Object.assign(st, { pidOn: false, cycleAt: null, offAt: null, integ: 0, lastPv: null, mv: 0 });
+        else if (st.cycleAt === null || this.t >= st.cycleAt - EPS) this.pidCycle(d, st, pv);
+        else if (st.offAt !== null && this.t >= st.offAt - EPS) Object.assign(st, { pidOn: false, offAt: null });
+        out = run && st.pidOn;
+      } else out = d.tc ? pw && d.sensorOk && (d.cool ? hot : !hot) : hot;
       const al = d.tc && pw && alHot;
       if (hot !== st.hot || alHot !== st.alHot || out !== st.out || al !== st.al) {
         Object.assign(st, { hot, alHot, out, al });
@@ -1358,10 +1427,16 @@ export class CircuitSim {
       const marks = [s.goal];
       for (const d of this.m.tempDef.values()) {
         if (d.zone !== z) continue;
-        if (s.rate > 0) marks.push(d.sv, ...(d.alarm !== null ? [d.alarm] : []));
-        else marks.push(d.sv - d.hys, ...(d.alarm !== null ? [d.alarm - d.hys] : []));
+        // PID 는 설정 온도가 아니라 제어 주기로 움직인다 (경보만 온도로)
+        if (s.rate > 0) marks.push(...(d.pid ? [] : [d.sv]), ...(d.alarm !== null ? [d.alarm] : []));
+        else marks.push(...(d.pid ? [] : [d.sv - d.hys]), ...(d.alarm !== null ? [d.alarm - d.hys] : []));
       }
       for (const m of marks) if (s.rate > 0 ? m > pv + 1e-6 : m < pv - 1e-6) best = Math.min(best, this.t + (m - pv) / s.rate);
+    }
+    // PID 조절기: 다음 제어 주기 · 켜 둔 시간이 끝나는 시각
+    for (const st of this.temps.values()) {
+      if (st.cycleAt !== null) best = Math.min(best, st.cycleAt);
+      if (st.offAt !== null) best = Math.min(best, st.offAt);
     }
     for (const [tag, st] of this.timers) {
       const def = this.m.timerDef.get(tag)!;

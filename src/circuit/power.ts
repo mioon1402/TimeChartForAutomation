@@ -235,6 +235,7 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
   r_hmi: 8,
   r_tc: 5,
   r_tc8: 5,
+  r_tk4: 8,
   r_ssr: 0.2,
   r_fan: 20,
   r_pbl: 2,

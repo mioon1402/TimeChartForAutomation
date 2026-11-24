@@ -334,6 +334,8 @@ const UNSUPPORTED: Partial<Record<PartType, string>> = {
   r_counter: tr('카운터', 'counter'),
   r_tc: tr('온도 조절기', 'temperature controller'),
   r_tc8: tr('온도 조절기', 'temperature controller'),
+  r_tk4: tr('PID 온도 조절기', 'PID temperature controller'),
+  r_rtd2: tr('측온저항체', 'RTD sensor'),
   r_rtd: tr('측온저항체', 'RTD sensor'),
   r_kepco: tr('한전 수전점', 'utility supply'),
   r_vcb: 'VCB',

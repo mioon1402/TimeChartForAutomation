@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isPlcPart, isTempDevice, pos3Labels, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isPlcPart, isTempDevice, pidSetting, pos3Labels, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
@@ -94,7 +94,9 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_hmi: 3,
   r_tc: 4,
   r_tc8: 4,
+  r_tk4: 4,
   r_rtd: 7,
+  r_rtd2: 7,
   r_thermo: 6,
   r_ssr: 3,
   r_estop: 6,
@@ -312,6 +314,23 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     }
     case 'r_rtd':
       return { kind: tr('측온저항체', 'RTD sensor'), spec: [p.spec?.trim() || 'Pt100 Ω', tr('3선식, 보호관 · 나사 고정', '3-wire, sheathed, threaded')].join(', ') };
+    case 'r_rtd2':
+      return { kind: tr('측온저항체 (더블)', 'RTD sensor (duplex)'), spec: [p.spec?.trim() || 'Pt100 Ω × 2', tr('3선식 소자 2개 (6가닥), 보호관 · 나사 고정', '2 × 3-wire elements (6 leads), sheathed, threaded')].join(', ') };
+    case 'r_tk4': {
+      const { sv, hys } = tempSetting(p);
+      const pid = pidSetting(p);
+      return {
+        kind: tr('PID 온도 조절기 (48×48, 나사 단자)', 'PID temperature controller (48×48, screw terminals)'),
+        spec: [
+          p.spec?.trim(),
+          tr('전원 AC 100-240V, 멀티 입력 (Pt100 으로 설정), 제어 출력 릴레이 1a, 경보 AL1 릴레이 1a, RS485', 'AC 100-240V, multi-input (set to Pt100), relay 1a control output, AL1 relay 1a, RS485'),
+          pid ? tr(`PID ${p.tcMode === 'cool' ? '냉각' : '가열'}, 설정 ${sv}℃, P ${pid.pb}℃ · I ${pid.ti}s · D ${pid.td}s, 제어 주기 ${pid.cycle}s`, `PID ${p.tcMode === 'cool' ? 'cooling' : 'heating'}, set ${sv}℃, P ${pid.pb}℃ I ${pid.ti}s D ${pid.td}s, cycle ${pid.cycle}s`) : tr(`ON/OFF, 설정 ${sv}℃, 히스테리시스 ${hys}℃`, `ON/OFF, set ${sv}℃, hysteresis ${hys}℃`),
+          typeof p.alarm === 'number' ? tr(`경보 ${p.alarm}℃ 이상`, `alarm at ${p.alarm}℃`) : '',
+        ]
+          .filter(Boolean)
+          .join(', '),
+      };
+    }
     case 'r_tc': {
       const { sv, hys } = tempSetting(p);
       return {
