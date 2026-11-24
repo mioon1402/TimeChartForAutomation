@@ -3,6 +3,7 @@ import type { Circuit, Part, Wire, WireColor } from '../circuit/types';
 import { busSize, isPlcPart, isTempDevice, rtdInputPins, LAMP_HEX, PARTS, partBox, pinPositions, plcAddresses, pos3Labels, REAL, rotate, schedOn, tempSetting, timerText, tswSched } from '../circuit/parts';
 import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind, type TempView, type TimerView } from '../circuit/engine';
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
+import { contactNumbers, parseTerm } from '../circuit/contacts';
 import { BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
@@ -31,6 +32,10 @@ export const POLE_COLOR: Record<string, string> = { L1: '#dc2626', '+24V': '#dc2
 
 /** 그릴 때 필요한 부품 상태 (시뮬레이션 중이 아니면 평상시 상태) */
 export interface PartState {
+  /** 접점 · 코일 기호의 실물 단자 번호 (적은 번호가 없을 때 [실물 배선도 만들기] 가 쓸 단자) */
+  terms?: [string, string];
+  /** 접점이 본체가 아닌 보조 릴레이 (X1-2) 에 들어갈 때 그 기호 */
+  termDev?: string;
   closed: boolean;
   /** 조작 기기가 눌림 / 켜짐 */
   act: boolean;
@@ -78,6 +83,18 @@ export interface PartState {
 }
 
 export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null): PartState {
+  const st = partStateCore(p, model, sim);
+  if (p.type === 'no' || p.type === 'nc' || p.type === 'coil' || p.type === 'timer') {
+    const nums = contactNumbers(model.circuit, model);
+    const t = nums.terms.get(p.id);
+    if (t) st.terms = t;
+    const w = nums.where.get(p.id);
+    if (w && w.tag !== model.label(tagKey(p))) st.termDev = w.tag;
+  }
+  return st;
+}
+
+function partStateCore(p: Part, model: CircuitModel, sim: CircuitSim | null): PartState {
   const tag = tagKey(p);
   const def = PARTS[p.type];
   const air = p.type === 'cyl' && airDriven(model, tag);
@@ -621,6 +638,7 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
   const side = p.type === 'prox' ? 2.6 : p.type === 'fc' || p.type === 'frl' ? 1.7 : 0.9;
   let lines: string[] = [p.tag];
   if (p.name) lines.push(p.name);
+  if (st.termDev && !parseTerm(p.term)) lines.push(`→ ${st.termDev}`);
   if (p.type === 'sw_no' && p.sel) lines.push(`(${pos3Labels(p)[p.sel < 0 ? 0 : 2]})`);
   if (p.type === 'timer') lines[0] = `${p.tag} ${timerText(p).replace(/(ON|OFF) /g, '').replace(/ (?=m?s|min|h)/g, '').replace(' · ', '/')}${p.timerMode === 'off' ? ' OFF' : p.timerMode === 'flicker' ? ' FLK' : p.timerMode === 'interval' ? ' INT' : ''}`;
   if (p.type === 'cyl') lines = [[p.tag, p.name].filter(Boolean).join(' '), ...(!st.air && p.solPlus?.trim() ? [`${p.solPlus}${p.solMinus ? ` / ${p.solMinus}` : ''}`] : [])];
@@ -646,8 +664,9 @@ export function PartLabels({ part: p, st, c }: { part: Part; st: PartState; c: C
   }
   const pinLabels = PARTS[p.type].pins.filter((pin) => pin.label).length && !wide && !valve && p.type !== 'prox';
   const pinText = (i: number, label: string) => {
-    const term = p.term?.split('-');
-    if (term?.length === 2) return term[i];
+    // 적은 번호 → 실물 배선도에서 쓸 단자 (자동) → 기호 기본 번호
+    const term = parseTerm(p.term) ?? st.terms;
+    if (term) return term[i];
     if (st.link === 'thr' && (p.type === 'nc' || p.type === 'no')) return p.type === 'nc' ? ['95', '96'][i] : ['97', '98'][i];
     if (st.link === 'timer' && (p.type === 'nc' || p.type === 'no')) return p.type === 'nc' ? ['55', '56'][i] : ['67', '68'][i];
     return label;

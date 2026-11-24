@@ -6,6 +6,7 @@ import { formatClock, formatTime } from '../model/format';
 import { loadRating } from './power';
 import { supplyProblems } from './supply';
 import { verifyWiring } from './verify';
+import { contactNumbers, parseTerm, termChoices } from './contacts';
 import { tr } from '../i18n';
 
 /** 부품 리스트 한 줄 = 기호 하나 (코일과 그 접점들은 한 기기) */
@@ -488,6 +489,29 @@ export interface CircuitIssue {
 export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(c)): CircuitIssue[] {
   const out: CircuitIssue[] = [];
   const kinds = model.tagKind;
+  // 접점 번호: 같은 기호에서 두 번 쓴 번호, 실물 기기에 맞출 수 없는 번호
+  const seen = new Map<string, Part>();
+  for (const p of c.parts) {
+    if (p.type !== 'no' && p.type !== 'nc') continue;
+    const t = parseTerm(p.term);
+    if (!t) continue;
+    const key = `${tagKey(p)}|${[...t].sort().join('-')}`;
+    const prev = seen.get(key);
+    if (prev) out.push({ level: 'warn', msg: tr(`${p.tag}: 접점 번호 ${p.term} 을(를) 두 접점에 적었습니다. 한 단자에 두 접점을 물릴 수 없으니 하나를 고치세요`, `${p.tag}: contact number ${p.term} is used twice`), partIds: [prev.id, p.id] });
+    else seen.set(key, p);
+  }
+  for (const plan of contactNumbers(c, model).plans.values()) {
+    if (!plan.bad.length) continue;
+    const ch = termChoices(plan.type);
+    out.push({
+      level: 'warn',
+      msg: tr(
+        `${model.label(plan.tag)}: 접점 번호 ${plan.bad.map((p) => `${p.term} (${PARTS[p.type].nc ? 'b' : 'a'})`).join(', ')} 은(는) ${partKindName(plan.type)} 에 맞지 않아 [실물 배선도 만들기] 가 자동으로 정합니다. 쓸 수 있는 번호: a접점 ${ch.no.join(' · ')}, b접점 ${ch.nc.join(' · ')} (a 와 b 가 한 쌍이면 공통 단자의 넷이 같아야 함)`,
+        `${model.label(plan.tag)}: contact numbers ${plan.bad.map((p) => p.term).join(', ')} do not fit ${partKindName(plan.type)}; they will be assigned automatically. Valid: NO ${ch.no.join(', ')}, NC ${ch.nc.join(', ')}`,
+      ),
+      partIds: plan.bad.map((p) => p.id),
+    });
+  }
   for (const p of c.parts) {
     if ((p.type === 'no' || p.type === 'nc' || p.type === 'km3') && !kinds.has(tagKey(p))) {
       out.push({ level: 'error', msg: p.tag.trim() ? tr(`접점 ${p.tag}: 같은 기호의 코일·타이머·스위치가 없습니다`, `Contact ${p.tag}: no coil, timer or switch with this tag`) : tr('기호가 없는 접점이 있습니다', 'A contact has no tag'), partIds: [p.id] });

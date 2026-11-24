@@ -8,6 +8,7 @@ import { analyzePower, autoSize, breakerAmps, cableIz, cableMethods, cableSizes,
 import { parallelWires, wireChain } from '../circuit/wires';
 import { BODY_OHM, earthingOf, earthStudy, ZLOOP_TN, type EarthRow } from '../circuit/earth';
 import { DEFAULT_PRICE, energyUse } from '../circuit/energy';
+import { contactNumbers, parseTerm, termChoices } from '../circuit/contacts';
 import { changeSocketLayout } from '../circuit/socket';
 import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempCtrl, isTempDevice, pidSetting, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
@@ -1050,6 +1051,7 @@ function PropsPane({
                       : tr(`같은 기호(${p.tag || '?'})의 코일이 없습니다`, `No coil with tag ${p.tag || '?'}`)}
             </p>
           )}
+          {(p.type === 'no' || p.type === 'nc') && <ContactTerm p={p} circuit={circuit} model={model} set={set} onCircuit={setCircuit} />}
           {(p.type === 'timer' || p.type === 'r_timer8') && (
             <div className="grid2">
               <Field label={tr('동작', 'Mode')}>
@@ -2063,6 +2065,58 @@ function Tips() {
 // ───────────────────────── 조작 순서 ─────────────────────────
 
 /** 온도 기기 속성: 설정 · 히스테리시스 · 경보 · 동작, 온도가 바뀌는 방식 (묶음 · 연결 부하 · 속도) */
+/** 접점 번호: 비우면 [실물 배선도 만들기] 가 쓸 단자 (자동), 적으면 그 단자에 */
+function ContactTerm({ p, circuit, model, set, onCircuit }: { p: Part; circuit: Circuit; model: CircuitModel; set: (patch: Partial<Part>) => void; onCircuit: (c: Circuit) => void }) {
+  const nums = contactNumbers(circuit, model);
+  const tag = tagKey(p);
+  const plan = nums.plans.get(tag);
+  const auto = nums.terms.get(p.id);
+  const where = nums.where.get(p.id);
+  const bad = !!plan?.bad.some((q) => q.id === p.id);
+  const choices = plan ? termChoices(plan.type) : null;
+  // 이 기호에서 번호를 적지 않은 접점 (자동 번호를 그대로 적어 고정할 수 있음)
+  const loose = circuit.parts.filter((q) => (q.type === 'no' || q.type === 'nc') && tagKey(q) === tag && !parseTerm(q.term) && nums.terms.has(q.id));
+  // 코일 · 타이머 · THR 이 없는 접점 (스위치 접점 · 기호 없음) 은 번호를 정할 기기가 없다
+  if (!plan && !p.term) return null;
+  const pin = () =>
+    onCircuit({
+      ...circuit,
+      parts: circuit.parts.map((q) => {
+        const t = loose.some((x) => x.id === q.id) ? nums.terms.get(q.id) : undefined;
+        return t ? { ...q, term: t.join('-') } : q;
+      }),
+    });
+  return (
+    <>
+      <div className="grid2">
+        <Field label={tr('단자 번호', 'Terminal numbers')} hint={tr('위-아래 (예: 8-6). 비우면 자동', 'top-bottom (e.g. 8-6). Empty = automatic')}>
+          <TagInput value={p.term ?? ''} onChange={(v) => set({ term: v.trim() || undefined })} placeholder={auto ? tr(`${auto.join('-')} (자동)`, `${auto.join('-')} (auto)`) : tr('자동', 'auto')} />
+        </Field>
+        {where && (
+          <Field label={tr('실물 기기', 'Real device')}>
+            <div className="small" style={{ paddingTop: 6 }}>
+              <b className="mono">{where.tag}</b> {partKindName(where.type)}
+            </div>
+          </Field>
+        )}
+      </div>
+      {choices && (
+        <p className={`small ${bad ? 'cc-bad' : 'muted'}`}>
+          {bad
+            ? tr(`${p.term} 은(는) 이 기기에 없거나 a/b 가 맞지 않거나 다른 접점과 겹쳐서, 실물 배선도에서는 자동 번호를 씁니다. `, `${p.term} does not fit this device (or clashes), so the real wiring uses an automatic number. `)
+            : ''}
+          {tr(`쓸 수 있는 번호: a접점 ${choices.no.join(' · ')}, b접점 ${choices.nc.join(' · ')}. 같은 공통 단자의 a · b (예: 8-6 · 8-5) 는 공통 쪽 선이 같아야 합니다. 번호를 적은 접점은 [실물 배선도 만들기] 에서 그 단자에 물립니다.`, `Valid: NO ${choices.no.join(', ')}, NC ${choices.nc.join(', ')}. An NO and NC on the same common must share the common wire. Numbered contacts are wired to exactly those terminals by "Make real wiring".`)}
+        </p>
+      )}
+      {loose.length > 0 && (
+        <button type="button" className="btn small" onClick={pin} title={tr('선을 바꿔도 번호가 움직이지 않게 지금 자동 번호를 적어 둡니다', 'Write the current automatic numbers so they stay put')}>
+          {tr(`${p.tag} 의 자동 번호 고정 (${loose.length}개)`, `Pin ${p.tag}'s automatic numbers (${loose.length})`)}
+        </button>
+      )}
+    </>
+  );
+}
+
 function TempProps({ p, circuit, set }: { p: Part; circuit: Circuit; set: (patch: Partial<Part>) => void }) {
   const { sv, hys } = tempSetting(p);
   const loads = [...new Set(circuit.parts.filter((q) => PARTS[q.type].load && !PARTS[q.type].selfCoil && q.type !== 'coil' && q.type !== 'timer' && !isTempCtrl(q) && q.type !== 'r_counter' && q.tag.trim()).map((q) => q.tag.trim()))];

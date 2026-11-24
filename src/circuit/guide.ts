@@ -679,7 +679,12 @@ export function partGuide(type: PartType): PartGuide | null {
       return g(
         tr('접점입니다. 혼자 움직이지 않고, 기호가 같은 코일 · 타이머 · 스위치를 따라 움직입니다. a접점은 붙으면 닫히고, b접점은 붙으면 열립니다.', 'A contact: it follows the coil, timer or switch that has the same tag.'),
         [[tr('위 · 아래', 'top, bottom'), tr('선 중간에 직렬로', 'in series')]],
-        [tr('기호를 코일과 똑같이 적습니다 (코일 X1 ↔ 접점 X1, 전자접촉기 MC1 ↔ 접점 MC1)', 'Give it exactly the tag of its coil'), tr('타이머 기호를 적으면 한시 접점, THR 기호를 적으면 트립 접점이 됩니다', 'With a timer tag it is a timed contact, with a THR tag a trip contact')],
+        [
+          tr('기호를 코일과 똑같이 적습니다 (코일 X1 ↔ 접점 X1, 전자접촉기 MC1 ↔ 접점 MC1)', 'Give it exactly the tag of its coil'),
+          tr('타이머 기호를 적으면 한시 접점, THR 기호를 적으면 트립 접점이 됩니다', 'With a timer tag it is a timed contact, with a THR tag a trip contact'),
+          tr("단자 번호는 [실물 배선도 만들기] 가 쓸 실물 단자로 자동으로 붙습니다 (8핀 릴레이 a 8-6 · 1-3, b 8-5 · 1-4 / 각형 4c a 9-5 …, b 9-1 … / 전자접촉기 13-14 · 21-22 / 타이머 8-6 · 8-5, 순시 1-3 · 1-4). 같은 릴레이의 접점끼리 번호가 겹치지 않습니다", 'Terminal numbers follow the real terminals that "Make real wiring" will use (8-pin relay NO 8-6, 1-3, NC 8-5, 1-4; square 4c NO 9-5…, NC 9-1…; contactor 13-14, 21-22), so contacts of one relay never share a number'),
+          tr('[속성] 의 단자 번호에 직접 적으면 (예: 1-3) 실물 배선도에서 그 단자에 물립니다. 기기에 없는 번호 · a/b 가 틀린 번호 · 겹친 번호는 [검사] 가 알리고 자동으로 정합니다. [자동 번호 고정] 은 지금 번호를 적어 두어 선을 바꿔도 움직이지 않게 합니다', 'Type a number in the properties (e.g. 1-3) to wire that contact to exactly that terminal; numbers that do not exist, have the wrong NO/NC or clash are flagged in Check and assigned automatically. "Pin automatic numbers" writes the current numbers down'),
+        ],
         AUTO(),
         'self-hold',
       );
