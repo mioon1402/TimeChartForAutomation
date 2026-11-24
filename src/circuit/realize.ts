@@ -11,7 +11,7 @@ import type { Circuit, Part, PartType, Pole, Wire, WireColor } from './types';
 import { CircuitModel, tagKey } from './engine';
 import { partBox, partPins, pinPositions, PARTS, POLE_IDENTITY, REAL } from './parts';
 import { POLE_WIRE } from './wires';
-import { isContactor } from './chart';
+import { contactUses, planContacts, type MainType, type TagPlan, type Use } from './contacts';
 import { uid } from '../model/wave';
 import { tr } from '../i18n';
 
@@ -33,23 +33,6 @@ interface Dev {
   order: number;
   /** 단자 번호 → 넷 */
   pins: Map<number, number>;
-}
-
-/** 접점 하나의 쓰임: a접점인가, 두 끝의 넷 */
-interface Use {
-  no: boolean;
-  a: number;
-  b: number;
-  part: Part;
-  inst: boolean;
-  sel?: -1 | 1;
-}
-
-/** 전환 접점 (c) 한 벌: 공통 · a · b 단자 번호 */
-interface Changeover {
-  com: number;
-  a: number;
-  b: number;
 }
 
 /** 줄: 0 전원 단자, 1 차단기 · 퓨즈, 2 제어 기기, 3 문 (조작 · 표시), 4 현장 기기 */
@@ -92,7 +75,6 @@ const ROW: Partial<Record<PartType, number>> = {
   plc: 2,
 };
 
-const CONTACT_SYMS = new Set<PartType>(['no', 'nc', 'pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc']);
 const PNEUMATIC = new Set<PartType>(['cyl', 'v32', 'v52', 'v52d', 'v53', 'air', 'frl', 'fc']);
 /** 그림만 있는 것 (배선에 들지 않음) */
 const DRAWING = new Set<PartType>(['text', 'r_panel', 'r_duct', 'r_rail']);
@@ -211,146 +193,94 @@ export function toWiring(c: Circuit): WiringResult {
     link(d, 0, find(n));
   }
 
-  // ── 접점 쓰임을 기호마다 모은다
-  const uses = new Map<string, Use[]>();
-  for (const p of c.parts) {
-    if (!CONTACT_SYMS.has(p.type)) continue;
-    const tag = tagKey(p);
-    uses.set(tag, [...(uses.get(tag) ?? []), { no: !PARTS[p.type].nc, a: net(p, 0), b: net(p, 1), part: p, inst: (p.type === 'no' || p.type === 'nc') && !!p.inst13, ...(p.sel ? { sel: p.sel } : {}) }]);
-  }
+  // ── 접점 쓰임을 기호마다 모으고, 코일 · 타이머 · THR 마다 실물 기기와 단자를 정한다
+  //    (contacts.ts: 회로도에 보이는 단자 번호와 같은 결과. 접점에 적은 번호는 그 단자에)
+  const uses = contactUses(c, net);
+  const plans = planContacts(c, model, net, uses);
   const byTag = (type: PartType) => {
     const m = new Map<string, Part[]>();
     for (const p of c.parts) if (p.type === type) m.set(tagKey(p), [...(m.get(tagKey(p)) ?? []), p]);
     return m;
   };
-  const coils = byTag('coil');
-  const timers = byTag('timer');
   const km3s = byTag('km3');
   const ol3s = byTag('ol3');
-
-  /** 전환 접점에 쓰임을 넣는다. a 와 b 가 한 넷을 같이 쓰면 공통 단자를 함께 쓴다. 못 넣은 것을 돌려준다 */
-  const fillChangeovers = (d: Dev, groups: Changeover[], list: Use[]): Use[] => {
-    const used: { g: Changeover; com: number; a: boolean; b: boolean }[] = [];
-    const left: Use[] = [];
-    list.forEach((u, i) => {
-      const slot = used.find((s) => (u.no ? !s.a : !s.b) && (s.com === u.a || s.com === u.b));
-      if (slot) {
-        link(d, u.no ? slot.g.a : slot.g.b, slot.com === u.a ? u.b : u.a);
-        if (u.no) slot.a = true;
-        else slot.b = true;
-        return;
-      }
-      const g = groups[used.length];
-      if (!g) {
-        left.push(u);
-        return;
-      }
-      // 뒤에 오는 반대 종류 쓰임과 같이 쓰는 넷을 공통으로
-      const rest = list.slice(i + 1).filter((v) => v.no !== u.no);
-      const com = rest.some((v) => v.a === u.b || v.b === u.b) ? u.b : u.a;
-      link(d, g.com, com);
-      link(d, u.no ? g.a : g.b, com === u.a ? u.b : u.a);
-      used.push({ g, com, a: u.no, b: !u.no });
-    });
-    return left;
-  };
-  // 8핀: 8-6 a · 8-5 b 부터, 그다음 1-3 a · 1-4 b
-  const octal: Changeover[] = [
-    { com: 7, a: 5, b: 4 },
-    { com: 0, a: 2, b: 3 },
-  ];
-  const blade = (type: 'r_my2' | 'r_my4'): Changeover[] => {
-    const poles = PARTS[type].poles!;
-    return Array.from({ length: poles.length / 2 }, (_, k) => ({ com: poles[2 * k][0], a: poles[2 * k][1], b: poles[2 * k + 1][1] }));
-  };
   const coilSpec = (n: number): Partial<Part> => (isDc(n) ? { spec: 'DC 24V' } : {});
-
-  /** 접점이 모자라면 코일을 나란히 단 보조 릴레이 (각형 4c) 에 */
-  const auxRelays = (tag: string, from: Part, coilNets: [number, number], left: Use[]) => {
-    let k = 2;
-    while (left.length) {
-      const t = `${label(tag)}-${k++}`;
-      const d = mk('r_my4', t, from, { name: tr(`${label(tag)} 보조`, `${label(tag)} aux`), ...coilSpec(coilNets[0]) });
-      const sc = PARTS.r_my4.selfCoil!;
-      link(d, sc[0], coilNets[0]);
-      link(d, sc[1], coilNets[1]);
-      left = fillChangeovers(d, blade('r_my4'), left);
-      notes.push(tr(`${label(tag)}: 접점이 모자라 코일을 나란히 단 보조 릴레이 ${t} 를 붙였습니다`, `${label(tag)}: not enough contacts, added auxiliary relay ${t} with its coil in parallel`));
+  const kindName: Record<MainType, string> = {
+    r_relay8: tr('8핀 · 각형 릴레이', '8-pin / square relays'),
+    r_my4: tr('8핀 · 각형 릴레이', '8-pin / square relays'),
+    r_mc: tr('전자접촉기', 'the contactor'),
+    r_timer8: tr('8핀 타이머', 'the 8-pin timer'),
+    r_thr: 'THR',
+  };
+  /** 접점마다 정한 단자에 넷을 물린다 */
+  const put = (ds: Dev[], plan: TagPlan, list: Use[]) => {
+    for (const u of list) {
+      const at = plan.placed.get(u.part.id);
+      if (!at) continue;
+      link(ds[at.dev], at.pa, u.a);
+      link(ds[at.dev], at.pb, u.b);
     }
   };
 
   const done = new Set<string>();
-  // ── 코일: 전자접촉기 · 릴레이
-  for (const [tag, [cp]] of coils) {
+  for (const plan of plans.values()) {
+    const tag = plan.tag;
     done.add(tag);
-    const cn: [number, number] = [net(cp, 0), net(cp, 1)];
     const list = uses.get(tag) ?? [];
-    if (isContactor(c, tag)) {
-      const d = mk('r_mc', label(tag), cp, { ...named(tag, 'coil'), ...coilSpec(cn[0]) });
+    if (plan.bad.length)
+      notes.push(
+        tr(
+          `${label(tag)}: 적은 접점 번호 (${plan.bad.map((p) => p.term).join(', ')}) 를 ${kindName[plan.type]} 단자에 맞출 수 없어 자동으로 정했습니다`,
+          `${label(tag)}: the contact numbers (${plan.bad.map((p) => p.term).join(', ')}) do not fit ${kindName[plan.type]}; assigned automatically`,
+        ),
+      );
+    // THR: 주회로 3극 + 95-96 b · 97-98 a
+    if (plan.type === 'r_thr') {
+      const main = ol3s.get(tag)?.[0];
+      const d = mk('r_thr', label(tag), main ?? list[0].part, named(tag, 'ol3'));
+      if (main) [0, 1, 2, 3, 4, 5].forEach((i) => link(d, i, net(main, i)));
+      put([d], plan, list);
+      if (plan.left.length) notes.push(tr(`${label(tag)}: THR 접점이 모자라 ${plan.left.length}개를 잇지 못했습니다`, `${label(tag)}: not enough overload contacts, ${plan.left.length} left out`));
+      continue;
+    }
+    const cp = plan.coilPart!;
+    const cn: [number, number] = [net(cp, 0), net(cp, 1)];
+    let d: Dev;
+    if (plan.type === 'r_mc') {
+      // 전자접촉기: 코일 A1 · A2, 주접점 (3극), 보조 13-14 a · 21-22 b
+      d = mk('r_mc', label(tag), cp, { ...named(tag, 'coil'), ...coilSpec(cn[0]) });
       link(d, 0, cn[0]);
       link(d, 1, cn[1]);
       const main = km3s.get(tag) ?? [];
       const mainPins = [2, 3, 4, 7, 8, 9];
       if (main.length) [0, 1, 2, 3, 4, 5].forEach((i) => link(d, mainPins[i], net(main[0], i)));
       if (main.length > 1) notes.push(tr(`${label(tag)}: 주접점이 ${main.length}벌이라 첫 벌만 그렸습니다`, `${label(tag)}: only the first set of main contacts is drawn`));
-      // 보조 13-14 a · 21-22 b, 주접점을 안 쓰면 주접점도 a접점으로
-      const noSlots: [number, number][] = [[5, 10], ...(main.length ? [] : ([[2, 7], [3, 8], [4, 9]] as [number, number][]))];
-      const ncSlots: [number, number][] = [[6, 11]];
-      const left: Use[] = [];
-      for (const u of list) {
-        const slot = (u.no ? noSlots : ncSlots).shift();
-        if (!slot) {
-          left.push(u);
-          continue;
-        }
-        link(d, slot[0], u.a);
-        link(d, slot[1], u.b);
-      }
-      auxRelays(tag, cp, cn, left);
-      continue;
+    } else if (plan.type === 'r_timer8') {
+      // 타이머 (8핀): 순시 접점이 있으면 1-3 · 1-4 를 순시로
+      const inst = list.some((u) => u.inst);
+      d = mk('r_timer8', label(tag), cp, { ...named(tag, 'timer'), sock: 'pf', timerMode: cp.timerMode ?? 'on', preset: cp.preset ?? 3000, ...(cp.presetOff ? { presetOff: cp.presetOff } : {}), ...(inst ? { inst13: true } : {}) });
+      link(d, 1, cn[0]);
+      link(d, 6, cn[1]);
+    } else {
+      // 릴레이: 8핀 2c 또는 각형 4c
+      d = mk(plan.type, label(tag), cp, { ...named(tag, 'coil'), ...coilSpec(cn[0]), ...(plan.type === 'r_relay8' ? { sock: 'pf' as const } : {}) });
+      const sc = PARTS[plan.type].selfCoil!;
+      link(d, sc[0], cn[0]);
+      link(d, sc[1], cn[1]);
     }
-    // 릴레이: 8핀 2c 로 되면 8핀, 아니면 각형 4c
-    const probe: Dev = { part: { id: '', type: 'r_relay8', x: 0, y: 0, rot: 0, tag: '' }, row: 2, order: 0, pins: new Map() };
-    const type = fillChangeovers(probe, octal, list).length === 0 ? 'r_relay8' : 'r_my4';
-    const d = mk(type, label(tag), cp, { ...named(tag, 'coil'), ...coilSpec(cn[0]), ...(type === 'r_relay8' ? { sock: 'pf' as const } : {}) });
-    const sc = PARTS[type].selfCoil!;
-    link(d, sc[0], cn[0]);
-    link(d, sc[1], cn[1]);
-    auxRelays(tag, cp, cn, fillChangeovers(d, type === 'r_relay8' ? octal : blade('r_my4'), list));
-  }
-
-  // ── 타이머 (8핀): 순시 접점이 있으면 1-3 · 1-4 를 순시로
-  for (const [tag, [tp]] of timers) {
-    done.add(tag);
-    const list = uses.get(tag) ?? [];
-    const inst = list.filter((u) => u.inst);
-    const timed = list.filter((u) => !u.inst);
-    const d = mk('r_timer8', label(tag), tp, { ...named(tag, 'timer'), sock: 'pf', timerMode: tp.timerMode ?? 'on', preset: tp.preset ?? 3000, ...(tp.presetOff ? { presetOff: tp.presetOff } : {}), ...(inst.length ? { inst13: true } : {}) });
-    link(d, 1, net(tp, 0));
-    link(d, 6, net(tp, 1));
-    const left = [...fillChangeovers(d, inst.length ? [octal[0]] : octal, timed), ...(inst.length ? fillChangeovers(d, [octal[1]], inst) : [])];
-    if (left.length) notes.push(tr(`${label(tag)}: 타이머 접점이 모자라 ${left.length}개를 잇지 못했습니다 (타이머 접점으로 보조 릴레이를 켜서 늘리세요)`, `${label(tag)}: not enough timer contacts, ${left.length} left out`));
-  }
-
-  // ── THR: 주회로 3극 + 95-96 b · 97-98 a
-  const thrTags = new Set([...ol3s.keys(), ...[...uses.keys()].filter((t) => model.tagKind.get(t) === 'thr' && !done.has(t))]);
-  for (const tag of thrTags) {
-    done.add(tag);
-    const main = ol3s.get(tag)?.[0];
-    const from = main ?? uses.get(tag)![0].part;
-    const d = mk('r_thr', label(tag), from, named(tag, 'ol3'));
-    if (main) [0, 1, 2, 3, 4, 5].forEach((i) => link(d, i, net(main, i)));
-    const slots: Record<'no' | 'nc', [number, number][]> = { no: [[8, 9]], nc: [[6, 7]] };
-    let miss = 0;
-    for (const u of uses.get(tag) ?? []) {
-      const s = slots[u.no ? 'no' : 'nc'].shift();
-      if (!s) miss++;
-      else {
-        link(d, s[0], u.a);
-        link(d, s[1], u.b);
-      }
+    // 접점이 모자라면 코일을 나란히 단 보조 릴레이 (각형 4c)
+    const ds = [d];
+    for (let k = 1; k <= plan.aux; k++) {
+      const t = `${label(tag)}-${k + 1}`;
+      const a = mk('r_my4', t, cp, { name: tr(`${label(tag)} 보조`, `${label(tag)} aux`), ...coilSpec(cn[0]) });
+      const sc = PARTS.r_my4.selfCoil!;
+      link(a, sc[0], cn[0]);
+      link(a, sc[1], cn[1]);
+      ds.push(a);
+      notes.push(tr(`${label(tag)}: 접점이 모자라 코일을 나란히 단 보조 릴레이 ${t} 를 붙였습니다`, `${label(tag)}: not enough contacts, added auxiliary relay ${t} with its coil in parallel`));
     }
-    if (miss) notes.push(tr(`${label(tag)}: THR 접점이 모자라 ${miss}개를 잇지 못했습니다`, `${label(tag)}: not enough overload contacts, ${miss} left out`));
+    put(ds, plan, list);
+    if (plan.type === 'r_timer8' && plan.left.length) notes.push(tr(`${label(tag)}: 타이머 접점이 모자라 ${plan.left.length}개를 잇지 못했습니다 (타이머 접점으로 보조 릴레이를 켜서 늘리세요)`, `${label(tag)}: not enough timer contacts, ${plan.left.length} left out`));
   }
 
   // ── 조작 기기 · 센서 접점 (1a1b 몸통, 2선식 센서 · 서모스탯은 접점 하나)
