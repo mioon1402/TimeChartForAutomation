@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, counterPreset, hmiCells, LAMP_HEX, plcAddresses, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, pidSetting, skValues, tempSetting, timerText, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, counterPreset, hmiCells, LAMP_HEX, plcAddresses, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, pidSetting, skValues, tempSetting, vfdSetting, timerText, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -936,6 +936,132 @@ function TagAt({ p, x, y, c }: { p: Part; x: number; y: number; c: CircuitColors
 }
 
 /** 퓨즈 홀더: 위 1 · 아래 2, 늘 통한다 */
+/**
+ * 인버터 (VFD): 위 전원 R S T · PE · 고장 릴레이 A B C, 아래 출력 U V W · 입력 STF STR RH RM RL SD.
+ * 앞면 표시창에 출력 주파수 (Hz), 램프 RUN · FWD · REV · ALARM, 다이얼 · RUN/STOP 키
+ */
+export function VfdGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const v = st.vfd;
+  const s = vfdSetting(p);
+  const top = [
+    [-160, 'R/L1', 'orange'],
+    [-120, 'S/L2', 'orange'],
+    [-80, 'T/L3', 'orange'],
+    [-40, 'PE', 'green'],
+    [80, 'A', 'grey'],
+    [120, 'B', 'grey'],
+    [160, 'C', 'grey'],
+  ] as const;
+  const bottom = [
+    [-160, 'U', 'orange'],
+    [-120, 'V', 'orange'],
+    [-80, 'W', 'orange'],
+    [0, 'STF', 'grey'],
+    [40, 'STR', 'grey'],
+    [80, 'RH', 'grey'],
+    [120, 'RM', 'grey'],
+    [160, 'RL', 'grey'],
+    [200, 'SD', 'grey'],
+  ] as const;
+  const led = (on: boolean | undefined, col: string) => (on ? col : '#475569');
+  const shown = !v ? '0.00' : v.trip ? 'E.FLT' : !v.powered ? '' : v.hz.toFixed(v.hz >= 100 ? 0 : 1);
+  return (
+    <g>
+      <rect x={-192} y={-140} width={420} height={280} rx={8} fill={BODY} stroke={BODY_EDGE} />
+      <rect x={-192} y={-140} width={420} height={44} rx={5} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={-192} y={96} width={420} height={44} rx={5} fill={BAND} stroke={BODY_EDGE} />
+      {top.map(([x, label, ring]) => (
+        <g key={label}>
+          <Screw x={x} y={-120} ring={ring} />
+          <Label x={x} y={-100} text={label} size={7.5} weight={800} />
+        </g>
+      ))}
+      {bottom.map(([x, label, ring]) => (
+        <g key={label}>
+          <Screw x={x} y={120} ring={ring} />
+          <Label x={x} y={106} text={label} size={7.5} weight={800} />
+        </g>
+      ))}
+      <Label x={20} y={-100} text={tr('고장 A-C 닫힘', 'fault: A-C')} fill="#64748b" size={6.5} weight={700} />
+      {/* 앞면: 표시창 · 램프 · 키 */}
+      <rect x={-150} y={-86} width={300} height={170} rx={8} fill="#1f2937" stroke="#030712" />
+      <rect x={-136} y={-74} width={150} height={52} rx={4} fill="#0b1120" />
+      <Label x={6} y={-36} text={shown} anchor="end" fill={v?.trip ? '#f87171' : '#34d399'} size={28} weight={800} />
+      <Label x={10} y={-50} text="Hz" anchor="start" fill="#94a3b8" size={9} weight={700} />
+      {[
+        ['RUN', led(v?.run, '#22c55e')],
+        ['FWD', led(v?.run && v.dir > 0, '#22c55e')],
+        ['REV', led(v?.run && v.dir < 0, '#f59e0b')],
+        ['ALARM', led(v?.trip, '#ef4444')],
+      ].map(([t, col], i) => (
+        <g key={t}>
+          <circle cx={-128 + i * 40} cy={-6} r={4.5} fill={col} />
+          <Label x={-128 + i * 40} y={8} text={t} fill="#cbd5e1" size={6.5} weight={800} />
+        </g>
+      ))}
+      <circle cx={84} cy={-44} r={26} fill="#374151" stroke="#0f172a" />
+      <path d={`M84,-44L${84 + 18 * Math.cos(-Math.PI / 2 + ((v?.hz ?? 0) / 60) * Math.PI * 1.5)},${-44 + 18 * Math.sin(-Math.PI / 2 + ((v?.hz ?? 0) / 60) * Math.PI * 1.5)}`} stroke="#e5e7eb" strokeWidth={3} />
+      {[
+        ['RUN', '#16a34a'],
+        ['STOP', '#dc2626'],
+      ].map(([t, col], i) => (
+        <g key={t}>
+          <rect x={-130 + i * 70} y={30} width={56} height={24} rx={5} fill={col} />
+          <Label x={-102 + i * 70} y={46} text={t} fill="#fff" size={8} weight={800} />
+        </g>
+      ))}
+      <Label x={70} y={46} text="INVERTER" fill="#94a3b8" size={8} weight={800} />
+      <Label x={236} y={-120} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes
+        x={236}
+        lines={[
+          p.name,
+          p.spec?.trim() || (p.ph1 ? tr('단상 220V 입력', 'single-phase input') : tr('3상 입력', '3-phase input')),
+          tr(`기본 ${s.hz} Hz · RH ${s.hzH} · RM ${s.hzM} · RL ${s.hzL}`, `base ${s.hz} Hz, RH ${s.hzH}, RM ${s.hzM}, RL ${s.hzL}`),
+          tr(`가속 ${s.acc} s · 감속 ${s.dec} s (0↔60 Hz)`, `accel ${s.acc} s, decel ${s.dec} s (0↔60 Hz)`),
+        ]}
+        c={c}
+      />
+      {v && !v.powered && <Label x={236} y={50} text={tr('전원 없음', 'No power')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+      {v?.trip && <Label x={236} y={64} text={tr('고장 (눌러서 리셋)', 'Fault (click to reset)')} anchor="start" size={9} weight={700} fill="#dc2626" />}
+    </g>
+  );
+}
+
+/** 임펄스 릴레이 (DIN 레일 모듈 18 mm): 위 A1 · 13 · 21, 아래 A2 · 14 · 22, 앞면 손잡이 (켜짐 · 꺼짐 표시) 와 코일 LED */
+export function ImpGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const on = !!st.latch;
+  return (
+    <g>
+      <rect x={-56} y={-76} width={112} height={152} rx={6} fill={BODY} stroke={BODY_EDGE} />
+      <rect x={-56} y={-76} width={112} height={34} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={-56} y={42} width={112} height={34} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      {[
+        [-40, -60, 'A1', 'orange'],
+        [0, -60, '13', 'green'],
+        [40, -60, '21', 'yellow'],
+        [-40, 60, 'A2', 'orange'],
+        [0, 60, '14', 'green'],
+        [40, 60, '22', 'yellow'],
+      ].map(([x, y, t, ring]) => (
+        <g key={t as string}>
+          <Screw x={x as number} y={y as number} ring={ring as 'orange' | 'green' | 'yellow'} />
+          <Label x={x as number} y={(y as number) < 0 ? -40 : 46} text={t as string} size={8} weight={800} />
+        </g>
+      ))}
+      {/* 앞면 손잡이: 위 = 켜짐 (I), 아래 = 꺼짐 (O) */}
+      <rect x={-18} y={-30} width={36} height={58} rx={5} fill="#e5e7eb" stroke="#94a3b8" />
+      <rect x={-12} y={on ? -26 : 0} width={24} height={24} rx={3} fill={on ? '#16a34a' : '#64748b'} />
+      <Label x={0} y={on ? -10 : 16} text={on ? 'I' : 'O'} fill="#fff" size={11} weight={800} />
+      <circle cx={-34} cy={-24} r={4.5} fill={st.on ? '#f59e0b' : '#475569'} />
+      <Label x={-34} y={-10} text="A" fill="#94a3b8" size={6.5} weight={700} />
+      <Label x={0} y={38} text="IMPULSE" fill="#64748b" size={6.5} weight={800} />
+      <Label x={64} y={-64} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={64} lines={[p.name, p.spec?.trim() || tr('코일 AC 220V', 'coil AC 220V'), tr('누를 때마다 켜짐 ↔ 꺼짐', 'toggles on each pulse')]} c={c} />
+    </g>
+  );
+}
+
 /** 스파크 킬러 (CR, 오카야 CRE 꼴): 검은 몸통에 값, 아래 리드선 두 가닥 (1 · 2) */
 export function SkGlyph({ p, c }: { p: Part; c: CircuitColors }) {
   const { uf, ohm } = skValues(p);

@@ -46,6 +46,7 @@ const ROW: Partial<Record<PartType, number>> = {
   r_mc: 2,
   r_thr: 2,
   r_relay8: 2,
+  r_imp: 2,
   r_my2: 2,
   r_my4: 2,
   r_timer8: 2,
@@ -216,6 +217,7 @@ export function toWiring(c: Circuit, opts: { wires?: boolean } = {}): WiringResu
     r_mc: tr('전자접촉기', 'the contactor'),
     r_timer8: tr('8핀 타이머', 'the 8-pin timer'),
     r_thr: 'THR',
+    r_imp: tr('임펄스 릴레이', 'the impulse relay'),
   };
   /** 접점마다 정한 단자에 넷을 물린다 */
   const put = (ds: Dev[], plan: TagPlan, list: Use[]) => {
@@ -260,6 +262,12 @@ export function toWiring(c: Circuit, opts: { wires?: boolean } = {}): WiringResu
       const mainPins = [2, 3, 4, 7, 8, 9];
       if (main.length) [0, 1, 2, 3, 4, 5].forEach((i) => link(d, mainPins[i], net(main[0], i)));
       if (main.length > 1) notes.push(tr(`${label(tag)}: 주접점이 ${main.length}벌이라 첫 벌만 그렸습니다`, `${label(tag)}: only the first set of main contacts is drawn`));
+    } else if (plan.type === 'r_imp') {
+      // 임펄스 릴레이: 코일 A1 · A2, 접점 13-14 · 21-22 (모자라면 알림)
+      d = mk('r_imp', label(tag), cp, { ...named(tag, 'imp'), ...coilSpec(cn[0]) });
+      link(d, 0, cn[0]);
+      link(d, 3, cn[1]);
+      if (plan.left.length) notes.push(tr(`${label(tag)}: 임펄스 릴레이 접점 (1a1b) 이 모자라 ${plan.left.length}개를 잇지 못했습니다`, `${label(tag)}: impulse relay has 1 NO 1 NC, ${plan.left.length} contact(s) left out`));
     } else if (plan.type === 'r_timer8') {
       // 타이머 (8핀): 순시 접점이 있으면 1-3 · 1-4 를 순시로
       const inst = list.some((u) => u.inst);

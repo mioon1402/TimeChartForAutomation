@@ -1588,6 +1588,98 @@ function blowerTimer(): Circuit {
   return c;
 }
 
+// ───────────────────── 인버터 정 · 역 운전 (다단속 · 가감속 · 고장 경보) ─────────────────────
+
+/**
+ * 3상 380 V → 배선용 차단기 → 인버터 INV1 → 전동기 M1.
+ *  - 운전 셀렉터 SS1 (정회전 · 정지 · 역회전): 공통 SD, 왼쪽 → STF, 오른쪽 → STR
+ *  - 속도 셀렉터 SS2 (저속 · 고속): b접점 → RL (10 Hz), a접점 → RH (60 Hz)
+ *  - 고장 릴레이 A-C → 적색 경보등 RL1 (조작 전원 L1 · N, 퓨즈 F1)
+ * 가 · 감속 5 초 (0 ↔ 60 Hz), 30 초에 고장 (트립) 을 일으켜 본다
+ */
+function vfdFwdRev(): Circuit {
+  const b = new Builder();
+  const T = (pole: 'L1' | 'L2' | 'L3' | 'N' | 'PE', x: number) => b.part('r_term', x, 0, '', { pole });
+  const [t1, t2, t3, tN, tPE] = [T('L1', 2), T('L2', 4), T('L3', 6), T('N', 8), T('PE', 10)];
+  const mccb = b.part('r_mcb3', 4, 6, 'MCCB', { name: tr('인버터 전원', 'Inverter supply'), amps: 10 });
+  const f1 = b.part('r_fuse', 14, 6, 'F1', { name: tr('경보 회로', 'Alarm circuit'), amps: 2 });
+  const inv = b.part('r_vfd', 14, 22, 'INV1', { name: tr('컨베이어', 'Conveyor'), spec: tr('3상 380V 0.75kW', '3-phase 380V 0.75kW') });
+  const m1 = b.part('r_motor3', 8, 38, 'M1', { name: tr('컨베이어 전동기', 'Conveyor motor') });
+  const ss1 = b.part('r_ss3', 16, 40, 'SS1', { name: tr('운전', 'Run'), pos3: tr('정회전/정지/역회전', 'FWD/STOP/REV') });
+  const ss2 = b.part('r_ss', 24, 40, 'SS2', { name: tr('속도 (저속 · 고속)', 'Speed (low / high)') });
+  const rl = b.part('r_lamp', 32, 12, 'RL1', { name: tr('인버터 고장', 'Inverter fault'), color: 'red' });
+  b.part('text', 0, -5, '', { text: tr('인버터 정 · 역 운전: 셀렉터로 정회전 · 역회전, 저속 (RL 10 Hz) · 고속 (RH 60 Hz), 가감속 5초, 고장 경보 (A-C)', 'Inverter forward / reverse: selector for direction, low (RL 10 Hz) / high (RH 60 Hz), 5 s ramps, fault alarm (A–C)') });
+  routeNets(b, 'vfd-fwd-rev', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [t1, ''], [mccb, '1']);
+    net('black', [t2, ''], [mccb, '3']);
+    net('grey', [t3, ''], [mccb, '5']);
+    net('brown', [mccb, '2'], [inv, 'R/L1'], [f1, '1']);
+    net('black', [mccb, '4'], [inv, 'S/L2']);
+    net('grey', [mccb, '6'], [inv, 'T/L3']);
+    net('brown', [inv, 'U'], [m1, 'U']);
+    net('black', [inv, 'V'], [m1, 'V']);
+    net('grey', [inv, 'W'], [m1, 'W']);
+    net('red', [f1, '2'], [inv, 'C']);
+    net('red', [inv, 'A'], [rl, 'X1']);
+    net('blue', [rl, 'X2'], [tN, '']);
+    // 입력: 모두 SD 공통 (무전압 접점)
+    net('white', [inv, 'SD'], [ss1, '13'], [ss1, '23'], [ss2, '11'], [ss2, '23']);
+    net('white', [ss1, '14'], [inv, 'STF']);
+    net('white', [ss1, '24'], [inv, 'STR']);
+    net('white', [ss2, '12'], [inv, 'RL']);
+    net('white', [ss2, '24'], [inv, 'RH']);
+    net('gy', [tPE, ''], [inv, 'PE'], [m1, 'PE']);
+    return nets;
+  });
+  b.op(1000, 'SS1', 'left', tr('정회전 (저속 10 Hz)', 'Forward (low 10 Hz)'));
+  b.op(5000, 'SS2', 'on', tr('고속 60 Hz', 'High 60 Hz'));
+  b.op(8000, 'SS1', 'off', tr('정지 (5초 감속)', 'Stop (5 s ramp)'));
+  b.op(10000, 'SS1', 'right', tr('역회전 (고속)', 'Reverse (high)'));
+  b.op(6000, 'INV1', 'on', tr('고장 (트립)', 'Fault (trip)'));
+  b.op(4000, 'SS1', 'off', tr('운전 끔', 'Run off'));
+  b.op(2000, 'INV1', 'off', tr('리셋', 'Reset'));
+  const c = b.done();
+  c.duration = 40000;
+  return c;
+}
+
+// ───────────────────── 계단 조명: 세 곳의 푸시버튼 + 임펄스 릴레이 ─────────────────────
+
+/**
+ * 계단 · 복도 조명: 1층 · 2층 · 3층 푸시버튼 (a접점) 을 나란히 임펄스 릴레이 LR1 코일에. 누를 때마다 LR1 13-14 가 켜짐 ↔ 꺼짐으로 바뀌어 전등이 켜지고 꺼진다.
+ * 3로 · 4로 스위치 배선보다 선이 적고, 버튼을 늘리기 쉽다
+ */
+function stairImpulse(): Circuit {
+  const b = new Builder();
+  const tL = b.part('r_term', 2, 0, '', { pole: 'L' });
+  const tN = b.part('r_term', 4, 0, '', { pole: 'N' });
+  const mcb = b.part('r_mcb2', 3, 6, 'MCB1', { name: tr('전등 회로', 'Lighting circuit'), spec: 'AC 220V 16A', amps: 16 });
+  const pbs = [1, 2, 3].map((k) => b.part('r_pb', 12 + 7 * (k - 1), 8, `PB${k}`, { name: tr(`${k}층`, `Floor ${k}`), color: 'green' }));
+  const lr = b.part('r_imp', 12, 20, 'LR1', { name: tr('계단 조명', 'Stair light') });
+  const lt = b.part('r_light', 26, 21, 'EL1', { name: tr('계단 전등', 'Stair lamp') });
+  b.part('text', 0, -5, '', { text: tr('계단 조명: 1 · 2 · 3층 푸시버튼 → 임펄스 릴레이 → 전등 (누를 때마다 켜짐 ↔ 꺼짐)', 'Stair lighting: push buttons on three floors → impulse relay → lamp (each press toggles)') });
+  routeNets(b, 'stair-impulse', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [tL, ''], [mcb, '1']);
+    net('blue', [tN, ''], [mcb, '3']);
+    net('brown', [mcb, '2'], ...pbs.map((pb): NetPin => [pb, '23']), [lr, '13']);
+    net('black', ...pbs.map((pb): NetPin => [pb, '24']), [lr, 'A1']);
+    net('blue', [mcb, '4'], [lr, 'A2'], [lt, 'N']);
+    net('black', [lr, '14'], [lt, 'L']);
+    return nets;
+  });
+  b.op(1000, 'PB1', 'press', tr('1층에서 켬', 'On from floor 1'));
+  b.op(3000, 'PB2', 'press', tr('2층에서 끔', 'Off from floor 2'));
+  b.op(3000, 'PB3', 'press', tr('3층에서 켬', 'On from floor 3'));
+  b.op(3000, 'PB1', 'press', tr('1층에서 끔', 'Off from floor 1'));
+  const c = b.done();
+  c.system = '1p2w';
+  return c;
+}
+
 // ───────────────────── 건조로 PID 온도 제어 (TK4S 꼴 · 더블 Pt100 · 과열 차단) ─────────────────────
 
 /**
@@ -2071,6 +2163,8 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'earth-fault': 'power',
   'blower-timer': 'panel',
   'oven-pid': 'panel',
+  'stair-impulse': 'home',
+  'vfd-fwd-rev': 'motor',
 };
 
 export interface CircuitExample {
@@ -2124,6 +2218,18 @@ export function circuitExamples(): CircuitExample[] {
       name: tr('열풍기 온도 제어 + 24시간 타이머 (전기 요금)', 'Hot-air blower: temperature control + 24-h timer (energy cost)'),
       desc: tr('측온저항체 Pt100 → 온도 조절기 (T3S 꼴) → 전자접촉기 → 열풍기 5 kW, 08~18시 자동 운전과 하루 전력량 · 요금', 'Pt100 RTD → controller (T3S type) → contactor → 5 kW blower, timer 08:00–18:00, daily energy and cost'),
       build: blowerTimer,
+    },
+    {
+      id: 'vfd-fwd-rev',
+      name: tr('인버터 정 · 역 운전 (다단속 · 가감속 · 고장 경보)', 'Inverter forward / reverse (preset speeds, ramps, fault alarm)'),
+      desc: tr('3상 → 차단기 → 인버터 → 전동기. 셀렉터로 정 · 역회전과 저속 · 고속, 가감속 5초, 고장 릴레이 → 경보등', '3-phase → breaker → inverter → motor; selectors for direction and speed, 5 s ramps, fault relay → alarm lamp'),
+      build: vfdFwdRev,
+    },
+    {
+      id: 'stair-impulse',
+      name: tr('계단 조명: 세 곳에서 켜고 끄기 (임펄스 릴레이)', 'Stair lighting from three places (impulse relay)'),
+      desc: tr('푸시버튼 3개를 나란히 임펄스 릴레이 코일에, 누를 때마다 전등이 켜짐 ↔ 꺼짐', 'Three push buttons in parallel on an impulse relay; each press toggles the lamp'),
+      build: stairImpulse,
     },
     {
       id: 'oven-pid',

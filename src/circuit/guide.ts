@@ -143,6 +143,46 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('늘 통합니다 (끊어지는 것은 흉내 내지 않고, 정격을 넘으면 [해석] 에서 알려 줍니다).', 'Always conducts; the Analysis tab reports overload.'),
         'dc-sensor',
       );
+    case 'r_vfd':
+      return g(
+        tr('인버터 (VFD, 가변 주파수 드라이브) 입니다. 전원을 받아 주파수를 바꾼 3상을 만들어 전동기 속도를 바꿉니다. 정회전 · 역회전 · 다단속 · 가감속 (천천히 기동 · 정지) 을 접점 입력으로 고릅니다. 컨베이어 · 팬 · 펌프에 많이 씁니다.', 'An inverter (variable-frequency drive): turns the supply into a variable-frequency 3-phase output to set motor speed. Forward, reverse, preset speeds and soft accel/decel are chosen by contact inputs; common on conveyors, fans and pumps.'),
+        [
+          ['R/L1 · S/L2 · T/L3', tr('전원 (차단기 뒤). 단상 기종은 R · S 에 L · N', 'supply after a breaker; single-phase models use R and S')],
+          ['U · V · W', tr('전동기로 (전원을 여기에 물리면 인버터가 탐)', 'to the motor (never connect the mains here)')],
+          ['PE', tr('접지 (인버터 · 전동기 외함)', 'earth (inverter and motor frame)')],
+          ['STF · STR', tr('정회전 · 역회전: SD 와 닫히면 운전 (무전압 접점)', 'forward / reverse: run when closed to SD (dry contact)')],
+          ['RH · RM · RL', tr('다단속 고 · 중 · 저 (SD 와 닫히면 그 주파수)', 'preset high / mid / low speed when closed to SD')],
+          ['SD', tr('입력 공통 (접점의 다른 쪽을 모두 여기에)', 'input common (the other side of every input contact)')],
+          ['A · B · C', tr('고장 릴레이: 평상시 B-C 닫힘, 고장 때 A-C 닫힘 → 경보등 · 차단', 'fault relay: B–C closed normally, A–C on fault → alarm lamp / trip')],
+        ],
+        [
+          tr('3상 전원 → 배선용 차단기 → R/L1 · S/L2 · T/L3, U · V · W → 전동기 (인버터와 전동기 사이에 전자접촉기 · THR 는 보통 넣지 않음, 인버터가 전동기를 보호)', '3-phase supply → breaker → R/S/T, U/V/W → motor (no contactor or overload relay between them as a rule; the inverter protects the motor)'),
+          tr('운전 셀렉터 (정 · 정지 · 역) 의 공통을 SD 에, 접점 한쪽을 STF, 다른 쪽을 STR 에', 'Run selector (fwd / stop / rev): common to SD, contacts to STF and STR'),
+          tr('속도 셀렉터를 RH · RM · RL 과 SD 사이에. 속성에서 그 주파수 · 가감속 시간을 정합니다', 'Speed selector between RH/RM/RL and SD; set the frequencies and ramp times in the properties'),
+          tr('고장 경보: 조작 전원 → C, A → 경보등 → N', 'Fault alarm: control supply → C, A → alarm lamp → N'),
+        ],
+        tr('운전 입력이 닫히면 가속 시간만큼 주파수가 오르고 (타임차트의 Hz 선이 기울기로), 열리면 감속해서 멈춥니다. 방향을 바꾸면 먼저 0 Hz 까지 감속한 뒤 반대로 돕니다. 시뮬레이션 중 인버터를 누르면 고장 (트립) 이 나서 출력이 끊기고 A-C 가 닫힙니다. 아날로그 속도 입력 (10 · 2 · 5 단자, 볼륨) 과 전류 해석은 아직 하지 않습니다.', 'Closing a run input ramps the frequency up over the accel time (a slope in the chart) and opening it ramps down; reversing stops first. Click the inverter while simulating to trip it. Analog speed input (terminals 10/2/5, potentiometer) and current analysis are not simulated yet.'),
+        'vfd-fwd-rev',
+      );
+    case 'r_imp':
+    case 'imp':
+      return g(
+        tr('임펄스 릴레이 (래칭 릴레이 · 텔레럽터) 입니다. 코일에 짧은 펄스 (푸시버튼 한 번) 가 들어올 때마다 접점이 켜짐 ↔ 꺼짐으로 바뀌고, 버튼을 떼도 · 전원이 끊겨도 그대로 있습니다. 계단 · 복도처럼 여러 곳의 푸시버튼으로 한 전등을 켜고 끌 때 씁니다 (3로 스위치 배선보다 간단).', 'An impulse (latching) relay: every pulse on its coil (one button press) flips its contacts on ↔ off, and they stay there after release or power loss. Used to switch one light from many push buttons (simpler than 3-way switching).'),
+        type === 'imp'
+          ? [[tr('A1 · A2 (코일)', 'A1, A2 (coil)'), tr('기호가 같은 a · b 접점이 누를 때마다 바뀝니다', 'contacts with the same tag flip on each pulse')]]
+          : [
+              ['A1 · A2', tr('코일 (AC 220V): 푸시버튼 (a접점) 을 여러 개 나란히 거쳐서', 'coil (AC 220V), through push buttons (NO) in parallel')],
+              ['13 → 14', tr('a접점: 켜짐일 때 닫힘 → 전등', 'NO: closed when on → light')],
+              ['21 → 22', tr('b접점: 꺼짐일 때 닫힘', 'NC: closed when off')],
+            ],
+        [
+          tr('L → 차단기 → 푸시버튼 (a접점) 들을 나란히 → A1, A2 → N', 'L → breaker → push buttons (NO) in parallel → A1, A2 → N'),
+          tr('L → 13, 14 → 전등 → N (전등 전류가 크면 접점 정격 · 16 A 확인)', 'L → 13, 14 → light → N (check the contact rating for big loads)'),
+          tr('푸시버튼은 누르는 동안만 닫히는 a접점 (토글 스위치를 쓰면 한 번 바뀐 뒤 코일에 계속 전압이 걸려 코일이 탈 수 있음)', 'Use momentary push buttons; a maintained switch keeps the coil energised'),
+        ],
+        tr('조작 순서에서 버튼을 누를 때마다 (누름 → 뗌) 접점이 바뀝니다. 타임차트에 코일 (펄스) 과 접점 (래치) 이 따로 나옵니다.', 'Each press in the operation sequence flips the contacts; the chart shows the coil pulses and the latched contacts separately.'),
+        'stair-impulse',
+      );
     case 'r_sk':
     case 'sk':
       return g(

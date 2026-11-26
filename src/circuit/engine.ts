@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { ALWAYS_ON, counterPreset, hmiTag, isLinkedSensor, isPlcPart, isTempCtrl, isTempDevice, pidSetting, rtdElements, rtdInputPins, tempSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, REAL, RPLC, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
+import { ALWAYS_ON, counterPreset, hmiTag, isLinkedSensor, isPlcPart, isTempCtrl, isTempDevice, pidSetting, rtdElements, rtdInputPins, tempSetting, vfdSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, REAL, RPLC, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import { poleLive } from './supply';
 import type { PlcConfig, SimSettings } from '../plc/types';
@@ -189,7 +189,7 @@ export interface HmiButton {
   toggle: boolean;
 }
 
-export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut' | 'leak' | 'earthA';
+export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'impOut' | 'vfdHz' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut' | 'leak' | 'earthA';
 
 export interface Track {
   key: string;
@@ -252,6 +252,10 @@ export class CircuitModel {
   readonly smpsList: { part: Part; inL: number; inN: number; outP: number; outM: number }[] = [];
   /** 3상 변압기: 1차 (H1 H2 H3) 에 특고압 세 상이 다 닿으면 2차 (X1 X2 X3 = L1 L2 L3, X0 = N) 가 전원이 된다 */
   readonly trList: { part: Part; h: number[]; x: number[]; x0: number }[] = [];
+  /** 인버터: 전원 R S T, 출력 U V W, 입력 STF STR RH RM RL 과 공통 SD (단자 넷) */
+  readonly vfdList: { part: Part; tag: string; rst: number[]; uvw: number[]; ins: number[]; sd: number }[] = [];
+  /** 임펄스 (래칭) 릴레이 기호: 코일 펄스마다 접점이 바뀌어 유지된다 */
+  readonly impTags = new Set<string>();
   /** 공압: 공압원 넷, 늘 통하는 쌍(FRL·속도 제어), 속도 제어, 밸브, 실린더 포트 */
   readonly airNets = new Set<number>();
   readonly airSrc: number[] = [];
@@ -303,10 +307,11 @@ export class CircuitModel {
       } else if (p.type === 'r_tsw') {
         setKind(tag, 'tsw', p);
         if (!this.tswDef.has(tag)) this.tswDef.set(tag, { part: p, l: this.net.pinNet.get(`${p.id}:0`)!, n: this.net.pinNet.get(`${p.id}:1`)!, sched: tswSched(p) });
-      } else if (p.type === 'coil' || def.selfCoil) {
+      } else if (p.type === 'coil' || p.type === 'imp' || def.selfCoil) {
         setKind(tag, 'coil', p);
         push(this.coilParts, tag, p.id);
-      } else if (p.type === 'ol3' || p.type === 'r_thr') setKind(tag, 'thr', p);
+        if (p.type === 'imp' || p.type === 'r_imp') this.impTags.add(tag);
+      } else if (p.type === 'ol3' || p.type === 'r_thr' || p.type === 'r_vfd') setKind(tag, 'thr', p);
       else if (isLinkedSensor(p)) {
         setKind(tag, 'sensor', p);
         if (!this.sensorDef.has(tag)) this.sensorDef.set(tag, { cyl: normTag(p.cyl!), end: p.end ?? '+' });
@@ -353,6 +358,10 @@ export class CircuitModel {
       if (p.type === 'r_tr3') {
         const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
         this.trList.push({ part: p, h: [pn(0), pn(1), pn(2)], x: [pn(3), pn(4), pn(5)], x0: pn(6) });
+      }
+      if (p.type === 'r_vfd') {
+        const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
+        this.vfdList.push({ part: p, tag, rst: [pn(0), pn(1), pn(2)], uvw: [pn(7), pn(8), pn(9)], ins: [10, 11, 12, 13, 14].map(pn), sd: pn(15) });
       }
       const pin = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
       partPins(p).forEach((pd, i) => pd.air && this.airNets.add(pin(i)));
@@ -531,6 +540,10 @@ export class CircuitSim {
   netPole: (string | null)[] = [];
   readonly energized = new Set<string>();
   readonly motorDir = new Map<string, 1 | -1>();
+  /** 인버터 출력 주파수: since 시각의 값 pv 에서 rate (Hz/ms) 로 target 까지, 방향 dir (1 정 · -1 역 · 0 정지) */
+  readonly vfd = new Map<string, { pv: number; since: number; rate: number; target: number; dir: 1 | -1 | 0 }>();
+  /** 임펄스 릴레이의 접점 상태 (코일이 붙는 순간마다 뒤집힘, 전원이 끊겨도 유지) */
+  readonly latch = new Map<string, boolean>();
   readonly openPhase = new Set<string>();
   shorted = false;
   readonly plcIn = new Map<string, boolean[]>();
@@ -572,6 +585,7 @@ export class CircuitSim {
   constructor(readonly m: CircuitModel) {
     for (const [tag, k] of m.tagKind) if (k === 'operator' || k === 'thr') this.act.set(tag, m.operatorDefault.get(tag) ?? false);
     for (const tag of m.coilParts.keys()) this.coilOn.set(tag, false);
+    for (const v of m.vfdList) this.vfd.set(v.part.id, { pv: 0, since: 0, rate: 0, target: 0, dir: 0 });
     for (const tag of m.timerParts.keys()) this.timers.set(tag, { coil: false, out: false, since: 0 });
     for (const [tag, d] of m.tswDef) this.tsw.set(tag, { dial: this.clock0, out: schedOn(d.sched, this.clock0), run: false });
     // 3단 셀렉터: 그림에 둔 자리 (pos0) 에서 시작
@@ -703,7 +717,7 @@ export class CircuitSim {
   on(tag: string): boolean {
     switch (this.m.tagKind.get(tag)) {
       case 'coil':
-        return this.coilOn.get(tag) ?? false;
+        return this.m.impTags.has(tag) ? (this.latch.get(tag) ?? false) : (this.coilOn.get(tag) ?? false);
       case 'timer':
         return this.timers.get(tag)?.out ?? false;
       case 'tsw':
@@ -1007,6 +1021,13 @@ export class CircuitSim {
       ['L1', 'L2', 'L3'].forEach((id, k) => poleLive(this.m.circuit, id) && sources.push({ net: t.x[k], id }));
       if (poleLive(this.m.circuit, 'N')) sources.push({ net: t.x0, id: 'N' });
     }
+    // 인버터가 돌고 있으면 출력 U V W 가 3상 (역회전은 V · W 가 바뀜). 입력이 단상이어도 출력은 3상
+    for (const v of this.m.vfdList) {
+      const st = this.vfd.get(v.part.id)!;
+      if (!this.vfdRunning(v.part.id)) continue;
+      const ph = st.dir > 0 ? ['L1', 'L2', 'L3'] : ['L1', 'L3', 'L2'];
+      v.uvw.forEach((net, k) => sources.push({ net, id: ph[k] }));
+    }
     const join = (a: number, b: number) => {
       const ra = find(a);
       const rb = find(b);
@@ -1151,13 +1172,42 @@ export class CircuitSim {
     else if (def.preset <= 0) st.out = false;
   }
 
+  /** 인버터 출력 주파수 (Hz) 지금 */
+  vfdHz(id: string): number {
+    const s = this.vfd.get(id);
+    if (!s) return 0;
+    if (!s.rate) return s.pv;
+    const v = s.pv + s.rate * (this.t - s.since);
+    return s.rate > 0 ? Math.min(s.target, v) : Math.max(s.target, v);
+  }
+
+  /** 인버터가 출력을 내는가 (방향이 있고 주파수가 0 보다 크거나 오르는 중) */
+  vfdRunning(id: string): boolean {
+    const s = this.vfd.get(id);
+    return !!s && s.dir !== 0 && (this.vfdHz(id) > 1e-9 || s.rate > 0);
+  }
+
+  /** 그림에 쓸 인버터 상태 */
+  vfdView(id: string): { hz: number; dir: 1 | -1 | 0; run: boolean; trip: boolean; powered: boolean } | null {
+    const v = this.m.vfdList.find((x) => x.part.id === id);
+    const s = this.vfd.get(id);
+    if (!v || !s) return null;
+    return { hz: Math.round(this.vfdHz(id) * 10) / 10, dir: s.dir, run: this.vfdRunning(id), trip: !!this.act.get(v.tag), powered: !!this.powered.get(id) };
+  }
+
+  /** 코일 상태를 바꾼다. 임펄스 릴레이는 붙는 순간마다 접점을 뒤집는다 */
+  private setCoil(tag: string, want: boolean): void {
+    if (want && !this.coilOn.get(tag) && this.m.impTags.has(tag)) this.latch.set(tag, !this.latch.get(tag));
+    this.coilOn.set(tag, want);
+  }
+
   private stepOnce(): boolean {
     for (const [tag, ids] of this.m.coilParts) {
       const want = ids.some((id) => this.energized.has(id));
       const cur = this.coilOn.get(tag) ?? false;
       if (this.delayed(`c:${tag}`, want, cur)) continue;
       if (want !== cur) {
-        this.coilOn.set(tag, want);
+        this.setCoil(tag, want);
         return true;
       }
     }
@@ -1269,6 +1319,49 @@ export class CircuitSim {
       const want = ph.every((x) => x === 'H1' || x === 'H2' || x === 'H3') && new Set(ph).size === 3;
       if (want !== (this.powered.get(t.part.id) ?? false)) {
         this.powered.set(t.part.id, want);
+        return true;
+      }
+    }
+    // 인버터: 전원 (R S T 세 상, 단상은 R S) · 고장 · 운전 입력 (STF / STR 이 SD 와 이어짐) 으로 목표 주파수와 방향을 정하고 가 · 감속
+    for (const v of this.m.vfdList) {
+      const id = v.part.id;
+      const ph = v.rst.map((n) => this.netPole[n]);
+      const pw = v.part.ph1 ? powerBetween(ph[0], ph[1]) : ph.every((x) => x === 'L1' || x === 'L2' || x === 'L3') && new Set(ph).size === 3;
+      if (pw !== (this.powered.get(id) ?? false)) {
+        this.powered.set(id, pw);
+        return true;
+      }
+      const st = this.vfd.get(id)!;
+      const f = this.vfdHz(id);
+      const trip = !!this.act.get(v.tag);
+      // 전원이 끊기거나 고장이면 출력을 바로 끊는다 (전동기는 관성으로 멈춤)
+      if (!pw || trip) {
+        if (st.dir !== 0 || f > 1e-9 || st.rate) {
+          // 차트에 수직으로 떨어지게 바로 앞 (0.001 ms) 에 지금 주파수를 찍어 둔다
+          const tr = this.tracks.find((x) => x.key === `hz:${v.tag}`);
+          const t0 = Math.round((this.t - 0.001) * 1000) / 1000;
+          if (tr && f > 1e-9 && t0 > (tr.points[tr.points.length - 1]?.t ?? 0)) tr.points.push({ t: t0, v: Math.round(f * 10) / 10 });
+          Object.assign(st, { pv: 0, since: this.t, rate: 0, target: 0, dir: 0 });
+          return true;
+        }
+        continue;
+      }
+      const on = (n: number) => this.root[n] === this.root[v.sd];
+      const [stf, str, rh, rm, rl] = v.ins.map(on);
+      const cmd: 1 | -1 | 0 = stf && !str ? 1 : str && !stf ? -1 : 0;
+      const s = vfdSetting(v.part);
+      const preset = rh ? s.hzH : rm ? s.hzM : rl ? s.hzL : s.hz;
+      let dir = st.dir;
+      let target = 0;
+      if (f <= 1e-9 && !(st.rate > 0)) {
+        // 멈춰 있으면 바로 새 방향으로
+        dir = cmd;
+        target = cmd ? preset : 0;
+      } else if (cmd !== 0 && cmd === dir) target = preset;
+      // (cmd 가 0 이거나 반대 방향이면 먼저 0 까지 감속)
+      const rate = target > f + 1e-9 ? s.up : target < f - 1e-9 ? -s.down : 0;
+      if (dir !== st.dir || Math.abs(target - st.target) > 1e-9 || Math.sign(rate) !== Math.sign(st.rate)) {
+        Object.assign(st, { pv: f, since: this.t, rate, target, dir });
         return true;
       }
     }
@@ -1438,6 +1531,12 @@ export class CircuitSim {
       if (st.cycleAt !== null) best = Math.min(best, st.cycleAt);
       if (st.offAt !== null) best = Math.min(best, st.offAt);
     }
+    // 인버터: 가 · 감속이 끝나는 시각
+    for (const [id, s] of this.vfd) {
+      if (!s.rate) continue;
+      const f = this.vfdHz(id);
+      best = Math.min(best, this.t + Math.max(0, (s.target - f) / s.rate));
+    }
     for (const [tag, st] of this.timers) {
       const def = this.m.timerDef.get(tag)!;
       if ((def.mode === 'on' && st.coil && !st.out) || (def.mode === 'off' && !st.coil && st.out) || (def.mode === 'flicker' && st.coil && def.preset > 0) || (def.mode === 'interval' && st.coil && st.out)) best = Math.min(best, st.since + timerSpan(def, st.out));
@@ -1474,6 +1573,19 @@ export class CircuitSim {
       else if (st.pos <= 1 - SENSOR_BAND + EPS) st.atPlus = false;
       if (st.pos <= EPS) st.atMinus = true;
       else if (st.pos >= SENSOR_BAND - EPS) st.atMinus = false;
+    }
+    for (const s of this.vfd.values()) {
+      if (!s.rate) {
+        s.since = Math.max(s.since, t2);
+        continue;
+      }
+      const v = s.pv + s.rate * (t2 - s.since);
+      s.pv = s.rate > 0 ? Math.min(s.target, v) : Math.max(s.target, v);
+      s.since = t2;
+      if (Math.abs(s.pv - s.target) < 1e-9) {
+        s.pv = s.target;
+        s.rate = 0;
+      }
     }
     for (const s of this.zones.values()) {
       if (!s.rate) {
@@ -1522,7 +1634,7 @@ export class CircuitSim {
         this.pending.delete(key);
         const tag = key.slice(2);
         if (this.chatterCheck(key)) chatter.push(this.m.label(tag));
-        if (key[0] === 'c') this.coilOn.set(tag, pd.want);
+        if (key[0] === 'c') this.setCoil(tag, pd.want);
         else if (this.timers.get(tag)!.coil !== pd.want) this.setTimerCoil(tag, pd.want);
       }
       if (chatter.length)
@@ -1557,11 +1669,16 @@ export class CircuitSim {
   private buildTracks(): void {
     const m = this.m;
     const add = (key: string, tag: string, kind: TrackKind) => this.tracks.push({ key, tag: m.label(tag), kind, part: m.mainPart.get(tag)!, points: [], last: null });
+    // 인버터 출력 주파수 (아날로그, Hz)
+    for (const v of m.vfdList) this.tracks.push({ key: `hz:${v.tag}`, tag: m.label(v.tag), kind: 'vfdHz', part: v.part, points: [], last: null });
     for (const [tag, k] of m.tagKind) {
       if ((k === 'operator' || k === 'thr') && m.sel3.has(tag)) add(`sel:${tag}`, tag, 'selector');
       else if (k === 'operator' || k === 'thr') add(`op:${tag}`, tag, 'operator');
       else if (k === 'sensor') add(`sen:${tag}`, tag, 'sensor');
-      else if (k === 'coil') add(`coil:${tag}`, tag, 'coil');
+      else if (k === 'coil') {
+        add(`coil:${tag}`, tag, 'coil');
+        if (m.impTags.has(tag)) add(`lr:${tag}`, tag, 'impOut');
+      }
       else if (k === 'timer') {
         add(`tc:${tag}`, tag, 'timerCoil');
         add(`tq:${tag}`, tag, 'timerOut');
@@ -1616,7 +1733,11 @@ export class CircuitSim {
       case 'operator':
       case 'sensor':
       case 'coil':
-        return this.on(tag) ? 1 : 0;
+        return (this.m.impTags.has(tag) ? this.coilOn.get(tag) : this.on(tag)) ? 1 : 0;
+      case 'impOut':
+        return this.latch.get(tag) ? 1 : 0;
+      case 'vfdHz':
+        return Math.round(this.vfdHz(tr.part.id) * 10) / 10;
       case 'timerCoil':
         return this.timers.get(tag)?.coil ? 1 : 0;
       case 'timerOut':
@@ -1670,7 +1791,7 @@ export class CircuitSim {
     for (const tr of this.tracks) {
       const v = this.trackValue(tr);
       // 온도는 값이 같아도 바뀌는 속도가 달라지면 점을 찍는다 (그래야 차트의 선이 그 자리에서 꺾인다)
-      const key = tr.kind === 'tempVal' ? `${v}|${this.zones.get(tr.key.slice(3))?.rate ?? 0}` : v;
+      const key = tr.kind === 'tempVal' ? `${v}|${this.zones.get(tr.key.slice(3))?.rate ?? 0}` : tr.kind === 'vfdHz' ? `${v}|${this.vfd.get(tr.part.id)?.rate ?? 0}` : v;
       if (tr.last !== null && tr.last === key) continue;
       const pt: WavePoint = { t, v };
       if (tr.kind === 'cyl') {

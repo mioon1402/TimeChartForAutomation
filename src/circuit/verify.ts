@@ -67,7 +67,7 @@ const COLOR_NAME: Record<WireColor, [string, string]> = {
 /** 기기에 적힌 정격 전압: 교류 · 직류와 전압 범위 (없으면 null) */
 export function ratedVoltage(p: Part): { kind: 'ac' | 'dc' | 'any'; lo: number; hi: number; text: string } | null {
   // 덮개에 AC 220V 가 적혀 나오는 기기는 사양을 비워도 그 전압으로 본다
-  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_tk4' ? 'AC 100-240V' : p.type === 'r_sk' || p.type === 'sk' ? 'AC 250V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' || p.type === 'r_plc' || p.type === 'r_hmi' ? 'DC 24V' : '';
+  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' || p.type === 'r_imp' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_tk4' ? 'AC 100-240V' : p.type === 'r_sk' || p.type === 'sk' ? 'AC 250V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' || p.type === 'r_plc' || p.type === 'r_hmi' ? 'DC 24V' : '';
   const text = p.spec?.trim() || shown;
   if (text) {
     const m = /(\d+(?:\.\d+)?)\s*(?:[~\-–]\s*(\d+(?:\.\d+)?))?\s*V/i.exec(text);
@@ -103,6 +103,8 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
   // 전원: 전원 단자, SMPS 출력, 변압기 2차
   const sources: { net: number; id: string; real: boolean; derived: boolean }[] = model.sources.map((s) => ({ ...s, real: false, derived: false }));
   for (const s of model.smpsList) sources.push({ net: s.outP, id: '+24V', real: false, derived: true }, { net: s.outM, id: '0V', real: false, derived: true });
+  // 인버터 출력 U V W 는 3상 전원 (돌고 있을 때)
+  for (const v of model.vfdList) ['L1', 'L2', 'L3'].forEach((id, k) => sources.push({ net: v.uvw[k], id, real: false, derived: true }));
   for (const t of model.trList) {
     ['L1', 'L2', 'L3'].forEach((id, k) => poleLive(c, id) && sources.push({ net: t.x[k], id, real: false, derived: true }));
     if (poleLive(c, 'N')) sources.push({ net: t.x0, id: 'N', real: false, derived: true });
@@ -263,6 +265,18 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       if (![a, b].some(wired)) continue;
       const [A, B] = [allPoles(a), allPoles(b)];
       if (B.has('+24V') && A.has('0V') && !A.has('+24V')) out.push({ level: 'error', msg: tr(`${name(p)}: 입력 극성이 반대입니다. 3 에 + (24V), 4 에 0V 를 잇습니다`, `${name(p)}: input polarity is reversed (3 = +, 4 = 0 V)`), partIds: [p.id] });
+    } else if (p.type === 'r_vfd') {
+      // 인버터: 전원은 R S T, 전동기는 U V W (바꾸어 물리면 인버터가 탐), 입력 단자는 무전압 접점만, 접지
+      const v = model.vfdList.find((x) => x.part.id === p.id);
+      if (!v) continue;
+      const onOut = new Set(v.uvw.flatMap((n) => sources.filter((s) => !s.derived && all.find(s.net) === all.find(n)).map((s) => s.id)));
+      if (onOut.size) out.push({ level: 'error', msg: tr(`${name(p)}: 출력 U · V · W 에 전원 (${[...onOut].join(' · ')}) 이 닿습니다. 전원은 R/L1 · S/L2 · T/L3 에, 전동기는 U · V · W 에 잇습니다 (출력에 전원이 들어가면 인버터가 탑니다. 인버터와 전동기 사이 바이패스 접촉기는 인터록 필수)`, `${name(p)}: supply (${[...onOut].join(', ')}) reaches U, V, W; mains go to R/S/T and the motor to U/V/W`), partIds: [p.id] });
+      const hot = new Set([...v.ins, v.sd].flatMap((n) => [...allPoles(n)].filter((id) => live(id) && !onOut.has(id) && !v.uvw.some((u) => all.find(u) === all.find(n)))));
+      if (hot.size) out.push({ level: 'error', msg: tr(`${name(p)}: 입력 단자 (STF · STR · RH · RM · RL · SD) 에 전원 (${[...hot].join(' · ')}) 이 닿습니다. 입력은 인버터 안의 DC 24V 로 도는 무전압 접점 입력이라, 버튼 · 셀렉터 · 릴레이 접점만 입력과 SD 사이에 넣습니다`, `${name(p)}: supply (${[...hot].join(', ')}) reaches the control inputs; use only dry contacts between the inputs and SD`), partIds: [p.id] });
+      const rst = v.rst.map((n) => [...allPoles(n)].filter((id) => id === 'L1' || id === 'L2' || id === 'L3'));
+      const phases = new Set(rst.flat());
+      if (!p.ph1 && v.rst.some(wired) && phases.size < 3) out.push({ level: 'warn', msg: tr(`${name(p)}: R/L1 · S/L2 · T/L3 에 3상이 다 오지 않습니다 (${[...phases].join(' · ') || '없음'}). 단상 입력 기종이면 속성에서 [단상 입력] 을 켜세요`, `${name(p)}: R/S/T do not get all three phases; tick "single-phase input" for a single-phase model`), partIds: [p.id] });
+      if (realCircuit && wired(pinNet(p, 3)) === false) out.push({ level: 'warn', msg: tr(`${name(p)}: 접지 (PE) 가 이어지지 않았습니다. 인버터는 노이즈 필터로 평상시에도 접지로 전류가 새므로 반드시 접지합니다 (전동기 외함도)`, `${name(p)}: PE is not connected; an inverter must be earthed (and the motor frame)`), partIds: [p.id] });
     } else if (p.type === 'sk' || p.type === 'r_sk') {
       // 스파크 킬러 (CR): 교류 코일 양단이 제자리. 접점 양단이면 열려도 새고, 직류는 다이오드, 전원 양단은 늘 흐름
       const [a, b] = [pinNet(p, 0), pinNet(p, 1)];

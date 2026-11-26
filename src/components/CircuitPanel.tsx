@@ -10,7 +10,7 @@ import { BODY_OHM, earthingOf, earthStudy, ZLOOP_TN, type EarthRow } from '../ci
 import { DEFAULT_PRICE, energyUse } from '../circuit/energy';
 import { contactNumbers, parseTerm, termChoices } from '../circuit/contacts';
 import { changeSocketLayout } from '../circuit/socket';
-import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempCtrl, isTempDevice, pidSetting, skLeakMa, skValues, tempSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempCtrl, isTempDevice, pidSetting, skLeakMa, skValues, tempSetting, vfdSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -1078,6 +1078,7 @@ function PropsPane({
           )}
           {(p.type === 'no' || p.type === 'nc') && <ContactTerm p={p} circuit={circuit} model={model} set={set} onCircuit={setCircuit} />}
           {(p.type === 'sk' || p.type === 'r_sk') && <SkProps p={p} set={set} />}
+          {p.type === 'r_vfd' && <VfdProps p={p} set={set} />}
           {(p.type === 'timer' || p.type === 'r_timer8') && (
             <div className="grid2">
               <Field label={tr('동작', 'Mode')}>
@@ -2091,6 +2092,39 @@ function Tips() {
 // ───────────────────────── 조작 순서 ─────────────────────────
 
 /** 온도 기기 속성: 설정 · 히스테리시스 · 경보 · 동작, 온도가 바뀌는 방식 (묶음 · 연결 부하 · 속도) */
+/** 인버터: 기본 · 다단속 주파수, 가 · 감속 시간, 단상 입력 */
+function VfdProps({ p, set }: { p: Part; set: (patch: Partial<Part>) => void }) {
+  const s = vfdSetting(p);
+  const hz = (k: 'hz' | 'hzH' | 'hzM' | 'hzL', label: string, hint: string) => (
+    <Field label={label} hint={hint}>
+      <NumberInput value={s[k]} min={0} max={400} step={5} onChange={(v) => v !== undefined && set({ [k]: Math.max(0, Math.min(400, v)) })} />
+    </Field>
+  );
+  return (
+    <>
+      <div className="grid2">
+        {hz('hz', tr('기본 주파수 (Hz)', 'Base frequency (Hz)'), tr('RH · RM · RL 이 모두 열려 있을 때', 'when RH, RM and RL are all open'))}
+        {hz('hzH', tr('고속 RH (Hz)', 'High RH (Hz)'), tr('RH-SD 가 닫히면', 'RH–SD closed'))}
+        {hz('hzM', tr('중속 RM (Hz)', 'Mid RM (Hz)'), tr('RM-SD 가 닫히면', 'RM–SD closed'))}
+        {hz('hzL', tr('저속 RL (Hz)', 'Low RL (Hz)'), tr('RL-SD 가 닫히면', 'RL–SD closed'))}
+        <Field label={tr('가속 시간 (초)', 'Accel time (s)')} hint={tr('0 → 60 Hz 까지', '0 → 60 Hz')}>
+          <NumberInput value={s.acc} min={0.1} max={3600} step={1} onChange={(v) => v !== undefined && set({ acc: Math.max(0.1, v) })} />
+        </Field>
+        <Field label={tr('감속 시간 (초)', 'Decel time (s)')} hint={tr('60 → 0 Hz 까지', '60 → 0 Hz')}>
+          <NumberInput value={s.dec} min={0.1} max={3600} step={1} onChange={(v) => v !== undefined && set({ dec: Math.max(0.1, v) })} />
+        </Field>
+      </div>
+      <Check checked={!!p.ph1} onChange={(v) => set({ ph1: v || undefined })} label={tr('단상 입력 (R/L1 · S/L2 에 L · N, 출력은 3상)', 'Single-phase input (L/N on R/L1, S/L2; 3-phase output)')} />
+      <p className="small muted">
+        {tr(
+          `전원은 R/L1 · S/L2 · T/L3, 전동기는 U · V · W. STF-SD 가 닫히면 정회전, STR-SD 면 역회전 (둘 다면 정지), 다단속은 RH > RM > RL 차례로 고릅니다. 가속 · 감속 시간만큼 주파수가 천천히 바뀌고 방향을 바꾸면 먼저 멈춘 뒤 반대로 돕니다. 입력은 무전압 접점 (버튼 · 셀렉터 · 릴레이 접점) 만. 시뮬레이션 중 인버터를 누르면 고장 (트립): 출력이 바로 끊기고 A-C 가 닫힙니다 (다시 누르면 리셋). 단자 번호 · 이름은 기종마다 다르니 설명서를 보세요.`,
+          `Mains on R/S/T, motor on U/V/W. STF–SD runs forward, STR–SD reverse (both = stop); RH > RM > RL pick preset speeds. Frequency ramps over the accel/decel times; reversing stops first. Inputs take dry contacts only. Click the inverter while simulating to trip it (output cut, A–C closes); click again to reset. Terminal names vary by model.`,
+        )}
+      </p>
+    </>
+  );
+}
+
 /** 스파크 킬러: 정전 용량 · 저항, 220 V 에서 흐르는 전류 (접점 양단에 달면 이만큼 샌다) */
 function SkProps({ p, set }: { p: Part; set: (patch: Partial<Part>) => void }) {
   const { uf, ohm } = skValues(p);

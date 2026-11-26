@@ -8,6 +8,7 @@ export type PartType =
   | 'src3' // 3상 전원 L1 L2 L3
   | 'fuse'
   | 'sk' // 스파크 킬러 (CR 서지 흡수기) 기호: 코일 양단에
+  | 'imp' // 임펄스 릴레이 (래칭 릴레이) 코일 기호: 누를 때마다 같은 기호의 접점이 바뀌고 그대로 유지
   | 'fuse3'
   | 'mcb' // 배선용 차단기 1P (클릭: ON/OFF)
   | 'mcb3'
@@ -56,6 +57,8 @@ export type PartType =
   | 'r_my2' // 각형 릴레이 2c + 소켓 (MY2N · PYF08A 꼴): 13-14 코일, 9-5 · 12-8 a, 9-1 · 12-4 b
   | 'r_my4' // 각형 릴레이 4c + 소켓 (MY4N · PYF14A 꼴): 13-14 코일, 9~12 공통, 5~8 a, 1~4 b
   | 'r_fuse' // 퓨즈 홀더 1P
+  | 'r_vfd' // 인버터 (VFD): 전원 R/L1 · S/L2 · T/L3, 출력 U · V · W, 무전압 입력 STF · STR · RH · RM · RL (SD 공통), 고장 릴레이 A · B · C
+  | 'r_imp' // 임펄스 릴레이 (래칭, DIN 레일): 코일 A1 · A2 에 펄스가 들어올 때마다 13-14 a · 21-22 b 가 바뀌고 유지
   | 'r_sk' // 스파크 킬러 (CR 서지 흡수기, 리드선 2가닥): 교류 SOL · MC · 릴레이 코일 양단에
   | 'r_smps' // SMPS (실물): L N FG → +V -V
   | 'r_prox' // 근접 · 광전 센서 3선식 (실물): 갈색 +, 검정 출력, 파랑 0V
@@ -226,6 +229,14 @@ export interface Part {
   alarm?: number;
   /** 온도 조절기 제어 출력: heat = 가열 (설정보다 낮으면 OUT), cool = 냉각 (설정 이상이면 OUT) */
   tcMode?: 'heat' | 'cool';
+  /** 인버터: 기본 주파수 (Hz, 다단속 입력이 없을 때) · 다단속 RH · RM · RL (Hz), 가속 · 감속 시간 (s, 0 ↔ 60 Hz), 단상 입력 (R · S) */
+  hz?: number;
+  hzH?: number;
+  hzM?: number;
+  hzL?: number;
+  acc?: number;
+  dec?: number;
+  ph1?: boolean;
   /** 스파크 킬러: 정전 용량 (µF, 없으면 0.1) · 저항 (Ω, 없으면 120) */
   uf?: number;
   ohm?: number;
