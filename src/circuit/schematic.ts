@@ -352,7 +352,7 @@ const UNSUPPORTED: Partial<Record<PartType, string>> = {
   air: tr('공압원', 'air supply'),
 };
 /** 온도 기기의 온도 변화 설정 (묶음 · 연결 부하 · 속도) */
-const TEMP_KEYS = ['zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'rise', 'fall', 'lag'] as const;
+const TEMP_KEYS = ['zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'rise', 'fall', 'lag', 't0'] as const;
 /** 선과 같은 것 (단자대 · 바 · 전류계) */
 const WIRE_LIKE = new Set<PartType>(['r_tb', 'r_nbar', 'r_am']);
 

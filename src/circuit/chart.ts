@@ -273,7 +273,7 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     const p = normalize(
       tr.points.filter((q) => q.t <= until + 1e-9),
       'analog',
-      z.amb,
+      z.t0,
     );
     const defs = [...res.model.tempDef].filter(([, d]) => d.zone === zone);
     const vs = [...p.map((q) => Number(q.v)), ...defs.map(([, d]) => d.sv)];

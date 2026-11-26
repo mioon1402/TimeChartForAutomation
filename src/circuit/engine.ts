@@ -102,6 +102,8 @@ export interface TempZone {
   fall: number;
   load: string;
   loadCool: boolean;
+  /** 처음 온도 (없으면 amb) */
+  t0: number;
   /** 지연 시간 (ms): 부하를 켜고 끈 효과가 이만큼 늦게 온도에 나타난다 */
   lag: number;
 }
@@ -449,6 +451,7 @@ export class CircuitModel {
         fall: Math.max(0.001, (first('fall') as number | undefined) ?? 0.5),
         load: normTag(owner.tLoad ?? ''),
         loadCool: !!owner.tLoadCool,
+        t0: (first('t0') as number | undefined) ?? amb,
         lag: Math.min(3600, Math.max(0, (first('lag') as number | undefined) ?? 0)) * 1000,
       });
     }
@@ -643,7 +646,7 @@ export class CircuitSim {
     }
     for (const tag of m.counterDef.keys()) this.counters.set(tag, { n: 0, out: false, cp: false, rst: false });
     // heat = 지금 온도에 나타나는 가열 여부, cmd = 부하가 지금 하는 것 (지연 시간이 있으면 queue 로 늦게 heat 이 된다)
-    for (const [z, d] of m.tempZones) this.zones.set(z, { pv: d.amb, since: 0, rate: 0, goal: d.amb, forced: false, heat: d.loadCool, cmd: d.loadCool, queue: [] });
+    for (const [z, d] of m.tempZones) this.zones.set(z, { pv: d.t0, since: 0, rate: 0, goal: d.t0, forced: false, heat: d.loadCool, cmd: d.loadCool, queue: [] });
     for (const [tag, d] of m.tankDef) this.tanks.set(tag, { pv: d.lv0, since: 0, rate: 0, goal: d.lv0, forced: false });
     for (const tag of m.flrDef.keys()) this.flr.set(tag, false);
     for (const tag of m.tempDef.keys()) this.temps.set(tag, { hot: false, alHot: false, out: false, al: false, pidOn: false, cycleAt: null, offAt: null, integ: 0, lastPv: null, mv: 0 });
@@ -942,8 +945,18 @@ export class CircuitSim {
   private retarget(): void {
     this.retargetTanks();
     for (const [z, s] of this.zones) {
-      if (s.forced) continue;
       const d = this.m.tempZones.get(z)!;
+      // 가열 부하가 켜졌거나, 식히는 부하 (팬) 가 꺼졌으면 최고 온도 쪽으로. 지연 시간이 있으면 그만큼 늦게
+      // (조작 순서로 온도를 바꾸는 중에도 부하가 켜고 꺼진 것은 기록해 둔다)
+      if (d.load) {
+        const want = this.loadOn(d.load) !== d.loadCool;
+        if (want !== s.cmd) {
+          s.cmd = want;
+          if (d.lag > 0) s.queue.push({ at: this.t + d.lag, heat: want });
+        }
+        if (d.lag <= 0) s.heat = want;
+      }
+      if (s.forced) continue;
       s.pv = this.zoneTemp(z);
       s.since = this.t;
       if (!d.load) {
@@ -951,13 +964,6 @@ export class CircuitSim {
         s.goal = s.pv;
         continue;
       }
-      // 가열 부하가 켜졌거나, 식히는 부하 (팬) 가 꺼졌으면 최고 온도 쪽으로. 지연 시간이 있으면 그만큼 늦게
-      const want = this.loadOn(d.load) !== d.loadCool;
-      if (want !== s.cmd) {
-        s.cmd = want;
-        if (d.lag > 0) s.queue.push({ at: this.t + d.lag, heat: want });
-      }
-      if (d.lag <= 0) s.heat = want;
       const heating = s.heat;
       s.goal = heating ? d.tmax : d.amb;
       s.rate = s.pv < s.goal - 1e-6 ? d.rise / 1000 : s.pv > s.goal + 1e-6 ? -d.fall / 1000 : 0;

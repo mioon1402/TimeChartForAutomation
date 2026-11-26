@@ -81,7 +81,7 @@ const ROW: Partial<Record<PartType, number>> = {
 const PNEUMATIC = new Set<PartType>(['cyl', 'v32', 'v52', 'v52d', 'v53', 'air', 'frl', 'fc']);
 /** 그림만 있는 것 (배선에 들지 않음) */
 const DRAWING = new Set<PartType>(['text', 'r_panel', 'r_duct', 'r_rail']);
-const TEMP_KEYS = ['sv', 'hys', 'zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'rise', 'fall', 'lag'] as const;
+const TEMP_KEYS = ['sv', 'hys', 'zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'rise', 'fall', 'lag', 't0'] as const;
 
 const relBox = (p: Part) => partBox({ ...p, x: 0, y: 0 });
 
