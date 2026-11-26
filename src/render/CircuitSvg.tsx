@@ -5,7 +5,7 @@ import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
 import { contactNumbers, parseTerm } from '../circuit/contacts';
 import { planGroups } from '../circuit/plan';
-import { DiodeGlyph, FlrGlyph, TankGlyph, ImpGlyph, SkGlyph, VfdGlyph, BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { DiodeGlyph, FlrGlyph, TankGlyph, MpcbGlyph, TowerGlyph, Motor2sGlyph, Motor1Glyph, ImpGlyph, SkGlyph, VfdGlyph, BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
@@ -69,8 +69,10 @@ export interface PartState {
   amp?: number;
   /** 전압계: 두 단자 사이 전압 (V) */
   volt?: number;
-  /** 6단자 전동기의 결선 (Y · Δ) */
-  mode?: 'Y' | 'D';
+  /** 6단자 전동기의 결선 (Y · Δ), 2단 속도 전동기의 속도 (L 저속 · H 고속) */
+  mode?: 'Y' | 'D' | 'L' | 'H';
+  /** 경광등: 단마다 켜졌나 (R · Y · G · BZ) */
+  tower?: boolean[];
   /** 3단 셀렉터 자리 (-1 왼쪽, 0 가운데, 1 오른쪽) */
   sel?: -1 | 0 | 1;
   /** 8핀 온도 조절기: 측온저항체가 이어지지 않음 (oPEn) */
@@ -101,6 +103,7 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
   if (p.type === 'r_imp' && sim) st.latch = sim.on(tagKey(p));
   if (p.type === 'r_vfd' && sim) st.vfd = sim.vfdView(p.id);
   if (p.type === 'r_tank' && sim) st.level = sim.tankLevel(tagKey(p));
+  if (p.type === 'r_tower' && sim) st.tower = sim.towerOn.get(p.id);
   return st;
 }
 
@@ -367,6 +370,14 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <FlrGlyph p={p} st={st} c={c} />;
     case 'r_tank':
       return <TankGlyph p={p} st={st} c={c} />;
+    case 'r_mpcb':
+      return <MpcbGlyph p={p} st={st} c={c} />;
+    case 'r_tower':
+      return <TowerGlyph p={p} st={st} c={c} />;
+    case 'r_motor2s':
+      return <Motor2sGlyph p={p} st={st} c={c} />;
+    case 'r_motor1':
+      return <Motor1Glyph p={p} st={st} c={c} />;
     case 'fuse3':
       return (
         <g>

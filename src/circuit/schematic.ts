@@ -323,7 +323,7 @@ function order(x: Expr, operators: Set<string>): Expr {
 
 // ───────────────────────── 기호 고르기 ─────────────────────────
 
-const MAIN_PART = new Set<PartType>(['r_mcb3', 'r_mcb4', 'r_mc', 'r_thr', 'mcb3', 'km3', 'ol3', 'fuse3']);
+const MAIN_PART = new Set<PartType>(['r_mcb3', 'r_mcb4', 'r_mpcb', 'r_mc', 'r_thr', 'mcb3', 'km3', 'ol3', 'fuse3']);
 const THREE_LOAD = new Set<PartType>(['r_motor3', 'r_motor6', 'r_load3', 'motor3']);
 /** 회로도로 바꾸지 않는 기기 */
 const UNSUPPORTED: Partial<Record<PartType, string>> = {
@@ -339,6 +339,9 @@ const UNSUPPORTED: Partial<Record<PartType, string>> = {
   r_diode: tr('다이오드', 'diode'),
   r_flr: tr('플로트리스 릴레이', 'floatless relay'),
   r_tank: tr('수조 전극봉', 'tank electrodes'),
+  r_tower: tr('경광등', 'signal tower'),
+  r_motor2s: tr('2단 속도 전동기', 'two-speed motor'),
+  r_motor1: tr('단상 가역 모터', 'single-phase reversible motor'),
   r_tk4: tr('PID 온도 조절기', 'PID temperature controller'),
   r_rtd2: tr('측온저항체', 'RTD sensor'),
   r_rtd: tr('측온저항체', 'RTD sensor'),
@@ -397,6 +400,9 @@ function contactSym(k: Conductor): Sym | null {
       return { type: 'mcb', tag, extra: keep('elb', 'idn', 'amps', 'spec') };
     case 'r_fuse':
       return { type: 'fuse', tag, extra: {} };
+    case 'r_mpcb':
+      // 주접점은 차단기, 보조 13-14 · 21-22 는 같은 기호의 a · b 접점
+      return idx < 3 ? { type: 'mcb', tag, extra: keep('amps', 'spec') } : { type: nc ? 'nc' : 'no', tag, extra: {} };
     case 'r_mc':
     case 'r_thr':
     case 'r_relay8':
@@ -806,7 +812,7 @@ function drawMain(m: CircuitModel, node: (n: number) => number, srcPoles: Map<nu
   const devs: Dev[] = [];
   const byPart = new Map<string, typeof mainPoles>();
   for (const q of mainPoles) byPart.set(q.part.id, [...(byPart.get(q.part.id) ?? []), q]);
-  const symOf: Partial<Record<PartType, PartType>> = { r_mcb3: 'mcb3', r_mcb4: 'mcb3', mcb3: 'mcb3', r_mc: 'km3', km3: 'km3', r_thr: 'ol3', ol3: 'ol3', fuse3: 'fuse3' };
+  const symOf: Partial<Record<PartType, PartType>> = { r_mcb3: 'mcb3', r_mcb4: 'mcb3', r_mpcb: 'mcb3', mcb3: 'mcb3', r_mc: 'km3', km3: 'km3', r_thr: 'ol3', ol3: 'ol3', fuse3: 'fuse3' };
   for (const [, qs] of byPart) {
     const p = qs[0].part;
     if (qs.length !== 3) {

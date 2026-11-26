@@ -1198,6 +1198,165 @@ export function TankGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColo
   );
 }
 
+/** 모터 보호 차단기 (MMS · GV2 꼴): 가운데 돌리는 손잡이 (ON = 초록 I, 트립 · OFF = 빨강 O), 설정 전류 눈금, 옆에 보조 접점 블록 (13-14 a · 21-22 b) */
+export function MpcbGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const on = st.act;
+  return (
+    <g>
+      <rect x={-62} y={-100} width={124} height={200} rx={6} fill={BODY} stroke={BODY_EDGE} />
+      <rect x={-62} y={-100} width={124} height={40} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={-62} y={60} width={124} height={40} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={66} y={-100} width={72} height={200} rx={6} fill="#d1d5db" stroke={BODY_EDGE} />
+      {[-40, 0, 40].map((x, i) => (
+        <g key={x}>
+          <Screw x={x} y={-80} />
+          <Screw x={x} y={80} />
+          <Label x={x} y={-64} text={String(2 * i + 1)} size={7.5} weight={800} fill="#475569" />
+          <Label x={x} y={72} text={String(2 * i + 2)} size={7.5} weight={800} fill="#475569" />
+        </g>
+      ))}
+      {[
+        [80, '13', '14'],
+        [120, '21', '22'],
+      ].map(([x, a, b]) => (
+        <g key={a as string}>
+          <Screw x={x as number} y={-80} ring="grey" />
+          <Screw x={x as number} y={80} ring="grey" />
+          <Label x={x as number} y={-64} text={a as string} size={7.5} weight={800} fill="#475569" />
+          <Label x={x as number} y={72} text={b as string} size={7.5} weight={800} fill="#475569" />
+        </g>
+      ))}
+      <Label x={100} y={-30} text="AUX" size={7} weight={800} fill="#64748b" />
+      <Label x={100} y={-16} text="1a1b" size={7} fill="#64748b" />
+      <circle cy={-4} r={30} fill="#1f2937" stroke="#111827" />
+      <g transform={`rotate(${on ? 0 : -90})`}>
+        <rect x={-6} y={-30} width={12} height={52} rx={4} fill={on ? '#16a34a' : '#dc2626'} />
+      </g>
+      <Label x={-40} y={-38} text="O" size={9} weight={800} fill="#dc2626" />
+      <Label x={0} y={-40} text="I" size={9} weight={800} fill="#16a34a" />
+      <rect x={-34} y={32} width={68} height={18} rx={3} fill="#f8fafc" stroke="#94a3b8" />
+      <Label x={0} y={45} text={p.amps ? `${p.amps} A` : 'Ir'} size={9} weight={800} fill="#1d4ed8" />
+      {st.amp !== undefined && st.amp > 0.05 && <Label x={-66} y={4} text={`${st.amp.toFixed(1)} A`} anchor="end" size={10.5} weight={800} fill={p.amps && st.amp > p.amps ? '#dc2626' : '#2563eb'} />}
+      <Label x={144} y={-84} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={144} lines={[p.name, on ? 'ON' : tr('트립 · OFF', 'TRIP / OFF')]} c={c} />
+    </g>
+  );
+}
+
+/** 경광등 (타워 램프): 위에서 부저 · 적 · 황 · 녹, 아래 단자 COM · R · Y · G · BZ. 켜진 단은 밝게 */
+export function TowerGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const on = st.tower ?? [false, false, false, false];
+  const tiers: [string, number][] = [
+    ['#ef4444', 0],
+    ['#f59e0b', 1],
+    ['#22c55e', 2],
+  ];
+  return (
+    <g>
+      <rect x={-22} y={-196} width={44} height={22} rx={6} fill="#374151" stroke="#111827" />
+      {on[3] &&
+        [0, 1, 2].map((k) => <path key={k} d={`M${28 + 8 * k},${-196 + 4 * k}q8,10 0,20`} stroke="#f59e0b" strokeWidth={2} fill="none" />)}
+      {tiers.map(([col, k]) => (
+        <g key={k}>
+          {on[k] && <rect x={-40} y={-176 + 58 * k} width={80} height={58} rx={12} fill={col} opacity={0.3} />}
+          <rect x={-28} y={-172 + 58 * k} width={56} height={52} rx={6} fill={col} opacity={on[k] ? 1 : 0.32} stroke="#00000033" />
+          <ellipse cx={-12} cy={-158 + 58 * k} rx={6} ry={10} fill="#fff" opacity={0.35} />
+        </g>
+      ))}
+      <rect x={-12} y={2} width={24} height={70} fill="#9ca3af" stroke="#6b7280" />
+      <rect x={-96} y={72} width={192} height={60} rx={5} fill="#111827" stroke="#6b7280" />
+      {['COM', 'R', 'Y', 'G', 'BZ'].map((t, k) => (
+        <g key={t}>
+          <Label x={-80 + 40 * k} y={92} text={t} fill="#f9fafb" size={7.5} weight={700} />
+          <Screw x={-80 + 40 * k} y={120} />
+        </g>
+      ))}
+      <Label x={40} y={-184} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={40} lines={[p.name, p.spec?.trim() || 'DC 24V']} c={c} />
+    </g>
+  );
+}
+
+/** 2단 속도 전동기 (다알란더): 1U 1V 1W (저속) · 2U 2V 2W (고속) 단자, 돌 때 팬이 돌고 저속 · 고속 표시 */
+export function Motor2sGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const spin = st.dir !== 0;
+  const rows: [number, string[]][] = [
+    [-80, ['1U', '1V', '1W']],
+    [80, ['2U', '2V', '2W']],
+  ];
+  return (
+    <g>
+      <rect x={-112} y={-40} width={170} height={80} rx={20} fill="#9ca3af" stroke="#6b7280" />
+      {[-92, -76, -60, -44, 28, 44].map((x) => (
+        <path key={x} d={`M${x},-34V34`} stroke="#6b7280" strokeWidth={2} />
+      ))}
+      <rect x={-34} y={-30} width={52} height={60} rx={3} fill="#111827" />
+      <Label x={-8} y={-8} text={p.tag || 'M'} fill="#f9fafb" size={10} weight={800} />
+      <Label x={-8} y={5} text={tr('2단 속도', '2-speed')} fill="#d1d5db" size={7.5} />
+      <Label x={-8} y={19} text={st.mode === 'L' ? tr('저속', 'LOW') : st.mode === 'H' ? tr('고속', 'HIGH') : '—'} fill={st.mode ? '#fde047' : '#6b7280'} size={10} weight={800} />
+      <rect x={-126} y={-4} width={16} height={8} fill="#6b7280" />
+      <g transform="translate(-126,0)">
+        <g className={spin ? `cc-spin ${st.dir < 0 ? 'rev' : ''}` : undefined}>
+          {[0, 120, 240].map((d) => (
+            <path key={d} d="M0,0C-6,-26 10,-34 14,-30C10,-18 6,-8 0,0Z" fill="#facc15" stroke="#ca8a04" transform={`rotate(${d})`} />
+          ))}
+          <circle r={5} fill="#6b7280" />
+        </g>
+      </g>
+      {rows.map(([y, labels]) =>
+        labels.map((l, k) => (
+          <g key={l}>
+            <path d={`M${-40 + 40 * k},${y}V${y < 0 ? -40 : 40}`} stroke="#6b7280" strokeWidth={4} />
+            <Screw x={-40 + 40 * k} y={y} />
+            <Label x={-40 + 40 * k + 11} y={y + (y < 0 ? -6 : 14)} text={l} anchor="start" size={8.5} weight={800} />
+          </g>
+        )),
+      )}
+      <path d="M58,0H92" stroke="#6b7280" strokeWidth={3} />
+      <Screw x={100} y={0} ring="green" />
+      <Label x={100} y={-12} text="PE" size={8} weight={800} fill="#15803d" />
+      {p.name && <Label x={64} y={-30} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/** 단상 가역 모터 (인덕션 기어드 모터): 단자함 C · A · B (콘덴서는 A-B 사이), 감속기, PE. 돌 때 축 표시가 돈다 */
+export function Motor1Glyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const spin = st.dir !== 0;
+  return (
+    <g>
+      <rect x={-70} y={-30} width={100} height={64} rx={14} fill="#9ca3af" stroke="#6b7280" />
+      {[-56, -44, -32].map((x) => (
+        <path key={x} d={`M${x},-24V28`} stroke="#6b7280" strokeWidth={2} />
+      ))}
+      <rect x={30} y={-24} width={40} height={52} rx={4} fill="#6b7280" stroke="#4b5563" />
+      <circle cx={84} cy={2} r={9} fill="#374151" />
+      <g transform="translate(84,2)">
+        <g className={spin ? `cc-spin ${st.dir < 0 ? 'rev' : ''}` : undefined}>
+          <rect x={-2} y={-9} width={4} height={18} fill="#facc15" />
+        </g>
+      </g>
+      <rect x={-54} y={-76} width={108} height={32} rx={4} fill="#111827" stroke="#6b7280" />
+      {['C', 'A', 'B'].map((t, k) => (
+        <g key={t}>
+          <path d={`M${-40 + 40 * k},-44V-30`} stroke="#6b7280" strokeWidth={3} />
+          <Screw x={-40 + 40 * k} y={-60} />
+          <Label x={-40 + 40 * k + 11} y={-66} text={t} anchor="start" size={8} weight={800} fill="#f9fafb" />
+        </g>
+      ))}
+      <path d="M0,-50H40" stroke="#facc15" strokeWidth={1.4} strokeDasharray="3 2" />
+      <Label x={20} y={-38} text="C" size={6.5} fill="#facc15" />
+      <path d="M30,20H80" stroke="#6b7280" strokeWidth={3} />
+      <Screw x={80} y={20} ring="green" />
+      <Label x={80} y={36} text="PE" size={8} weight={800} fill="#15803d" />
+      <Label x={-20} y={6} text={p.tag || 'M'} fill="#111827" size={10} weight={800} />
+      <Label x={-20} y={20} text="1φ" fill="#374151" size={8} />
+      <Label x={60} y={-66} text={p.name ?? ''} anchor="start" size={9} weight={500} fill={c.muted} />
+      {spin && <Label x={-74} y={-36} text={st.dir > 0 ? 'FWD' : 'REV'} anchor="end" fill={c.accent} size={10} weight={800} />}
+    </g>
+  );
+}
+
 export function FuseGlyph({ p, st }: { p: Part; st: PartState }) {
   return (
     <g>

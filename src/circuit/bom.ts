@@ -76,6 +76,10 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_fuse: 0,
   r_sk: 0,
   r_diode: 0,
+  r_mpcb: 0,
+  r_tower: 8,
+  r_motor2s: 9,
+  r_motor1: 9,
   r_flr: 4,
   r_tank: 7,
   r_smps: 1,
@@ -158,7 +162,7 @@ function mainOf(parts: Part[]): Part {
   const rank = (p: Part) =>
     p.type === 'coil' || p.type === 'imp' || p.type === 'r_imp' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw' || p.type === 'r_counter' || p.type === 'r_ssr' || p.type === 'r_tc' || p.type === 'r_thermo' || p.type === 'r_flr'
       ? 0
-      : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'r_vcb'
+      : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'r_vcb' || p.type === 'r_mpcb'
         ? 1
         : OPERATOR.has(p.type) || PARTS[p.type].load
           ? 2
@@ -247,6 +251,14 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       const s = vfdSetting(p);
       return { kind: tr('인버터 (VFD)', 'Inverter (VFD)'), spec: [p.spec?.trim() || (p.ph1 ? tr('단상 220V 입력, 3상 출력', '1-phase 220V in, 3-phase out') : tr('3상 입력', '3-phase input')), tr(`다단속 ${s.hzH} · ${s.hzM} · ${s.hzL} Hz, 가감속 ${s.acc} · ${s.dec} s`, `preset ${s.hzH}/${s.hzM}/${s.hzL} Hz, accel/decel ${s.acc}/${s.dec} s`)].join(', ') };
     }
+    case 'r_mpcb':
+      return { kind: tr('모터 보호 차단기 (MPCB)', 'Motor protection circuit breaker'), spec: [tr(`3P${p.amps ? `, 설정 ${p.amps}A` : ''}`, `3P${p.amps ? `, set ${p.amps}A` : ''}`), tr('보조 접점 1a1b (13-14 · 21-22)', 'aux 1NO1NC (13-14, 21-22)')].join(', ') };
+    case 'r_tower':
+      return { kind: tr('경광등 (타워 램프)', 'Signal tower'), spec: [p.spec?.trim() || 'DC 24V', tr('적 · 황 · 녹 + 부저, 공통 COM', 'red, amber, green + buzzer, common COM')].join(', ') };
+    case 'r_motor2s':
+      return { kind: tr('2단 속도 전동기 (다알란더, 4/2극)', 'Two-speed motor (Dahlander, 4/2-pole)'), spec: p.spec?.trim() || 'AC 380V' };
+    case 'r_motor1':
+      return { kind: tr('단상 가역 모터 (콘덴서 운전)', 'Single-phase reversible motor (capacitor run)'), spec: [p.spec?.trim() || 'AC 220V', tr('콘덴서 포함', 'with capacitor')].join(', ') };
     case 'r_diode':
     case 'diode':
       return { kind: tr('다이오드 (서지 흡수)', 'Diode (surge suppression)'), spec: p.spec?.trim() || tr('1N4007 (1 A · 1000 V)', '1N4007 (1 A, 1000 V)') };
@@ -457,7 +469,7 @@ export function partsList(c: Circuit): BomRow[] {
   for (const [k, parts] of groups) {
     const main = mainOf(parts);
     // 실물 기기는 몸 안의 보조 접점(1a1b)도 센다
-    const inside = parts.reduce((n, p) => n + (p.type === 'r_my4' ? 4 : p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_my2' ? 2 : p.type === 'r_ls' || p.type === 'r_fsw' || p.type === 'r_float' || p.type === 'r_psw' || p.type === 'r_pbl' || p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' || p.type === 'r_counter' || p.type === 'r_imp' ? 1 : 0), 0);
+    const inside = parts.reduce((n, p) => n + (p.type === 'r_my4' ? 4 : p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_my2' ? 2 : p.type === 'r_ls' || p.type === 'r_fsw' || p.type === 'r_float' || p.type === 'r_psw' || p.type === 'r_pbl' || p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' || p.type === 'r_counter' || p.type === 'r_imp' || p.type === 'r_mpcb' ? 1 : 0), 0);
     const a = parts.filter((p) => CONTACT_A.has(p.type)).length + inside;
     const b = parts.filter((p) => CONTACT_B.has(p.type)).length + inside;
     const poles = (parts.filter((p) => p.type === 'km3').length + parts.filter((p) => p.type === 'r_mc').length) * 3;

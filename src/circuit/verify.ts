@@ -25,9 +25,9 @@ export interface WiringIssue {
   wireIds?: string[];
 }
 
-const THREE: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'r_load3', 'r_motor6']);
+const THREE: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'r_load3', 'r_motor6', 'r_motor2s']);
 /** 전원을 넣고 끊거나 보호하는 기기: 이것만 지난 길은 전원에 바로 물린 것으로 본다 */
-const FEED: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'mcb', 'mcb3', 'fuse', 'fuse3', 'r_fuse']);
+const FEED: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'mcb', 'mcb3', 'fuse', 'fuse3', 'r_fuse', 'r_mpcb']);
 const PROX: ReadonlySet<PartType> = new Set(['prox', 'r_prox']);
 const SMPS: ReadonlySet<PartType> = new Set(['smps', 'r_smps']);
 /** 전원에 바로 물려 있어도 되는 것 (보호 장치 · 단자 · 모선) */
@@ -92,13 +92,15 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
   const all = new Groups(n);
   // 보호 장치 (차단기 · 퓨즈) 를 지나기 전까지: 단자대 · 바 · 전류계만 지난 길
   const bare = new Groups(n);
+  // 모터 보호 차단기의 보조 접점 (13-14 · 21-22) 은 전원을 보내는 길이 아니다
+  const feedPole = (k: (typeof model.conductors)[number]) => FEED.has(k.part.type) && !(k.part.type === 'r_mpcb' && k.ia >= 3);
   for (const k of model.conductors) {
     all.union(k.a, k.b);
     if ((k.always || k.part.type === 'r_tb' || k.part.type === 'r_nbar' || k.part.type === 'r_am') && !FEED.has(k.part.type)) bare.union(k.a, k.b);
     if (k.always || k.part.type === 'r_tb' || k.part.type === 'r_nbar' || k.part.type === 'r_fuse' || k.part.type === 'r_am') {
       tie.union(k.a, k.b);
       feed.union(k.a, k.b);
-    } else if (FEED.has(k.part.type)) feed.union(k.a, k.b);
+    } else if (feedPole(k)) feed.union(k.a, k.b);
   }
   // 전원: 전원 단자, SMPS 출력, 변압기 2차
   const sources: { net: number; id: string; real: boolean; derived: boolean }[] = model.sources.map((s) => ({ ...s, real: false, derived: false }));
@@ -277,6 +279,29 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       const phases = new Set(rst.flat());
       if (!p.ph1 && v.rst.some(wired) && phases.size < 3) out.push({ level: 'warn', msg: tr(`${name(p)}: R/L1 · S/L2 · T/L3 에 3상이 다 오지 않습니다 (${[...phases].join(' · ') || '없음'}). 단상 입력 기종이면 속성에서 [단상 입력] 을 켜세요`, `${name(p)}: R/S/T do not get all three phases; tick "single-phase input" for a single-phase model`), partIds: [p.id] });
       if (realCircuit && wired(pinNet(p, 3)) === false) out.push({ level: 'warn', msg: tr(`${name(p)}: 접지 (PE) 가 이어지지 않았습니다. 인버터는 노이즈 필터로 평상시에도 접지로 전류가 새므로 반드시 접지합니다 (전동기 외함도)`, `${name(p)}: PE is not connected; an inverter must be earthed (and the motor frame)`), partIds: [p.id] });
+    } else if (p.type === 'r_tower') {
+      // 경광등: 단마다 공통 COM 과 전원 두 극 사이에 걸리는가, 정격 (사양, 비우면 DC 24V)
+      const com = pinNet(p, 0);
+      const wiredTiers = [1, 2, 3, 4].filter((i) => wired(pinNet(p, i)));
+      if (!wiredTiers.length && !wired(com)) continue;
+      if (!wired(com)) {
+        out.push({ level: 'error', msg: tr(`${name(p)}: 공통 (COM) 이 이어지지 않아 어느 단도 켜지지 않습니다`, `${name(p)}: COM is not wired; no tier can light`), partIds: [p.id] });
+        continue;
+      }
+      const rated = ratedVoltage(p) ?? { kind: 'dc' as const, lo: 24, hi: 24, text: 'DC 24V' };
+      for (const i of wiredTiers) {
+        const got = pair(allPoles(com), allPoles(pinNet(p, i)));
+        if (!got) {
+          out.push({ level: 'error', msg: tr(`${name(p)}: ${label(p, i)} 단이 공통 (COM) 과 전원 두 극 사이에 걸리지 않습니다 (선 빠짐 · 같은 극)`, `${name(p)}: tier ${label(p, i)} never gets the supply across it and COM`), partIds: [p.id] });
+          continue;
+        }
+        const v = volt(got[0], got[1]);
+        const kind = POLE_SYSTEM[got[0]] === 'dc' ? 'dc' : 'ac';
+        if ((rated.kind !== 'any' && rated.kind !== kind) || v > rated.hi * 1.15 || v < rated.lo * 0.85) {
+          out.push({ level: 'error', msg: tr(`${name(p)}: 정격은 ${rated.text} 인데 ${kind === 'dc' ? 'DC' : 'AC'} ${nominalVolt(v)}V 에 이어져 있습니다. 사양을 그 전압용으로 바꾸거나 전원을 확인하세요`, `${name(p)}: rated ${rated.text} but wired to ${kind === 'dc' ? 'DC' : 'AC'} ${nominalVolt(v)}V`), partIds: [p.id] });
+          break;
+        }
+      }
     } else if (p.type === 'r_flr') {
       // 플로트리스 릴레이: 전극 E1 · E2 · E3 은 릴레이 안의 낮은 교류로 물을 재는 단자 (전원이 닿으면 탐), 수조 전극봉에 이름대로
       const d = [...model.flrDef.values()].find((x) => x.part.id === p.id);
@@ -491,7 +516,7 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
 }
 
 /** 전자접촉기 코일 · 전동기처럼 PLC 출력 접점으로 바로 켜면 안 되는 부하 */
-const HEAVY: ReadonlySet<PartType> = new Set(['r_mc', 'r_motor3', 'r_motor6', 'motor', 'motor3', 'r_load1', 'r_load3', 'load', 'r_fan']);
+const HEAVY: ReadonlySet<PartType> = new Set(['r_mc', 'r_motor3', 'r_motor6', 'r_motor2s', 'r_motor1', 'motor', 'motor3', 'r_load1', 'r_load3', 'load', 'r_fan']);
 
 /**
  * PLC 가 상하지 않게: 입력에 교류, 입력 공통 · 출력 공통이 빠짐, 출력 공통에 퓨즈 없음,

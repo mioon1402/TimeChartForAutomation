@@ -216,6 +216,8 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
   r_load3: 7500,
   r_motor3: 3700,
   r_motor6: 3700,
+  r_motor2s: 2200,
+  r_motor1: 90,
   motor3: 3700,
   motor: 200,
   r_light: 100,
@@ -248,8 +250,8 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
 };
 
 const THREE: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'r_load3', 'r_motor6']);
-const MOTOR: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'motor', 'r_motor6']);
-const BREAKER: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'mcb', 'mcb3', 'fuse', 'fuse3', 'r_fuse']);
+const MOTOR: ReadonlySet<PartType> = new Set(['motor3', 'r_motor3', 'motor', 'r_motor6', 'r_motor2s', 'r_motor1']);
+const BREAKER: ReadonlySet<PartType> = new Set(['r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'mcb', 'mcb3', 'fuse', 'fuse3', 'r_fuse', 'r_mpcb']);
 
 /** 한전 쪽 (계통) 임피던스의 X/R */
 const UTILITY_XR = 10;
@@ -579,7 +581,8 @@ export class PowerModel {
     const reach = this.staticPoles();
     for (const p of circuit.parts) {
       const def = PARTS[p.type];
-      if (!def.load) continue;
+      // 2단 속도 · 단상 가역 전동기는 전원이 걸리는 단자가 운전에 따라 바뀌어 아직 해석하지 않는다
+      if (!def.load || p.type === 'r_motor2s' || p.type === 'r_motor1') continue;
       const rating = loadRating(p);
       if (!rating) continue;
       const three = THREE.has(p.type);

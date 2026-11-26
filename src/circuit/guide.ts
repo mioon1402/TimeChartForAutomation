@@ -197,6 +197,70 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('시뮬레이션 동작에는 영향이 없고, [검사] 가 자리 (접점 양단 · 전원 양단 · 직류 회로) 와 정격 전압을 봅니다.', 'It does not change the simulation; Check looks at where it is fitted and its voltage rating.'),
         'sol-alternate',
       );
+    case 'r_mpcb':
+      return g(
+        tr('모터 보호 차단기 (MPCB, MMS · GV2 꼴) 입니다. 차단기 (단락 보호) 와 열동 계전기 (과부하 보호) 를 한 몸에 담아, 전동기 하나마다 앞에 둡니다. 앞면 눈금으로 전동기 정격 전류에 맞춰 설정하고, 옆에 붙인 보조 접점 블록 (1a1b) 이 손잡이와 함께 움직입니다.', 'A motor protection circuit breaker (MPCB, MMS / GV2 type): a breaker (short-circuit) and an overload relay in one body, one per motor. Set the dial to the motor current; the side auxiliary block (1NO1NC) follows the handle.'),
+        [
+          ['1 · 3 · 5 → 2 · 4 · 6', tr('주접점 (전원 → 전동기 쪽 접촉기)', 'main poles (supply → motor contactor)')],
+          ['13-14', tr('보조 a접점: 켜져 있으면 닫힘 → 조작 회로에 직렬로 (트립하면 운전 정지)', 'aux NO: closed while on → in series with the control circuit (a trip stops the motor)')],
+          ['21-22', tr('보조 b접점: 트립 · OFF 면 닫힘 → 고장등 · 부저', 'aux NC: closed when tripped / off → fault lamp, buzzer')],
+        ],
+        [
+          tr('전원 → 1 · 3 · 5, 2 · 4 · 6 → 전자접촉기 1/L1 · 3/L2 · 5/L3 (THR 은 따로 두지 않음)', 'Supply → 1, 3, 5; 2, 4, 6 → contactor 1/L1, 3/L2, 5/L3 (no separate THR)'),
+          tr('[속성] 의 정격 전류에 설정 전류 (전동기 정격 전류) 를 적습니다 (예: 2.2 kW · 380 V ≈ 5 A)', 'Put the set current (motor rated current) in [Rated current], e.g. 2.2 kW 380 V ≈ 5 A'),
+          tr('보조 13-14 를 정지 버튼 앞에 직렬로, 21-22 로 트립 표시', 'Aux 13-14 in series before the stop button, 21-22 for the trip indication'),
+        ],
+        CLICK() + ' ' + tr('누르면 손잡이가 OFF (트립) ↔ ON 으로 바뀌고, 주접점 · 13-14 가 열리고 21-22 가 닫힙니다. 조작 순서에서 OFF 로 과부하 트립을 넣을 수 있습니다.', 'Clicking toggles ON and OFF (trip): the main poles and 13-14 open, 21-22 closes. Put OFF in the sequence to model an overload trip.'),
+        'motor-2speed',
+      );
+    case 'r_tower':
+      return g(
+        tr('경광등 (시그널 타워) 입니다. 설비 상태를 멀리서 보이게 적색 (고장) · 황색 (주의 · 대기) · 녹색 (운전) 과 부저를 한 기둥에 쌓았습니다. 공통 COM 과 색 단자 사이에 전압을 걸면 그 단이 켜집니다.', 'A signal tower: red (fault), amber (warning / standby), green (running) and a buzzer on one pole. Applying the voltage between COM and a colour terminal lights that tier.'),
+        [
+          ['COM', tr('공통 (직류면 보통 0V 또는 +24V, 교류면 N)', 'common (0 V or +24 V on DC, N on AC)')],
+          ['R · Y · G', tr('적 · 황 · 녹 램프', 'red, amber, green lamps')],
+          ['BZ', tr('부저', 'buzzer')],
+        ],
+        [
+          tr('COM 을 전원의 한쪽 극에, 각 색 단자를 그 상태를 나타내는 접점 (접촉기 보조 · 차단기 보조 · PLC 출력) 뒤에 잇습니다', 'COM to one pole; each colour after the contact that shows that state (contactor aux, breaker aux, PLC output)'),
+          tr('정격 전압을 [사양] 에 적습니다 (비우면 DC 24V). 교류 220V 회로면 AC 220V 용을 고릅니다', 'Put the rated voltage in [Spec] (DC 24V if empty); use an AC 220V type on 220 V circuits'),
+        ],
+        AUTO() + ' ' + tr('단마다 켜지고 꺼지며, 타임차트에 단마다 줄이 나옵니다 (선이 이어진 단만).', 'Each tier lights on its own and gets its own chart row (wired tiers only).'),
+        'motor-2speed',
+      );
+    case 'r_motor2s':
+      return g(
+        tr('2단 속도 전동기 (다알란더, 4극 / 2극) 입니다. 권선 하나를 바꿔 이어 저속 · 고속 두 속도로 돕니다. 저속은 1U 1V 1W 에 전원 (Δ), 고속은 2U 2V 2W 에 전원을 넣고 1U 1V 1W 를 한데 묶습니다 (YY).', 'A two-speed Dahlander motor (4 / 2 poles): one winding reconnected for two speeds. Low: supply on 1U 1V 1W (delta). High: supply on 2U 2V 2W with 1U 1V 1W tied together (double star).'),
+        [
+          ['1U · 1V · 1W', tr('저속 전원 (저속 접촉기), 고속일 때는 고속 단락 접촉기로 한데 묶음', 'low-speed supply (low contactor); tied together by the star contactor at high speed')],
+          ['2U · 2V · 2W', tr('고속 전원 (고속 접촉기)', 'high-speed supply (high contactor)')],
+          ['PE', tr('외함 접지', 'frame earth')],
+        ],
+        [
+          tr('접촉기 3대: 저속 MC1 (→ 1U 1V 1W), 고속 MC2 (→ 2U 2V 2W), 고속 단락 MC3 (1U 1V 1W 를 묶음, MC2 와 함께 동작)', 'Three contactors: low MC1 (→ 1U 1V 1W), high MC2 (→ 2U 2V 2W), star MC3 (ties 1U 1V 1W, with MC2)'),
+          tr('저속 (MC1) 과 고속 (MC2 · MC3) 은 반드시 인터록 (서로의 b접점). MC1 과 MC3 가 함께 붙으면 단락입니다', 'Interlock low (MC1) and high (MC2, MC3) with each other\'s NC contacts; MC1 with MC3 is a short circuit'),
+          tr('저속 · 고속마다 과부하 보호 (THR 또는 모터 보호 차단기) 를 따로 둡니다 (전류가 다름)', 'Separate overload protection for each speed (different currents)'),
+        ],
+        AUTO() + ' ' + tr('저속 · 고속이 그림과 타임차트 (저속 · 고속 칸) 에 나옵니다. 저속 · 고속이 함께 들어가거나 고속인데 1U 1V 1W 가 묶이지 않으면 알립니다. 전기 해석 (전류) 은 아직 하지 않습니다.', 'Low / high shows on the drawing and the chart; it warns if both are supplied or high runs without the star tie. Not included in the current analysis yet.'),
+        'motor-2speed',
+      );
+    case 'r_motor1':
+      return g(
+        tr('단상 가역 모터 (인덕션 · 리버시블 기어드 모터, 콘덴서 운전) 입니다. 공통 C 와 A 에 전원을 넣으면 정회전, C 와 B 에 넣으면 역회전합니다. 콘덴서 (모터와 함께 오는 것) 는 A-B 사이에 답니다.', 'A single-phase reversible (induction, capacitor-run) geared motor: supply on C-A runs forward, on C-B reverse. The capacitor supplied with it goes between A and B.'),
+        [
+          ['C', tr('공통 (N 쪽)', 'common (to N)')],
+          ['A', tr('정회전 (정 접촉기 · 릴레이 뒤의 L)', 'forward (L after the forward contactor / relay)')],
+          ['B', tr('역회전 (역 접촉기 · 릴레이 뒤의 L)', 'reverse (L after the reverse contactor / relay)')],
+          ['PE', tr('외함 접지', 'frame earth')],
+        ],
+        [
+          tr('C → N, A ← 정 접촉기, B ← 역 접촉기. 콘덴서는 단자대에서 A · B 에 함께 물립니다', 'C → N, A ← forward contactor, B ← reverse contactor; the capacitor on A and B at the terminal block'),
+          tr('정 · 역 접촉기는 반드시 인터록: A · B 에 함께 전원이 들어가면 콘덴서가 단락되어 탑니다', 'Interlock forward and reverse: power on A and B together shorts the capacitor'),
+          tr('방향을 바꿀 때는 완전히 멈춘 뒤에 (가역 모터는 바로 바꿔도 되지만 기어에 무리)', 'Change direction after it stops (reversible motors allow instant reversing but it strains the gears)'),
+        ],
+        AUTO() + ' ' + tr('정회전 · 역회전이 그림과 타임차트에 나옵니다. A · B 에 함께 전원이 들어가면 알립니다.', 'Forward / reverse shows on the drawing and the chart; it warns if A and B are fed together.'),
+        'motor1-rev',
+      );
     case 'r_diode':
     case 'diode':
       return g(

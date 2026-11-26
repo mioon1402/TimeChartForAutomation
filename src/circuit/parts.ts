@@ -485,6 +485,30 @@ export const PARTS: Record<PartType, PartDef> = {
   },
   // 수조 (물탱크) + 전극봉 홀더: 위 단자 E1 · E2 · E3. 물에 잠긴 전극끼리 통한다 (엔진이 수위로 정함)
   r_tank: { type: 'r_tank', cat: 'switch', pins: [pin(-2, -7, 'E1'), pin(0, -7, 'E2'), pin(2, -7, 'E3')], box: [-6, -8, 6, 7], prefix: 'TANK' },
+  // 모터 보호 차단기 (MMS · GV2 꼴): 위 1 · 3 · 5 와 보조 접점 13 · 21, 아래 2 · 4 · 6 과 14 · 22. 손잡이로 켜고 끈다 (과부하 · 단락에 트립). 보조 13-14 (a) · 21-22 (b) 가 함께 움직인다
+  r_mpcb: {
+    type: 'r_mpcb',
+    cat: 'protect',
+    pins: [pin(-2, -4, '1/L1'), pin(0, -4, '3/L2'), pin(2, -4, '5/L3'), pin(4, -4, '13'), pin(6, -4, '21'), pin(-2, 4, '2/T1'), pin(0, 4, '4/T2'), pin(2, 4, '6/T3'), pin(4, 4, '14'), pin(6, 4, '22')],
+    poles: [
+      [0, 5],
+      [1, 6],
+      [2, 7],
+      [3, 8],
+      [4, 9],
+    ],
+    polesNc: [false, false, false, false, true],
+    operate: 'toggle',
+    defaultOn: true,
+    box: [-3.4, -5.4, 7.2, 5.4],
+    prefix: 'MPCB',
+  },
+  // 경광등 (타워 램프): 아래 단자 COM · R (적) · Y (황) · G (녹) · BZ (부저). COM 과 색 단자 사이에 전압이 걸리면 그 단이 켜진다 (엔진이 단마다 본다)
+  r_tower: { type: 'r_tower', cat: 'output', pins: [pin(-4, 6, 'COM'), pin(-2, 6, 'R'), pin(0, 6, 'Y'), pin(2, 6, 'G'), pin(4, 6, 'BZ')], box: [-5, -10, 5, 7.2], prefix: 'TL' },
+  // 2단 속도 전동기 (다알란더): 위 1U 1V 1W (저속 Δ), 아래 2U 2V 2W (고속 YY: 1U 1V 1W 를 한데 묶음), PE
+  r_motor2s: { type: 'r_motor2s', cat: 'output', pins: [pin(-2, -4, '1U'), pin(0, -4, '1V'), pin(2, -4, '1W'), pin(-2, 4, '2U'), pin(0, 4, '2V'), pin(2, 4, '2W'), pin(5, 0, 'PE')], load: true, box: [-6.5, -5, 6, 5], prefix: 'M' },
+  // 단상 가역 모터 (인덕션 · 리버시블, 콘덴서 운전): C (공통) · A (정) · B (역) · PE. 콘덴서는 A-B 사이 (기기와 함께)
+  r_motor1: { type: 'r_motor1', cat: 'output', pins: [pin(-2, -3, 'C'), pin(0, -3, 'A'), pin(2, -3, 'B'), pin(4, 1, 'PE')], load: true, box: [-5.6, -4, 5, 4.4], prefix: 'M' },
   r_sol: { type: 'r_sol', cat: 'output', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], load: true, box: [-2.9, -3.4, 2.9, 2.9], prefix: 'SOL' },
   r_fan: { type: 'r_fan', cat: 'output', pins: [pin(-1, 3, 'L'), pin(1, 3, 'N')], load: true, box: [-3, -3, 3, 3.8], prefix: 'FAN' },
   r_pbl: {
@@ -665,7 +689,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd', 'r_rtd2', 'r_tk4', 'r_sk', 'r_imp', 'r_vfd', 'r_diode', 'r_flr', 'r_tank']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd', 'r_rtd2', 'r_tk4', 'r_sk', 'r_imp', 'r_vfd', 'r_diode', 'r_flr', 'r_tank', 'r_mpcb', 'r_tower', 'r_motor2s', 'r_motor1']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -1087,6 +1111,14 @@ export function partKindName(type: PartType): string {
       return tr('플로트리스 릴레이 (전극식 수위)', 'Floatless level relay (electrodes)');
     case 'r_tank':
       return tr('수조 (전극봉)', 'Water tank (electrodes)');
+    case 'r_mpcb':
+      return tr('모터 보호 차단기 (MPCB)', 'Motor protection breaker (MPCB)');
+    case 'r_tower':
+      return tr('경광등 (타워 램프)', 'Signal tower');
+    case 'r_motor2s':
+      return tr('2단 속도 전동기 (다알란더)', 'Two-speed motor (Dahlander)');
+    case 'r_motor1':
+      return tr('단상 가역 모터 (콘덴서)', 'Single-phase reversible motor'); 
     case 'r_smps':
       return tr('SMPS (DC 24V 전원)', 'SMPS (24 V DC supply)');
     case 'r_prox':
@@ -1218,6 +1250,7 @@ export function palette(): PaletteGroup[] {
         it('r_fuse', tr('퓨즈 홀더', 'Fuse holder'), { amps: 10 }),
         it('r_sk', tr('스파크 킬러 (CR)', 'Spark killer (RC)')),
         it('r_diode', tr('다이오드 (직류 코일 서지)', 'Diode (DC coil surge)')),
+        it('r_mpcb', tr('모터 보호 차단기 (MPCB)', 'Motor protection breaker (MPCB)'), { amps: 10 }),
         it('r_thr', tr('열동 계전기 THR', 'Overload THR')),
       ],
     },
@@ -1294,6 +1327,9 @@ export function palette(): PaletteGroup[] {
         it('r_fan', tr('판넬 팬', 'Panel fan')),
         it('r_motor3', tr('3상 전동기', '3-ph motor')),
         it('r_motor6', tr('3상 전동기 6단자 (Y-Δ)', '3-ph motor, 6 leads (Y-Δ)')),
+        it('r_motor2s', tr('2단 속도 전동기 (다알란더)', 'Two-speed motor (Dahlander)')),
+        it('r_motor1', tr('단상 가역 모터 (콘덴서)', 'Single-phase reversible motor')),
+        it('r_tower', tr('경광등 (적 · 황 · 녹 + 부저)', 'Signal tower (R, Y, G + buzzer)')),
       ],
     },
     {
@@ -1482,7 +1518,7 @@ export const POLE_SYSTEM: Record<string, 'dc' | 'ac' | 'pe' | 'hv'> = { '+24V': 
 
 /** 기호를 따라 움직이는 접점 (코일·타이머·THR·스위치) */
 export const FOLLOWER: ReadonlySet<PartType> = new Set(['no', 'nc', 'km3']);
-export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3', 'r_prox', 'r_ls', 'r_pbl', 'r_fsw', 'r_float', 'r_psw', 'r_ss3', 'r_prox2', 'r_vfd']);
+export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3', 'r_prox', 'r_ls', 'r_pbl', 'r_fsw', 'r_float', 'r_psw', 'r_ss3', 'r_prox2', 'r_vfd', 'r_mpcb']);
 export const VALVES: ReadonlySet<PartType> = new Set(['v32', 'v52', 'v52d', 'v53']);
 export const CONTACT_A: ReadonlySet<PartType> = new Set(['no', 'pb_no', 'sw_no', 'ls_no']);
 export const CONTACT_B: ReadonlySet<PartType> = new Set(['nc', 'pb_nc', 'sw_nc', 'ls_nc', 'estop']);

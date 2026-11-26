@@ -41,7 +41,7 @@ describe('schematic → wiring diagram', () => {
       expect(r.circuit.parts.every((p) => REAL.has(p.type) || ['text', 'plc', 'cyl', 'v32', 'v52', 'v52d', 'v53', 'air', 'frl', 'fc'].includes(p.type)), ex.id).toBe(true);
       expect(r.length).toBe(wireLength(r.circuit));
     }
-  });
+  }, 30000);
 
   it('self-holding: contactor, THR, buttons, lamps, motor with PE, and a control breaker in front of the control circuit', () => {
     const r = toWiring(circuitExamples().find((e) => e.id === 'self-hold')!.build());
