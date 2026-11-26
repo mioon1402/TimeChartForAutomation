@@ -208,7 +208,7 @@ export interface HmiButton {
   toggle: boolean;
 }
 
-export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'impOut' | 'vfdHz' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut' | 'leak' | 'earthA' | 'level' | 'flrOut';
+export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'impOut' | 'vfdHz' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut' | 'leak' | 'earthA' | 'level' | 'flrOut' | 'tower';
 
 export interface Track {
   key: string;
@@ -277,6 +277,8 @@ export class CircuitModel {
   readonly impTags = new Set<string>();
   /** 수조: 전극봉 높이 · 급수 · 배수 기기 · 속도 (%/s) */
   readonly tankDef = new Map<string, TankDef>();
+  /** 경광등: 공통 COM 넷과 단마다 (R · Y · G · BZ) 넷 */
+  readonly towers: { part: Part; tag: string; com: number; tiers: number[] }[] = [];
   /** 플로트리스 릴레이: 전극 단자 E1 · E2 · E3 넷 */
   readonly flrDef = new Map<string, { part: Part; e: [number, number, number] }>();
   /** 공압: 공압원 넷, 늘 통하는 쌍(FRL·속도 제어), 속도 제어, 밸브, 실린더 포트 */
@@ -391,6 +393,10 @@ export class CircuitModel {
       if (p.type === 'r_tr3') {
         const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
         this.trList.push({ part: p, h: [pn(0), pn(1), pn(2)], x: [pn(3), pn(4), pn(5)], x0: pn(6) });
+      }
+      if (p.type === 'r_tower') {
+        const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
+        this.towers.push({ part: p, tag, com: pn(0), tiers: [1, 2, 3, 4].map(pn) });
       }
       if (p.type === 'r_vfd') {
         const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
@@ -600,7 +606,12 @@ export class CircuitSim {
   /** 3선식 센서·SMPS 에 전원이 들어와 있는가 */
   readonly powered = new Map<string, boolean>();
   /** 6단자 전동기의 결선: Y (기동) · D (Δ 운전) */
-  readonly motorMode = new Map<string, 'Y' | 'D'>();
+  /** 전동기 결선 · 속도: Y (기동) · D (Δ 운전) — 6단자, L (저속) · H (고속) — 2단 속도 */
+  readonly motorMode = new Map<string, 'Y' | 'D' | 'L' | 'H'>();
+  /** 경광등: 단마다 (R · Y · G · BZ) 켜졌나 */
+  readonly towerOn = new Map<string, boolean[]>();
+  /** 전동기 결선 문제 (자리를 다 잡은 뒤에만 알린다: 코일이 하나씩 붙는 사이의 중간 상태는 빼고) */
+  private motorIssues: [string, string][] = [];
   /** 밸브 위치: a = 14쪽 솔레노이드, b = 12쪽(또는 스프링), c = 가운데 */
   readonly valvePos = new Map<string, 'a' | 'b' | 'c'>();
   /** 공압 넷마다 상태 (공압이 아닌 넷은 null) */
@@ -1207,6 +1218,7 @@ export class CircuitSim {
     this.root = Int32Array.from({ length: n }, (_, i) => find(i));
 
     this.energized.clear();
+    this.motorIssues = [];
     this.motorMode.clear();
     this.motorDir.clear();
     this.openPhase.clear();
@@ -1241,6 +1253,45 @@ export class CircuitSim {
         }
         continue;
       }
+      if (p.type === 'r_motor2s') {
+        // 2단 속도 (다알란더): 1U 1V 1W 에 세 상 (2U 2V 2W 는 떠 있음) = 저속, 2U 2V 2W 에 세 상 + 1U 1V 1W 를 한데 묶음 = 고속
+        const ph = (x: number | undefined) => ['L1', 'L2', 'L3'].indexOf(live(x) ?? '');
+        const lo = nets.slice(0, 3).map(ph);
+        const hi = nets.slice(3, 6).map(ph);
+        const three = (a: number[]) => new Set(a.filter((i) => i >= 0)).size === 3;
+        const none = (a: number[]) => a.every((i) => i < 0);
+        const tied = (ns: (number | undefined)[]) => ns.every((x) => x !== undefined) && find(ns[0]!) === find(ns[1]!) && find(ns[1]!) === find(ns[2]!) && !live(ns[0]);
+        const dirOf = (a: number[]) => ((a[1] - a[0] + 3) % 3 === 1 ? 1 : -1) as 1 | -1;
+        const tag = p.tag || 'M';
+        if (three(lo) && none(hi)) {
+          this.energized.add(p.id);
+          this.motorDir.set(p.id, dirOf(lo));
+          this.motorMode.set(p.id, 'L');
+        } else if (three(hi) && none(lo) && tied(nets.slice(0, 3))) {
+          this.energized.add(p.id);
+          this.motorDir.set(p.id, dirOf(hi));
+          this.motorMode.set(p.id, 'H');
+        } else if (three(hi) && none(lo)) this.motorIssues.push([`${formatTime(this.t, 's')}: ${tag}: 고속 (2U 2V 2W) 에 전원이 들어왔는데 1U 1V 1W 가 한데 묶이지 않아 돌지 않습니다 (고속은 YY 결선)`, `dahl1:${p.id}`]);
+        else if (!none(lo) && !none(hi)) this.motorIssues.push([`${formatTime(this.t, 's')}: ${tag}: 저속 (1U 1V 1W) 과 고속 (2U 2V 2W) 에 함께 전원이 들어갔습니다 (권선 단락). 저속 · 고속 접촉기 인터록을 확인하세요`, `dahl2:${p.id}`]);
+        else if (new Set(lo.filter((i) => i >= 0)).size === 2 || new Set(hi.filter((i) => i >= 0)).size === 2) {
+          this.openPhase.add(p.id);
+          this.warn(`${tag}: 결상 - 두 상만 이어져서 돌지 않습니다`, `open:${p.id}`);
+        }
+        continue;
+      }
+      if (p.type === 'r_motor1') {
+        // 단상 가역 모터: C-A 에 전원이면 정회전, C-B 면 역회전 (콘덴서가 다른 쪽 권선을 돌림). A · B 에 함께 전원이면 돌지 않음
+        const [c0, a0, b0] = nets.slice(0, 3).map(live);
+        const pair = (x: string | null, y: string | null) => !!x && !!y && x !== y && POLE_SYSTEM[x] === POLE_SYSTEM[y];
+        if (pair(c0, a0) && !b0) {
+          this.energized.add(p.id);
+          this.motorDir.set(p.id, 1);
+        } else if (pair(c0, b0) && !a0) {
+          this.energized.add(p.id);
+          this.motorDir.set(p.id, -1);
+        } else if (pair(c0, a0) && pair(c0, b0)) this.motorIssues.push([`${formatTime(this.t, 's')}: ${p.tag || 'M'}: A · B 에 함께 전원이 들어가 돌지 않습니다 (정 · 역 동시, 콘덴서 단락). 정 · 역 인터록을 확인하세요`, `rev1:${p.id}`]);
+        continue;
+      }
       if (p.type === 'motor3' || p.type === 'r_motor3' || p.type === 'r_load3') {
         const ph = nets.slice(0, 3).map(live);
         const idx = ph.map((x) => (x === 'L1' ? 0 : x === 'L2' ? 1 : x === 'L3' ? 2 : -1));
@@ -1264,6 +1315,17 @@ export class CircuitSim {
         // 직류 전동기만 극성으로 방향이 바뀐다
         if (p.type === 'motor') this.motorDir.set(p.id, a === '0V' ? -1 : 1);
       }
+    }
+    // 경광등: 공통과 그 단 사이에 같은 계통의 서로 다른 극이 걸리면 켜진다
+    for (const tw of this.m.towers) {
+      const c0 = live(tw.com);
+      this.towerOn.set(
+        tw.part.id,
+        tw.tiers.map((n) => {
+          const x = live(n);
+          return !!c0 && !!x && c0 !== x && POLE_SYSTEM[c0] === POLE_SYSTEM[x];
+        }),
+      );
     }
   }
 
@@ -1632,6 +1694,7 @@ export class CircuitSim {
       if (!this.stepOnce()) {
         // 누전: 지락 전류로 차단기가 끊으면 다시 자리 잡는다
         if (this.faults.size && this.faultStep()) continue;
+        for (const [msg, key] of this.motorIssues) this.warn(msg, key);
         this.retarget();
         // 한 번에 한 줄로: 아직 알리지 않은 코일만 모아서
         const keys = [...flips].filter(([key, k]) => k >= 2 && !this.warned.has(`pulse:${key}`)).map(([key]) => key);
@@ -1860,7 +1923,7 @@ export class CircuitSim {
       const k = m.tagKind.get(tag);
       if (k === 'coil' || k === 'timer' || k === 'counter' || k === 'temp' || k === 'flr') continue;
       const types = new Set(ids.map((id) => m.circuit.parts.find((p) => p.id === id)!.type));
-      const motor = types.has('motor3') || types.has('motor') || types.has('r_motor3');
+      const motor = types.has('motor3') || types.has('motor') || types.has('r_motor3') || types.has('r_motor2s') || types.has('r_motor1');
       const t = this.tracks.length;
       add(`${motor ? 'mot' : 'load'}:${tag}`, tag, motor ? 'motor' : 'load');
       this.tracks[t].part = m.circuit.parts.find((p) => p.id === ids[0])!;
@@ -1868,6 +1931,9 @@ export class CircuitSim {
     for (const [tag, p] of m.cylDef) {
       this.tracks.push({ key: `cyl:${tag}`, tag: m.label(tag), kind: 'cyl', part: p, points: [], last: null });
     }
+    // 경광등: 선이 이어진 단만 (R · Y · G · BZ)
+    for (const tw of m.towers)
+      tw.tiers.forEach((n, k) => (m.net.pinCount[n] > 1 || m.net.hasWire[n]) && this.tracks.push({ key: `tw:${tw.tag}:${k}`, tag: m.label(tw.tag), kind: 'tower', part: tw.part, points: [], last: null, idx: k }));
     // 누전: 기기마다 누전 여부 · 접지로 흐르는 전류 (차트에는 바뀐 것만)
     for (const [tag, d] of m.faultDev) {
       this.tracks.push({ key: `leak:${tag}`, tag: m.label(tag), kind: 'leak', part: d.part, points: [], last: null });
@@ -1935,9 +2001,15 @@ export class CircuitSim {
         return this.loadOn(tag) ? 1 : 0;
       case 'motor': {
         const ids = this.m.loadParts.get(tag) ?? [];
-        const dir = ids.map((id) => this.motorDir.get(id)).find((d) => d !== undefined);
-        return dir === undefined ? '0' : dir > 0 ? 'FWD' : 'REV';
+        const id = ids.find((x) => this.motorDir.get(x) !== undefined);
+        if (id === undefined) return '0';
+        // 2단 속도 전동기는 저속 · 고속
+        const mode = this.motorMode.get(id);
+        if (mode === 'L' || mode === 'H') return mode === 'L' ? 'LOW' : 'HIGH';
+        return this.motorDir.get(id)! > 0 ? 'FWD' : 'REV';
       }
+      case 'tower':
+        return this.towerOn.get(tr.part.id)?.[tr.idx!] ? 1 : 0;
       case 'cyl':
         return this.cyl.get(tag)?.target ?? 0;
       case 'plcIn':

@@ -90,6 +90,13 @@ function defaultName(p: Part): string {
       return t_('카운터', 'Counter');
     case 'r_flr':
       return t_('플로트리스 릴레이', 'Floatless relay');
+    case 'r_mpcb':
+      return t_('모터 보호 차단기', 'Motor protection breaker');
+    case 'r_tower':
+      return t_('경광등', 'Signal tower');
+    case 'r_motor2s':
+    case 'r_motor1':
+      return t_('전동기', 'Motor');
     case 'r_tank':
       return t_('수조', 'Tank');
     case 'r_tc':
@@ -343,6 +350,13 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
 
   // 출력: 램프·부저·솔레노이드, 전동기 (정·역이 다 나오면 정/역 칸)
   for (const tr of res.tracks.filter((t) => (t.kind === 'load' || t.kind === 'motor') && !used.has(t))) {
+    if (tr.kind === 'motor' && pts(tr).some((q) => q.v === 'LOW' || q.v === 'HIGH')) {
+      // 2단 속도 전동기: 저속 · 고속
+      const lo = t_('저속', 'LOW');
+      const hi = t_('고속', 'HIGH');
+      out.push({ ...bit(tr, 'output', G.out), kind: 'bus', points: normalize(pts(tr).map((q) => ({ t: q.t, v: q.v === 'LOW' ? lo : q.v === 'HIGH' ? hi : '0' })), 'bus', '0') });
+      continue;
+    }
     if (tr.kind === 'motor') {
       const p = pts(tr);
       const both = p.some((q) => q.v === 'REV') && p.some((q) => q.v === 'FWD');
@@ -351,6 +365,11 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
       if (both) out.push({ ...bit(tr, 'output', G.out), kind: 'bus', points: normalize(p.map((q) => ({ t: q.t, v: q.v === 'FWD' ? fwd : q.v === 'REV' ? rev : '0' })), 'bus', '0') });
       else out.push(bit(tr, 'output', G.out, { points: normalize(p.map((q) => ({ t: q.t, v: q.v === '0' ? 0 : 1 })), 'bit', 0), onLabel: p.some((q) => q.v === 'REV') ? rev : t_('운전', 'RUN'), offLabel: t_('정지', 'STOP') }));
     } else out.push(bit(tr, 'output', G.out, tr.part.type === 'lamp' || tr.part.type === 'r_lamp' || tr.part.type === 'r_light' ? { onLabel: t_('점등', 'ON'), offLabel: t_('소등', 'OFF') } : {}));
+  }
+  // 경광등: 단마다 (적 · 황 · 녹 · 부저)
+  for (const tr of res.tracks.filter((t) => t.kind === 'tower')) {
+    const tier = [t_('적색', 'red'), t_('황색', 'amber'), t_('녹색', 'green'), t_('부저', 'buzzer')][tr.idx!];
+    out.push(bit(tr, 'output', G.out, { address: `${tr.tag}.${['R', 'Y', 'G', 'BZ'][tr.idx!]}`, name: `${nameOf(c, keyTag(tr).split(':')[0], tr.part)} ${tier}`, ...(tr.idx! < 3 ? { onLabel: t_('점등', 'ON'), offLabel: t_('소등', 'OFF') } : {}) }));
   }
   out.push(...pneu);
   return out;

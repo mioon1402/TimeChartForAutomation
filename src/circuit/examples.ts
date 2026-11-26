@@ -1703,6 +1703,131 @@ function waterSupply(): Circuit {
   return c;
 }
 
+// ───────────────────── 2단 속도 전동기: 저속 · 고속 전환 (MPCB · 경광등) ─────────────────────
+
+/**
+ * 2단 속도 (다알란더) 전동기. 저속 = MC1 → 1U 1V 1W, 고속 = MC2 → 2U 2V 2W + MC3 가 1U 1V 1W 를 한데 묶음.
+ * 보호는 속도마다 모터 보호 차단기 (MPCB1 저속 · MPCB2 고속), 보조 13-14 를 조작 회로에 직렬로 · 21-22 를 경광등 적색 + 부저에.
+ * 조작: 정지 PB0 → 저속 PB1 · 고속 PB2 (버튼의 b접점으로 서로 끊어 바로 전환) + 접촉기 b접점 인터록 (MC1 ↔ MC2 · MC3).
+ * 경광등: 녹색 = 저속, 황색 = 고속, 적색 + 부저 = 차단기 트립
+ */
+function motor2Speed(): Circuit {
+  const b = new Builder();
+  const T = (pole: 'L1' | 'L2' | 'L3' | 'N' | 'PE', x: number) => b.part('r_term', x, 0, '', { pole });
+  const [t1, t2, t3, tN, tPE] = [T('L1', 2), T('L2', 4), T('L3', 6), T('N', 8), T('PE', 10)];
+  const mccb = b.part('r_mcb3', 4, 6, 'MCCB', { name: tr('주 전원', 'Main supply'), amps: 20 });
+  const m1p = b.part('r_mpcb', 4, 18, 'MPCB1', { name: tr('저속 보호', 'Low-speed protection'), amps: 4 });
+  const m2p = b.part('r_mpcb', 18, 18, 'MPCB2', { name: tr('고속 보호', 'High-speed protection'), amps: 6 });
+  const mc1 = b.part('r_mc', 5, 32, 'MC1', { name: tr('저속', 'Low speed'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  const mc2 = b.part('r_mc', 19, 32, 'MC2', { name: tr('고속', 'High speed'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  const mc3 = b.part('r_mc', 33, 32, 'MC3', { name: tr('고속 Y 단락', 'High-speed star'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  const m1 = b.part('r_motor2s', 18, 50, 'M1', { name: tr('2단 속도 팬', 'Two-speed fan'), spec: 'AC 380V 1.5/2.2kW 4/2P' });
+  const f1 = b.part('r_fuse', 30, 6, 'F1', { name: tr('조작 회로', 'Control'), amps: 2 });
+  const pb0 = b.part('r_pb', 40, 8, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  const pb1 = b.part('r_pb', 48, 8, 'PB1', { name: tr('저속', 'Low'), color: 'green' });
+  const pb2 = b.part('r_pb', 56, 8, 'PB2', { name: tr('고속', 'High'), color: 'yellow' });
+  const tl = b.part('r_tower', 66, 22, 'TL1', { name: tr('운전 상태', 'Status'), spec: 'AC 220V' });
+  b.part('text', 0, -5, '', { text: tr('2단 속도 전동기: 저속 (MC1 → 1U 1V 1W) · 고속 (MC2 → 2U 2V 2W, MC3 로 1U 1V 1W 단락). 모터 보호 차단기 · 인터록 · 경광등', 'Two-speed motor: low (MC1 → 1U 1V 1W), high (MC2 → 2U 2V 2W with MC3 tying 1U 1V 1W); MPCBs, interlocks, signal tower') });
+  routeNets(b, 'motor-2speed', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [t1, ''], [mccb, '1']);
+    net('black', [t2, ''], [mccb, '3']);
+    net('grey', [t3, ''], [mccb, '5']);
+    net('brown', [mccb, '2'], [m1p, '1/L1'], [m2p, '1/L1'], [f1, '1']);
+    net('black', [mccb, '4'], [m1p, '3/L2'], [m2p, '3/L2']);
+    net('grey', [mccb, '6'], [m1p, '5/L3'], [m2p, '5/L3']);
+    net('brown', [m1p, '2/T1'], [mc1, '1/L1']);
+    net('black', [m1p, '4/T2'], [mc1, '3/L2']);
+    net('grey', [m1p, '6/T3'], [mc1, '5/L3']);
+    net('brown', [m2p, '2/T1'], [mc2, '1/L1']);
+    net('black', [m2p, '4/T2'], [mc2, '3/L2']);
+    net('grey', [m2p, '6/T3'], [mc2, '5/L3']);
+    // 저속: MC1 → 1U 1V 1W (고속일 때 MC3 가 이 셋을 한데 묶는다)
+    net('brown', [mc1, '2/T1'], [m1, '1U'], [mc3, '1/L1']);
+    net('black', [mc1, '4/T2'], [m1, '1V'], [mc3, '3/L2']);
+    net('grey', [mc1, '6/T3'], [m1, '1W'], [mc3, '5/L3']);
+    net('black', [mc3, '2/T1'], [mc3, '4/T2'], [mc3, '6/T3']);
+    // 고속: MC2 → 2U 2V 2W
+    net('brown', [mc2, '2/T1'], [m1, '2U']);
+    net('black', [mc2, '4/T2'], [m1, '2V']);
+    net('grey', [mc2, '6/T3'], [m1, '2W']);
+    net('gy', [tPE, ''], [m1, 'PE']);
+    // 조작: F1 → MPCB1 13-14 → MPCB2 13-14 → 정지 PB0 (b) → 저속 · 고속 길
+    net('red', [f1, '2'], [m1p, '13'], [m1p, '21'], [m2p, '21']);
+    net('red', [m1p, '14'], [m2p, '13']);
+    net('red', [m2p, '14'], [pb0, '11']);
+    net('red', [pb0, '12'], [pb2, '11'], [pb1, '11']);
+    // 저속: PB2 (b) → PB1 (a) ∥ MC1 13-14 → MC2 21-22 (b) → MC1 코일 · 경광등 녹색
+    net('red', [pb2, '12'], [pb1, '23'], [mc1, '13NO']);
+    net('red', [pb1, '24'], [mc1, '14NO'], [mc2, '21NC']);
+    net('red', [mc2, '22NC'], [mc1, 'A1'], [tl, 'G']);
+    // 고속: PB1 (b) → PB2 (a) ∥ MC2 13-14 → MC1 21-22 (b) → MC2 · MC3 코일 · 경광등 황색
+    net('red', [pb1, '12'], [pb2, '23'], [mc2, '13NO']);
+    net('red', [pb2, '24'], [mc2, '14NO'], [mc1, '21NC']);
+    net('red', [mc1, '22NC'], [mc2, 'A1'], [mc3, 'A1'], [tl, 'Y']);
+    // 트립: MPCB 21-22 (b) 어느 쪽이든 → 적색 + 부저
+    net('red', [m1p, '22'], [m2p, '22'], [tl, 'R'], [tl, 'BZ']);
+    net('blue', [tN, ''], [mc1, 'A2'], [mc2, 'A2'], [mc3, 'A2'], [tl, 'COM']);
+    return nets;
+  });
+  b.op(1000, 'PB1', 'press', tr('저속 운전', 'Low speed'));
+  b.op(3000, 'PB2', 'press', tr('고속으로 바로 전환', 'Straight to high'));
+  b.op(3000, 'MPCB2', 'off', tr('고속 과부하 트립', 'High-speed overload trip'));
+  b.op(3000, 'MPCB2', 'on', tr('복귀', 'Reset'));
+  b.op(1000, 'PB1', 'press', tr('저속 운전', 'Low speed'));
+  b.op(3000, 'PB0', 'press', tr('정지', 'Stop'));
+  return b.done();
+}
+
+// ───────────────────── 단상 가역 모터: 정 · 역 운전 (콘덴서형, 인터록) ─────────────────────
+
+/**
+ * 단상 가역 모터 (인덕션 기어드 모터 90 W): C → N, 정 MC1 → A, 역 MC2 → B (콘덴서는 A-B 사이, 모터에 포함).
+ * 조작: 정지 PB0 → 정 PB1 ∥ MC1 13-14 → MC2 21-22 (인터록) → MC1 코일, 역도 같은 꼴. 정 · 역 표시등
+ */
+function motor1Reverse(): Circuit {
+  const b = new Builder();
+  const tL = b.part('r_term', 2, 0, '', { pole: 'L' });
+  const tN = b.part('r_term', 4, 0, '', { pole: 'N' });
+  const tPE = b.part('r_term', 7, 0, '', { pole: 'PE' });
+  const mcb = b.part('r_mcb2', 3, 8, 'MCB1', { name: tr('컨베이어 전원', 'Conveyor supply'), spec: 'AC 220V 10A', amps: 10 });
+  const mc1 = b.part('r_mc', 8, 24, 'MC1', { name: tr('정회전', 'Forward'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  const mc2 = b.part('r_mc', 22, 24, 'MC2', { name: tr('역회전', 'Reverse'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  const m1 = b.part('r_motor1', 14, 40, 'M1', { name: tr('컨베이어 (기어드 모터 90 W)', 'Conveyor (geared motor 90 W)'), spec: 'AC 220V 90W' });
+  const pb0 = b.part('r_pb', 36, 8, 'PB0', { name: tr('정지', 'Stop'), color: 'red' });
+  const pb1 = b.part('r_pb', 44, 8, 'PB1', { name: tr('정회전', 'Forward'), color: 'green' });
+  const pb2 = b.part('r_pb', 52, 8, 'PB2', { name: tr('역회전', 'Reverse'), color: 'yellow' });
+  const gl = b.part('r_lamp', 44, 22, 'GL1', { name: tr('정회전', 'Forward'), color: 'green' });
+  const yl = b.part('r_lamp', 52, 22, 'YL1', { name: tr('역회전', 'Reverse'), color: 'yellow' });
+  b.part('text', 0, -5, '', { text: tr('단상 가역 모터 정 · 역: C → N, 정 MC1 → A, 역 MC2 → B (콘덴서는 A-B). 접촉기 b접점 인터록 — 돌고 있을 때 반대 버튼은 듣지 않음', 'Single-phase reversible motor: C → N, forward MC1 → A, reverse MC2 → B (capacitor across A-B); contactor NC interlocks') });
+  routeNets(b, 'motor1-rev', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [tL, ''], [mcb, '1']);
+    net('blue', [tN, ''], [mcb, '3']);
+    net('brown', [mcb, '2'], [mc1, '1/L1'], [mc2, '1/L1'], [pb0, '11']);
+    net('blue', [mcb, '4'], [m1, 'C'], [mc1, 'A2'], [mc2, 'A2'], [gl, 'X2'], [yl, 'X2']);
+    net('black', [mc1, '2/T1'], [m1, 'A']);
+    net('grey', [mc2, '2/T1'], [m1, 'B']);
+    net('gy', [tPE, ''], [m1, 'PE']);
+    net('red', [pb0, '12'], [pb1, '23'], [mc1, '13NO'], [pb2, '23'], [mc2, '13NO']);
+    net('red', [pb1, '24'], [mc1, '14NO'], [mc2, '21NC']);
+    net('red', [mc2, '22NC'], [mc1, 'A1'], [gl, 'X1']);
+    net('red', [pb2, '24'], [mc2, '14NO'], [mc1, '21NC']);
+    net('red', [mc1, '22NC'], [mc2, 'A1'], [yl, 'X1']);
+    return nets;
+  });
+  b.op(1000, 'PB1', 'press', tr('정회전', 'Forward'));
+  b.op(2000, 'PB2', 'press', tr('역 버튼 (인터록으로 무시)', 'Reverse button (ignored, interlock)'));
+  b.op(2000, 'PB0', 'press', tr('정지', 'Stop'));
+  b.op(2000, 'PB2', 'press', tr('역회전', 'Reverse'));
+  b.op(3000, 'PB0', 'press', tr('정지', 'Stop'));
+  const c = b.done();
+  c.system = '1p2w';
+  return c;
+}
+
 // ───────────────────── 계단 조명: 세 곳의 푸시버튼 + 임펄스 릴레이 ─────────────────────
 
 /**
@@ -2488,6 +2613,8 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'stair-impulse': 'home',
   'vfd-fwd-rev': 'motor',
   'water-supply': 'motor',
+  'motor-2speed': 'motor',
+  'motor1-rev': 'motor',
   'pid-learn': 'temp',
   'freezer-defrost': 'temp',
   'water-heater': 'temp',
@@ -2552,6 +2679,18 @@ export function circuitExamples(): CircuitExample[] {
       name: tr('인버터 정 · 역 운전 (다단속 · 가감속 · 고장 경보)', 'Inverter forward / reverse (preset speeds, ramps, fault alarm)'),
       desc: tr('3상 → 차단기 → 인버터 → 전동기. 셀렉터로 정 · 역회전과 저속 · 고속, 가감속 5초, 고장 릴레이 → 경보등', '3-phase → breaker → inverter → motor; selectors for direction and speed, 5 s ramps, fault relay → alarm lamp'),
       build: vfdFwdRev,
+    },
+    {
+      id: 'motor-2speed',
+      name: tr('2단 속도 전동기: 저속 · 고속 전환 (MPCB · 경광등)', 'Two-speed motor: low / high (MPCB, signal tower)'),
+      desc: tr('다알란더 전동기를 접촉기 3대로 저속 (Δ) · 고속 (YY). 버튼 b접점으로 바로 전환, 접촉기 인터록, 속도마다 모터 보호 차단기, 경광등 녹 · 황 · 적 + 부저', 'Dahlander motor on three contactors: low (delta) / high (double star); button and contactor interlocks, an MPCB per speed, signal tower'),
+      build: motor2Speed,
+    },
+    {
+      id: 'motor1-rev',
+      name: tr('단상 가역 모터: 정 · 역 운전 (콘덴서형 · 인터록)', 'Single-phase reversible motor: forward / reverse (interlocked)'),
+      desc: tr('기어드 모터 90 W: C → N, 정 접촉기 → A, 역 접촉기 → B. 접촉기 b접점 인터록, 정 · 역 표시등', 'Geared motor 90 W: C → N, forward contactor → A, reverse → B; NC interlocks and lamps'),
+      build: motor1Reverse,
     },
     {
       id: 'water-supply',

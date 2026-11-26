@@ -26,12 +26,14 @@ export const TOUCH_LIMIT = 50;
 export const BODY_LIMIT_MA = 30;
 
 /** 누전이 날 수 있는 기기 (충전부와 외함이 있는 부하) */
-export const FAULTABLE: ReadonlySet<PartType> = new Set(['r_motor3', 'r_motor6', 'motor3', 'motor', 'r_outlet', 'r_load1', 'r_load3', 'load', 'r_fan', 'r_light', 'r_smps', 'smps', 'r_sol', 'sol']);
+export const FAULTABLE: ReadonlySet<PartType> = new Set(['r_motor3', 'r_motor6', 'r_motor2s', 'r_motor1', 'motor3', 'motor', 'r_outlet', 'r_load1', 'r_load3', 'load', 'r_fan', 'r_light', 'r_smps', 'smps', 'r_sol', 'sol']);
 
 /** 기기가 평상시 접지로 흘리는 누설 전류 어림 (mA): 전동기 · 케이블의 정전 용량, SMPS 의 노이즈 필터 */
 export const LEAK_MA: Partial<Record<PartType, number>> = {
   r_motor3: 1,
   r_motor6: 1,
+  r_motor2s: 1,
+  r_motor1: 0.25,
   motor3: 1,
   motor: 0.5,
   r_outlet: 1,
@@ -64,7 +66,7 @@ export function livePins(p: Part): number[] {
 }
 
 /** 차단기 (과전류 · 누전) 인가 */
-export const isProtector = (p: Part) => p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'mcb' || p.type === 'mcb3';
+export const isProtector = (p: Part) => p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'r_mpcb' || p.type === 'mcb' || p.type === 'mcb3';
 
 /** 누전차단기 정격 감도 전류 (A) */
 export const idnOf = (p: Part) => (p.idn && p.idn > 0 ? p.idn : 30) / 1000;
