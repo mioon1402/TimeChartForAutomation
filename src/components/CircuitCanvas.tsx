@@ -137,6 +137,10 @@ export interface CanvasProps {
   onOperate: (tag: string, phase: 'down' | 'up', side?: -1 | 1) => void;
   /** 시뮬레이션 중 Shift+클릭: 기기의 누전 (절연 불량) 을 켜고 끈다 */
   onLeak?: (tag: string) => void;
+  /** 시뮬레이션 중 수조를 누름: 누른 높이 (%) 로 수위를 바꾼다 */
+  onLevel?: (tag: string, pct: number) => void;
+  /** 테스터 (시뮬레이션 중): 빨강 (+) · 검정 (−) 막대를 댄 점, 읽은 값, 누른 곳 (단자 · 선 끝으로 맞춤) */
+  tester?: { pts: [Pt | null, Pt | null]; text: string | null; onPick: (p: Pt) => void } | null;
   onCommit: (next: Circuit, mergeKey?: string, regen?: boolean) => void;
   onEndMerge: () => void;
   onEditPart: (p: Part) => void;
@@ -373,12 +377,37 @@ export function CircuitCanvas(props: CanvasProps) {
       setD({ kind: 'pan', sx: e.clientX, sy: e.clientY, left: el.scrollLeft, top: el.scrollTop });
       return;
     }
+    if (sim && props.tester) {
+      // 테스터: 가장 가까운 단자 · 선 끝에 막대를 댄다 (선 가운데를 누르면 그 선의 가까운 끝)
+      let best: Pt | null = null;
+      let bd = 1.2;
+      const near = (q: Pt) => {
+        const d = Math.hypot(q[0] - g[0], q[1] - g[1]);
+        if (d < bd) [best, bd] = [q, d];
+      };
+      for (const q of circuit.parts) if (q.type !== 'text' && q.type !== 'r_panel') pinPositions(q).forEach(near);
+      for (const w of circuit.wires) [w.a, w.b].forEach(near);
+      if (!best) {
+        const w = hitWire(g);
+        if (w) best = Math.hypot(w.a[0] - g[0], w.a[1] - g[1]) <= Math.hypot(w.b[0] - g[0], w.b[1] - g[1]) ? w.a : w.b;
+      }
+      if (best) props.tester.onPick(best);
+      return;
+    }
     if (sim) {
       const p = hitPart(g);
       // Shift+클릭: 누전이 날 수 있는 기기 (전동기 · 히터 · 콘센트 …) 의 절연 불량
       if (p && e.shiftKey && props.onLeak && model.faultDev.has(tagKey(p))) {
         props.onLeak(tagKey(p));
         return;
+      }
+      // 수조: 누른 높이로 수위를 바꾼다 (바닥 0% ~ 위 100%)
+      if (p && p.type === 'r_tank' && props.onLevel) {
+        const [, ly] = rotate(g[0] - p.x, g[1] - p.y, ((360 - p.rot) % 360) as Rot);
+        if (ly > -6) {
+          props.onLevel(tagKey(p), Math.round(Math.min(100, Math.max(0, ((6.3 - ly) / 12.2) * 100))));
+          return;
+        }
       }
       // HMI: 화면의 버튼 · 스위치 칸
       if (p && p.type === 'r_hmi') {
@@ -624,6 +653,37 @@ export function CircuitCanvas(props: CanvasProps) {
             </g>
           );
         })()}
+        {sim && props.tester && (
+          <g pointerEvents="none">
+            {props.tester.pts.map((q, k) =>
+              q ? (
+                <g key={k} transform={`translate(${q[0] * G},${q[1] * G}) scale(${labelScale})`}>
+                  <path d="M0,0L14,-22" stroke={k ? '#111827' : '#dc2626'} strokeWidth={4} strokeLinecap="round" />
+                  <circle r={6} fill="none" stroke={k ? '#111827' : '#dc2626'} strokeWidth={2.4} />
+                  <circle cx={17} cy={-27} r={8} fill={k ? '#111827' : '#dc2626'} />
+                  <text x={17} y={-23} textAnchor="middle" fontSize={12} fontWeight={800} fill="#fff">
+                    {k ? '−' : '+'}
+                  </text>
+                </g>
+              ) : null,
+            )}
+            {props.tester.text &&
+              (() => {
+                const at = props.tester.pts[1] ?? props.tester.pts[0];
+                if (!at) return null;
+                const text = props.tester.text;
+                const wd = text.length * 7.6 + 24;
+                return (
+                  <g transform={`translate(${at[0] * G + 30 * labelScale},${at[1] * G - 40 * labelScale}) scale(${labelScale})`}>
+                    <rect x={0} y={-16} width={wd} height={26} rx={6} fill="#111827" stroke="#facc15" strokeWidth={1.6} />
+                    <text x={12} y={2} fontSize={13} fontWeight={800} fill="#fde047" fontFamily="ui-monospace, monospace">
+                      {text}
+                    </text>
+                  </g>
+                );
+              })()}
+          </g>
+        )}
         {preview && <polyline points={preview.map((p) => `${p[0] * G},${p[1] * G}`).join(' ')} fill="none" stroke={c.accent} strokeWidth={2} strokeDasharray="5 4" />}
         {pinHot && hover && <circle cx={hover[0] * G} cy={hover[1] * G} r={6} fill="none" stroke={c.accent} strokeWidth={1.6} />}
         {pinName && hover && (

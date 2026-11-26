@@ -1,5 +1,5 @@
 import type { Part, WireColor } from '../circuit/types';
-import { BUS_PHASES, busSize, counterPreset, hmiCells, LAMP_HEX, plcAddresses, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, pidSetting, skValues, tempSetting, vfdSetting, timerText, tswSched } from '../circuit/parts';
+import { BUS_PHASES, busSize, counterPreset, hmiCells, LAMP_HEX, plcAddresses, solAc, MY_COLS, OCTAL_ROWS, octalLayout, panelSize, pos3Labels, schedOn, stripSize, tbSize, pidSetting, skValues, tankSetting, tempSetting, vfdSetting, timerText, tswSched } from '../circuit/parts';
 import { loadRating } from '../circuit/power';
 import { formatClock } from '../model/format';
 import { POLE_WIRE } from '../circuit/wires';
@@ -1079,6 +1079,121 @@ export function SkGlyph({ p, c }: { p: Part; c: CircuitColors }) {
       <Label x={0} y={7} text={`${ohm}Ω`} fill="#fde68a" size={8} weight={800} />
       <Label x={36} y={-22} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
       <SideNotes x={36} lines={[p.name, p.spec?.trim() || 'AC 250V']} c={c} />
+    </g>
+  );
+}
+
+/** 다이오드 (1N4007 꼴): 검은 몸통에 은색 띠 (K 쪽), 리드선 K · A 가 아래 단자로 */
+export function DiodeGlyph({ p, c }: { p: Part; c: CircuitColors }) {
+  return (
+    <g>
+      {[
+        [-1, 'K'],
+        [1, 'A'],
+      ].map(([k, t]) => (
+        <g key={t as string}>
+          <path d={`M${(k as number) * 18},0 H${(k as number) * 20} V40`} stroke="#64748b" strokeWidth={3.6} fill="none" />
+          <path d={`M${(k as number) * 18},0 H${(k as number) * 20} V40`} stroke="#e5e7eb" strokeWidth={2} fill="none" />
+          <Label x={(k as number) * 28} y={30} text={t as string} size={7.5} weight={800} fill={c.muted} />
+        </g>
+      ))}
+      <rect x={-16} y={-7} width={32} height={14} rx={3} fill="#111827" stroke="#030712" />
+      <rect x={-12} y={-7} width={5} height={14} fill="#cbd5e1" />
+      <Label x={0} y={-12} text={p.spec?.trim() || '1N4007'} size={7} weight={700} fill={c.muted} />
+      <Label x={30} y={-6} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={30} lines={[p.name]} c={c} />
+    </g>
+  );
+}
+
+/**
+ * 플로트리스 릴레이 (61F 꼴): 위 전극 단자 E1 · E2 · E3, 아래 전원 S1 · S2 와 출력 Tc · Ta · Tb.
+ * 앞면 램프: 전원 (초록), 동작 (빨강 = 내부 릴레이 켜짐, Ta 닫힘 · Tb 열림)
+ */
+export function FlrGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const top = [
+    [-40, 'E1'],
+    [0, 'E2'],
+    [40, 'E3'],
+  ] as const;
+  const bottom = [
+    [-80, 'S1', 'orange'],
+    [-40, 'S2', 'orange'],
+    [0, 'Tc', 'grey'],
+    [40, 'Ta', 'green'],
+    [80, 'Tb', 'yellow'],
+  ] as const;
+  const run = st.act;
+  return (
+    <g>
+      <rect x={-96} y={-116} width={192} height={232} rx={7} fill={BODY} stroke={BODY_EDGE} />
+      <rect x={-96} y={-116} width={192} height={44} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      <rect x={-96} y={72} width={192} height={44} rx={4} fill={BAND} stroke={BODY_EDGE} />
+      {top.map(([x, t]) => (
+        <g key={t}>
+          <Screw x={x} y={-100} ring="grey" />
+          <Label x={x} y={-80} text={t} size={8.5} weight={800} />
+        </g>
+      ))}
+      <Label x={-88} y={-80} text={tr('전극', 'ELEC')} anchor="start" fill="#64748b" size={7} weight={700} />
+      {bottom.map(([x, t, ring]) => (
+        <g key={t}>
+          <Screw x={x} y={100} ring={ring} />
+          <Label x={x} y={86} text={t} size={8.5} weight={800} />
+        </g>
+      ))}
+      <rect x={-70} y={-62} width={140} height={124} rx={5} fill="#f8fafc" stroke="#94a3b8" />
+      <Label x={0} y={-42} text="FLOATLESS" size={10} weight={800} fill="#1f2937" />
+      <Label x={0} y={-28} text={tr('수위 릴레이', 'LEVEL RELAY')} size={8} weight={700} fill="#475569" />
+      <Label x={0} y={-14} text={p.spec?.trim() || 'AC 220V'} size={7.5} fill="#64748b" />
+      <circle cx={-34} cy={14} r={6} fill={st.on ? '#22c55e' : '#cbd5e1'} stroke="#64748b" />
+      <Label x={-34} y={32} text="POWER" size={6.5} weight={700} fill="#64748b" />
+      <circle cx={34} cy={14} r={6} fill={run ? '#ef4444' : '#cbd5e1'} stroke="#64748b" />
+      <Label x={34} y={32} text={tr('동작', 'RUN')} size={6.5} weight={700} fill="#64748b" />
+      <Label x={0} y={52} text={run ? 'Tc-Ta' : 'Tc-Tb'} size={8} weight={800} fill={run ? '#b91c1c' : '#475569'} />
+      <Label x={104} y={-100} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      {p.name && <Label x={104} y={-87} text={p.name} anchor="start" size={9} weight={500} fill={c.muted} />}
+    </g>
+  );
+}
+
+/**
+ * 수조 + 전극봉: 위 전극 유지기의 단자 E1 · E2 · E3, 전극봉은 높이 (%) 까지 내려온다 (E1 가장 짧음, E3 가장 김).
+ * 물은 지금 수위만큼 채워 그리고, 잠긴 전극 끝은 파랗게. 시뮬레이션 중 수조를 누르면 수위를 바꾼다
+ */
+export function TankGlyph({ p, st, c }: { p: Part; st: PartState; c: CircuitColors }) {
+  const s = tankSetting(p);
+  const lv = Math.min(100, Math.max(0, st.level ?? s.lv0));
+  const bot = 126;
+  const span = 244;
+  const y = (pct: number) => bot - (span * pct) / 100;
+  const water = y(lv);
+  return (
+    <g>
+      <rect x={-112} y={-122} width={224} height={254} rx={6} fill={c.bg} stroke="#64748b" strokeWidth={3} />
+      <rect x={-109} y={water} width={218} height={Math.max(0, bot - water + 3)} fill="#7dd3fc" fillOpacity={0.55} />
+      <path d={`M-109,${water}H109`} stroke="#0284c7" strokeWidth={1.6} />
+      {[25, 50, 75].map((m) => (
+        <path key={m} d={`M-112,${y(m)}h10`} stroke="#94a3b8" strokeWidth={1.2} />
+      ))}
+      <rect x={-62} y={-152} width={124} height={26} rx={4} fill="#374151" stroke="#111827" />
+      {(['E1', 'E2', 'E3'] as const).map((t, k) => {
+        const x = -40 + 40 * k;
+        const tip = y(s.e[k]);
+        const wet = lv >= s.e[k] - 1e-6;
+        return (
+          <g key={t}>
+            <path d={`M${x},-126V${tip}`} stroke="#9ca3af" strokeWidth={5} />
+            <path d={`M${x},-126V${tip}`} stroke="#e5e7eb" strokeWidth={2.4} />
+            <circle cx={x} cy={tip} r={4.5} fill={wet ? '#0284c7' : '#cbd5e1'} stroke="#475569" strokeWidth={1} />
+            <Screw x={x} y={-140} ring="grey" />
+            <Label x={x + 9} y={tip + 4} text={`${t} ${s.e[k]}%`} anchor="start" size={7.5} weight={700} fill="#334155" />
+          </g>
+        );
+      })}
+      <Label x={-100} y={bot - 8} text={`${Math.round(lv * 10) / 10}%`} anchor="start" size={14} weight={800} fill="#0369a1" />
+      <Label x={120} y={-140} text={p.tag} anchor="start" size={11} weight={800} fill={c.ink} />
+      <SideNotes x={120} lines={[p.name, p.fillTag?.trim() ? `${tr('급수', 'fill')} ${p.fillTag.trim()} +${s.fill}%/s` : '', p.drainTag?.trim() ? `${tr('배수', 'drain')} ${p.drainTag.trim()} -${s.drain}%/s` : '', s.use ? `${tr('사용', 'use')} -${s.use}%/s` : '']} c={c} />
     </g>
   );
 }

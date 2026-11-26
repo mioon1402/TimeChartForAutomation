@@ -226,6 +226,7 @@ const DEFAULT_W: Partial<Record<PartType, number>> = {
   timer: 3,
   r_relay8: 3,
   r_imp: 3,
+  r_flr: 3,
   imp: 3,
   r_timer8: 3,
   r_my2: 2,

@@ -1645,6 +1645,64 @@ function vfdFwdRev(): Circuit {
   return c;
 }
 
+// ───────────────────── 급수 펌프: 플로트리스 릴레이 + 수조 전극봉 ─────────────────────
+
+/**
+ * 물탱크 급수: 수조 전극봉 E1 (상한 80%) · E2 (하한 40%) · E3 (공통) → 플로트리스 릴레이 FLR1.
+ * 물이 E2 아래면 FLR1 이 꺼져 Tc-Tb 가 닫힘 → 자동 운전 SS1 → THR 95-96 → MC1 코일 → 펌프 M1 운전 (초당 5% 급수).
+ * 물이 E1 에 닿으면 FLR1 이 켜져 펌프 정지, E2 아래로 내려갈 때까지 유지 (그동안 초당 1% 사용). 만수등 GL1 = Tc-Ta, 운전등 RL1 = MC1 13-14
+ */
+function waterSupply(): Circuit {
+  const b = new Builder();
+  const T = (pole: 'L1' | 'L2' | 'L3' | 'N' | 'PE', x: number) => b.part('r_term', x, 0, '', { pole });
+  const [t1, t2, t3, tN, tPE] = [T('L1', 2), T('L2', 4), T('L3', 6), T('N', 8), T('PE', 10)];
+  const mccb = b.part('r_mcb3', 4, 6, 'MCCB', { name: tr('펌프 전원', 'Pump supply'), amps: 15 });
+  const f1 = b.part('r_fuse', 14, 6, 'F1', { name: tr('조작 회로', 'Control'), amps: 2 });
+  const mc = b.part('r_mc', 5, 20, 'MC1', { name: tr('펌프 운전', 'Pump run'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  const thr = b.part('r_thr', 4, 34, 'THR1', { name: tr('과부하', 'Overload') });
+  const m1 = b.part('r_motor3', 4, 46, 'M1', { name: tr('급수 펌프', 'Feed pump'), spec: 'AC 380V 2.2kW' });
+  const ss = b.part('r_ss', 22, 8, 'SS1', { name: tr('자동 운전', 'Auto run') });
+  const flr = b.part('r_flr', 26, 22, 'FLR1', { name: tr('수위 제어', 'Level control') });
+  const rl = b.part('r_lamp', 36, 10, 'RL1', { name: tr('펌프 운전', 'Pump running'), color: 'red' });
+  const gl = b.part('r_lamp', 42, 10, 'GL1', { name: tr('만수', 'Tank full'), color: 'green' });
+  const tank = b.part('r_tank', 44, 32, 'TANK1', { name: tr('물탱크', 'Water tank'), fillTag: 'M1', fillRate: 5, useRate: 1, lv0: 45 });
+  b.part('text', 0, -5, '', { text: tr('급수 펌프 자동 운전: 수조 전극봉 → 플로트리스 릴레이 → 물이 E2 (40%) 아래면 펌프 운전, E1 (80%) 에 닿으면 정지', 'Automatic feed pump: tank electrodes → floatless relay → pump runs below E2 (40%), stops at E1 (80%)') });
+  routeNets(b, 'water-supply', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [t1, ''], [mccb, '1']);
+    net('black', [t2, ''], [mccb, '3']);
+    net('grey', [t3, ''], [mccb, '5']);
+    net('brown', [mccb, '2'], [mc, '1/L1'], [f1, '1']);
+    net('black', [mccb, '4'], [mc, '3/L2']);
+    net('grey', [mccb, '6'], [mc, '5/L3']);
+    net('brown', [mc, '2/T1'], [thr, '1/L1']);
+    net('black', [mc, '4/T2'], [thr, '3/L2']);
+    net('grey', [mc, '6/T3'], [thr, '5/L3']);
+    net('brown', [thr, '2/T1'], [m1, 'U']);
+    net('black', [thr, '4/T2'], [m1, 'V']);
+    net('grey', [thr, '6/T3'], [m1, 'W']);
+    // 조작: F1 → FLR 전원 S1 · 출력 공통 Tc · MC1 보조 13, Tb (물이 적음) → SS1 → THR 95-96 → MC1 코일
+    net('red', [f1, '2'], [flr, 'S1'], [flr, 'Tc'], [mc, '13NO']);
+    net('red', [flr, 'Tb'], [ss, '23']);
+    net('red', [ss, '24'], [thr, '95']);
+    net('red', [thr, '96'], [mc, 'A1']);
+    net('red', [mc, '14NO'], [rl, 'X1']);
+    net('red', [flr, 'Ta'], [gl, 'X1']);
+    net('blue', [tN, ''], [mc, 'A2'], [flr, 'S2'], [rl, 'X2'], [gl, 'X2']);
+    net('gy', [tPE, ''], [m1, 'PE']);
+    // 전극봉: 같은 이름 단자끼리
+    net('white', [flr, 'E1'], [tank, 'E1']);
+    net('white', [flr, 'E2'], [tank, 'E2']);
+    net('white', [flr, 'E3'], [tank, 'E3']);
+    return nets;
+  });
+  b.op(1000, 'SS1', 'on', tr('자동 운전', 'Auto run'));
+  const c = b.done();
+  c.duration = 70000;
+  return c;
+}
+
 // ───────────────────── 계단 조명: 세 곳의 푸시버튼 + 임펄스 릴레이 ─────────────────────
 
 /**
@@ -1746,6 +1804,62 @@ function ovenPid(): Circuit {
     { id: uid('op'), wait: 10000, tag: 'SS1', action: 'on', hold: 0, note: tr('운전', 'Run') },
     { id: uid('op'), wait: 40 * 60000 - 10000, tag: 'TK1', action: 'temp', value: 160, hold: 120000, note: tr('조절기 고장 가정: 160℃ 까지', 'Assume a controller fault: up to 160℃') },
   ];
+  return c;
+}
+
+// ───────────────────── PID 배우기: 같은 오븐 4대를 ON/OFF · P · PI · PID 로 ─────────────────────
+
+/**
+ * 같은 오븐 4대 (히터 500 W, 데울 때 초당 0.2℃ · 식을 때 0.05℃, 열이 센서까지 30초 지연) 를 설정 100℃ 로 제어해 차트로 비교한다.
+ *  ① ON/OFF (히스테리시스 2℃): 끄고 나서도 30초 동안 계속 올라 106℃ 까지 넘치고 96.5~106℃ 로 계속 흔들림
+ *  ② P 만 (비례대 10℃): 흔들림은 잦아들지만 98℃ 근처에서 멈춤 (잔류 편차: 100℃ 를 지키려면 MV 20% 가 필요한데 P 는 편차가 있어야만 출력을 냄)
+ *  ③ PI (P 10℃ · I 180초): 적분이 편차를 없애 100℃ 에 맞지만 처음 · 문을 연 뒤 넘침이 큼
+ *  ④ PID (P 10℃ · I 180초 · D 20초): 빨리 오를 때 미리 줄여 (D) 넘침이 작다
+ * 20분에 네 오븐의 문을 열어 80℃ 로 떨어뜨려 (외란) 되돌아오는 모양도 본다. 조절기는 릴레이 출력으로 작은 히터를 바로 켠다
+ */
+function pidLearn(): Circuit {
+  const b = new Builder();
+  const tL = b.part('r_term', 0, 0, '', { pole: 'L' });
+  const tN = b.part('r_term', 2, 0, '', { pole: 'N' });
+  const cb = b.part('r_mcb2', 1, 8, 'CB1', { name: tr('오븐 전원', 'Oven supply'), spec: 'AC 220V 15A', amps: 15 });
+  const plant = { amb: 20, tmax: 200, rise: 0.2, fall: 0.05, lag: 30 };
+  const cases: { label: string; title: string; set: Partial<Part>; why: string }[] = [
+    { label: tr('① ON/OFF', '① ON/OFF'), title: 'ON/OFF', set: { ctrl: 'onoff', hys: 2 }, why: tr('넘침 · 흔들림', 'overshoot, hunting') },
+    { label: tr('② P 만', '② P only'), title: 'P', set: { pb: 10, ti: 0, td: 0 }, why: tr('잔류 편차 (98℃)', 'offset (98℃)') },
+    { label: tr('③ PI', '③ PI'), title: 'PI', set: { pb: 10, ti: 180, td: 0 }, why: tr('편차 0, 넘침 큼', 'no offset, big overshoot') },
+    { label: tr('④ PID', '④ PID'), title: 'PID', set: { pb: 10, ti: 180, td: 20 }, why: tr('넘침 작음', 'small overshoot') },
+  ];
+  const cols = cases.map((k, i) => {
+    const x = 14 + i * 26;
+    const n = i + 1;
+    const tk = b.part('r_tk4', x, 16, `TK${n}`, { name: `${k.label} ${tr('오븐', 'oven')}`, spec: 'TK4S-T4RN', sv: 100, zone: k.label, tLoad: `HT${n}`, ...plant, ...k.set });
+    const pt = b.part('r_rtd', x + 3, 0, `PT${n}`, { name: 'Pt100' });
+    const ht = b.part('r_load1', x - 2, 32, `HT${n}`, { name: tr('히터 500 W', 'Heater 500 W'), watt: 500, pf: 1 });
+    b.part('text', x - 6, -10, '', { text: `${k.label}: ${k.why}` });
+    return { tk, pt, ht };
+  });
+  b.part('text', 0, -16, '', { text: tr('PID 배우기: 같은 오븐 4대 (설정 100℃, 열이 센서까지 30초 지연) 를 ON/OFF · P · PI · PID 로 제어해 비교. 20분에 문을 열어 80℃ 로 (외란)', 'Learn PID: four identical ovens (set 100℃, 30 s dead time) under ON/OFF, P, PI and PID. At 20 min the doors are opened (drop to 80℃)') });
+  b.part('text', 0, -14, '', { text: tr('▶ 조절기를 골라 [속성] 의 P · I · D 를 바꾸고 다시 돌려 보세요 (P 를 줄이면 빨라지지만 흔들림, I 를 줄이면 편차가 빨리 없어지지만 넘침, D 는 넘침을 줄임)', '▶ Pick a controller and change P, I, D in Properties: smaller P is faster but swings, shorter I removes the offset faster but overshoots, D brakes the overshoot') });
+  routeNets(b, 'pid-learn', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [tL, ''], [cb, '1']);
+    net('blue', [tN, ''], [cb, '3']);
+    // 조절기 전원 L · N 과 출력 공통 C1 은 차단기 뒤에서, OUT1 → 히터 L, 히터 N → N
+    net('brown', [cb, '2'], ...cols.flatMap(({ tk }): NetPin[] => [[tk, 'L'], [tk, 'C1']]));
+    net('blue', [cb, '4'], ...cols.flatMap(({ tk, ht }): NetPin[] => [[tk, 'N'], [ht, 'N']]));
+    for (const { tk, pt, ht } of cols) {
+      net('black', [tk, 'OUT1'], [ht, 'L']);
+      net('red', [pt, 'A'], [tk, 'A']);
+      net('white', [pt, 'B'], [tk, 'B']);
+      net('white', [pt, "B'"], [tk, "B'"]);
+    }
+    return nets;
+  });
+  const c = b.done();
+  c.system = '1p2w';
+  c.duration = 40 * 60000;
+  c.ops = cols.map((_, i) => ({ id: uid('op'), wait: i ? 0 : 20 * 60000, tag: `TK${i + 1}`, action: 'temp' as const, value: 80, hold: 0, ...(i ? {} : { note: tr('문 열림 (80℃ 로)', 'Doors opened (to 80℃)') }) }));
   return c;
 }
 
@@ -2165,6 +2279,8 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'oven-pid': 'panel',
   'stair-impulse': 'home',
   'vfd-fwd-rev': 'motor',
+  'water-supply': 'motor',
+  'pid-learn': 'panel',
 };
 
 export interface CircuitExample {
@@ -2226,10 +2342,22 @@ export function circuitExamples(): CircuitExample[] {
       build: vfdFwdRev,
     },
     {
+      id: 'water-supply',
+      name: tr('급수 펌프: 플로트리스 릴레이 (전극봉 수위 자동)', 'Feed pump: floatless relay (electrode level control)'),
+      desc: tr('물탱크 전극봉 E1 · E2 · E3 → 플로트리스 릴레이 → 하한 아래면 펌프 운전 · 상한에서 정지, 만수등 · 운전등. 수위가 타임차트에 % 로', 'Tank electrodes → floatless relay → pump runs below the low electrode and stops at the high one; level shown in % on the chart'),
+      build: waterSupply,
+    },
+    {
       id: 'stair-impulse',
       name: tr('계단 조명: 세 곳에서 켜고 끄기 (임펄스 릴레이)', 'Stair lighting from three places (impulse relay)'),
       desc: tr('푸시버튼 3개를 나란히 임펄스 릴레이 코일에, 누를 때마다 전등이 켜짐 ↔ 꺼짐', 'Three push buttons in parallel on an impulse relay; each press toggles the lamp'),
       build: stairImpulse,
+    },
+    {
+      id: 'pid-learn',
+      name: tr('PID 배우기: 같은 오븐 4대를 ON/OFF · P · PI · PID 로 비교', 'Learn PID: four identical ovens under ON/OFF, P, PI and PID'),
+      desc: tr('설정 100℃, 열이 센서까지 30초 지연. ON/OFF 의 넘침 · 흔들림, P 의 잔류 편차, PI 의 넘침, PID 의 D 효과를 한 차트에서. 20분에 문 열림 (외란)', 'Set 100℃, 30 s dead time: ON/OFF overshoot and hunting, P offset, PI overshoot and the effect of D on one chart; doors opened at 20 min'),
+      build: pidLearn,
     },
     {
       id: 'oven-pid',

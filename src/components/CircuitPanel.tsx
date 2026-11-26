@@ -10,7 +10,7 @@ import { BODY_OHM, earthingOf, earthStudy, ZLOOP_TN, type EarthRow } from '../ci
 import { DEFAULT_PRICE, energyUse } from '../circuit/energy';
 import { contactNumbers, parseTerm, termChoices } from '../circuit/contacts';
 import { changeSocketLayout } from '../circuit/socket';
-import { busSize, circuitWires, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempCtrl, isTempDevice, pidSetting, skLeakMa, skValues, tempSetting, vfdSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
+import { busSize, circuitWires, pinPositions, POLE_SYSTEM, REAL, counterPreset, HMI_MAX, hmiTag, isPlcPart, isTempCtrl, isTempDevice, pidSetting, skLeakMa, skValues, tankSetting, tempSetting, vfdSetting, DEFAULT_SCHED, FOLLOWER, LAMP_PREFIX, lampColorName, nextTag, octalLayout, opActionLabel, palette, PARTS, partBox, partKindName, pos3Labels, PROX_TYPES, SOL_TYPES, tswSched, plcAddresses, plcBases, VALVES, type OctalLayout, type PaletteItem } from '../circuit/parts';
 import type { PlcDialect } from '../plc/types';
 import { dialectName } from '../plc/program';
 import { airDriven, CircuitModel, CircuitSim, normTag, runScenario, tagKey, type OpEvent, type ScenarioResult } from '../circuit/engine';
@@ -122,6 +122,10 @@ function actionsToOps(actions: OpEvent[], model: CircuitModel): OpStep[] {
       op.action = 'temp';
       op.value = a.temp;
       op.hold = 0;
+    } else if (a.level !== undefined) {
+      op.action = 'level';
+      op.value = a.level;
+      op.hold = 0;
     } else if (a.pos !== undefined) op.action = a.pos < 0 ? 'left' : a.pos > 0 ? 'right' : 'off';
     else if (momentary) {
       const up = actions.slice(i + 1).find((b) => b.tag === a.tag && !b.on);
@@ -163,6 +167,14 @@ export function CircuitPanel() {
   };
   const runRef = useRef<Running | null>(null);
   const [running, setRunning] = useState(false);
+  // 테스터 (시뮬레이션 중): 빨강 (+) · 검정 (−) 막대를 댄 점
+  const [tester, setTester] = useState(false);
+  const [probes, setProbes] = useState<[[number, number] | null, [number, number] | null]>([null, null]);
+  useEffect(() => {
+    if (running) return;
+    setTester(false);
+    setProbes([null, null]);
+  }, [running]);
   const [, setTick] = useState(0);
   const [liveTick, setLiveTick] = useState(0);
   const [showPreview, setShowPreview] = useState(true);
@@ -317,6 +329,16 @@ export function CircuitPanel() {
     if (phase === 'down') v = momentary ? true : !r.sim.on(tag);
     else if (momentary) v = false;
     if (v !== null && r.sim.setAct(tag, v)) r.actions.push({ t, tag, on: v });
+    setTick((x) => x + 1);
+  };
+
+  /** 시뮬레이션 중 수조를 누름: 그 높이로 수위를 바꾼다 */
+  const onLevel = (tag: string, pct: number) => {
+    const r = runRef.current;
+    if (!r) return;
+    const t = simTime(performance.now());
+    r.sim.advanceTo(t);
+    if (r.sim.changeLevel(tag, pct)) r.actions.push({ t, tag, on: false, level: pct });
     setTick((x) => x + 1);
   };
 
@@ -488,7 +510,7 @@ export function CircuitPanel() {
   const powerErrs = analysis.issues.filter((i) => i.level === 'error').length;
   const liveRef = useRef<{ pm: PowerModel; sig: string; st: PowerState } | null>(null);
   let livePower: PowerState | null = null;
-  if (running && runRef.current && powerModel.loads.length) {
+  if (running && runRef.current && (powerModel.loads.length || tester)) {
     const sim = runRef.current.sim;
     const sig = powerModel.signature(sim) + (sim.shorted ? '!' : '');
     if (!liveRef.current || liveRef.current.pm !== powerModel || liveRef.current.sig !== sig) liveRef.current = { pm: powerModel, sig, st: powerModel.solve(sim) };
@@ -550,6 +572,33 @@ export function CircuitPanel() {
   };
   const errCount = issues.filter((i) => i.level === 'error').length;
   const r = runRef.current;
+  // 테스터: 두 막대 사이 전압 (그 순간의 전기 해석), 막대가 닿은 극
+  const testerText = (() => {
+    if (!tester || !running || !r) return null;
+    const [a, b] = probes;
+    if (!a || !b) return null;
+    if (r.sim.shorted) return tr('단락 중 — 잴 수 없음', 'short circuit');
+    const netAt = (q: [number, number]): number | undefined => {
+      for (const p of circuit.parts) {
+        const i = pinPositions(p).findIndex((x) => x[0] === q[0] && x[1] === q[1]);
+        if (i >= 0 && p.type !== 'text') return model.net.pinNet.get(`${p.id}:${i}`);
+      }
+      const w = allWires.find((x) => (x.a[0] === q[0] && x.a[1] === q[1]) || (x.b[0] === q[0] && x.b[1] === q[1]));
+      return w ? model.net.wireNet.get(w.id) : undefined;
+    };
+    const poles = [a, b].map((q) => {
+      const n = netAt(q);
+      const pole = n === undefined ? null : r.sim.netPole[n];
+      return pole && pole !== 'short' ? pole : null;
+    });
+    const v = livePower?.voltBetween(a, b) ?? null;
+    if (v === null) return '—';
+    const sys = poles.map((x) => (x ? POLE_SYSTEM[x] : null));
+    const kind = sys.includes('dc') ? 'DC ' : sys.includes('ac') || sys.includes('hv') ? 'AC ' : '';
+    const num = v < 0.05 ? '0' : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+    const at = poles.some(Boolean) ? `  (${poles.map((x) => x ?? '—').join(' ↔ ')})` : '';
+    return `${kind}${num} V${at}`;
+  })();
 
   return (
     <div className="circuit">
@@ -631,6 +680,18 @@ export function CircuitPanel() {
             )}
             {powerModel.loads.length > 0 && <Check checked={showAmps} onChange={setShowAmps} label={tr('전류 표시', 'Show currents')} />}
             {r?.sim.shorted && <span className="chip danger">{tr('단락!', 'Short!')}</span>}
+            <button
+              type="button"
+              className={`btn small ${tester ? 'primary' : ''}`}
+              onClick={() => {
+                setTester(!tester);
+                setProbes([null, null]);
+              }}
+              title={tr('테스터: 두 곳 (단자 · 선 끝) 을 눌러 그 사이 전압을 잽니다. 첫 번째 = 빨강 (+), 두 번째 = 검정 (−), 그다음부터는 빨강만 옮깁니다', 'Tester: click two points (terminals or wire ends) to read the voltage between them; first = red (+), second = black (−), later clicks move the red probe')}
+            >
+              <Icon name="ruleCheck" size={13} /> {tr('테스터', 'Tester')}
+            </button>
+            {tester && <span className="chip">{testerText ?? (probes[0] ? tr('검정 (−) 막대를 댈 곳을 누르세요', 'Click for the black (−) probe') : tr('빨강 (+) 막대를 댈 곳을 누르세요', 'Click for the red (+) probe'))}</span>}
           </>
         ) : (
           <button type="button" className="btn small primary" onClick={startSim} data-tour="cc-run" title={tr('버튼·스위치를 마우스로 눌러 회로를 움직여 봅니다', 'Run and click buttons')}>
@@ -640,7 +701,9 @@ export function CircuitPanel() {
         <span className="grow" />
         <span className="cc-hint muted small">
           {running
-            ? tr('버튼을 누르고 있으면 ON, 스위치·차단기·THR 은 누를 때마다 바뀝니다. 전동기 · 히터 · 콘센트를 Shift+클릭하면 누전. 끝나면 [정지]', 'Hold push buttons; click switches, breakers and THR to toggle; Shift+click a motor, heater or outlet for an earth fault')
+            ? tester
+              ? tr('테스터: 단자 · 선 끝을 누르면 막대를 댑니다 (첫 번째 빨강 +, 두 번째 검정 −, 그다음은 빨강만 옮김). 다시 [테스터] 를 누르면 끔', 'Tester: click terminals or wire ends (first red +, second black −, then the red probe moves). Click [Tester] again to stop')
+              : tr('버튼을 누르고 있으면 ON, 스위치·차단기·THR 은 누를 때마다 바뀝니다. 수조는 누른 높이로 수위가 바뀝니다. 전동기 · 히터 · 콘센트를 Shift+클릭하면 누전. [테스터] 로 두 곳 전압. 끝나면 [정지]', 'Hold push buttons; click switches, breakers and THR to toggle; click a tank to set its level; Shift+click a motor, heater or outlet for an earth fault; [Tester] reads a voltage')
             : placing
               ? tr('그림판을 누르면 놓입니다 (Shift: 계속 놓기, Esc: 취소)', 'Click to place (Shift: keep placing, Esc: cancel)')
               : tr('단자를 끌면 선, 몸통을 끌면 이동 · R 회전 · Del 삭제 · Ctrl+C/V · 두 번 누르면 기호', 'Drag a terminal to wire, the body to move · R rotate · Del')}
@@ -675,6 +738,8 @@ export function CircuitPanel() {
           sim={running ? r?.sim ?? null : null}
           onOperate={onOperate}
           onLeak={onLeak}
+          onLevel={onLevel}
+          tester={running && tester ? { pts: probes, text: testerText, onPick: (q) => setProbes(([a, b]) => (!a ? [q, null] : !b ? [a, q] : [q, b])) } : null}
           onCommit={commitCircuit}
           onEndMerge={endMerge}
           onEditPart={(p) => void editTag(p)}
@@ -1079,6 +1144,7 @@ function PropsPane({
           {(p.type === 'no' || p.type === 'nc') && <ContactTerm p={p} circuit={circuit} model={model} set={set} onCircuit={setCircuit} />}
           {(p.type === 'sk' || p.type === 'r_sk') && <SkProps p={p} set={set} />}
           {p.type === 'r_vfd' && <VfdProps p={p} set={set} />}
+          {p.type === 'r_tank' && <TankProps p={p} set={set} />}
           {(p.type === 'timer' || p.type === 'r_timer8') && (
             <div className="grid2">
               <Field label={tr('동작', 'Mode')}>
@@ -2126,6 +2192,51 @@ function VfdProps({ p, set }: { p: Part; set: (patch: Partial<Part>) => void }) 
 }
 
 /** 스파크 킬러: 정전 용량 · 저항, 220 V 에서 흐르는 전류 (접점 양단에 달면 이만큼 샌다) */
+function TankProps({ p, set }: { p: Part; set: (patch: Partial<Part>) => void }) {
+  const s = tankSetting(p);
+  const pct = (v: number | undefined) => (v === undefined ? undefined : Math.min(100, Math.max(0, v)));
+  return (
+    <>
+      <div className="grid2">
+        <Field label={tr('처음 수위 (%)', 'Start level (%)')}>
+          <NumberInput value={s.lv0} min={0} max={100} step={5} onChange={(v) => set({ lv0: pct(v) })} />
+        </Field>
+        <Field label={tr('늘 쓰는 양 (%/s)', 'Constant use (%/s)')} hint={tr('물을 쓰는 속도 (0 = 안 씀)', 'water drawn all the time (0 = none)')}>
+          <NumberInput value={s.use} min={0} max={100} step={0.5} onChange={(v) => set({ useRate: v ? pct(v) : undefined })} />
+        </Field>
+        <Field label={tr('E1 상한 전극 (%)', 'E1 high electrode (%)')} hint={tr('가장 짧은 전극', 'shortest')}>
+          <NumberInput value={s.e[0]} min={0} max={100} step={5} onChange={(v) => set({ e1: pct(v) })} />
+        </Field>
+        <Field label={tr('E2 하한 전극 (%)', 'E2 low electrode (%)')}>
+          <NumberInput value={s.e[1]} min={0} max={100} step={5} onChange={(v) => set({ e2: pct(v) })} />
+        </Field>
+        <Field label={tr('E3 공통 전극 (%)', 'E3 common electrode (%)')} hint={tr('가장 긴 전극 (접지)', 'longest (earthed)')}>
+          <NumberInput value={s.e[2]} min={0} max={100} step={5} onChange={(v) => set({ e3: pct(v) })} />
+        </Field>
+        <span />
+        <Field label={tr('급수 기기 기호', 'Fill device tag')} hint={tr('켜져 있는 동안 수위가 오름 (펌프 M1 · 밸브 SOL1)', 'raises the level while on (pump, valve)')}>
+          <TagInput value={p.fillTag ?? ''} onChange={(v) => set({ fillTag: v || undefined })} placeholder="M1" />
+        </Field>
+        <Field label={tr('급수 속도 (%/s)', 'Fill rate (%/s)')}>
+          <NumberInput value={s.fill} min={0} max={100} step={0.5} onChange={(v) => set({ fillRate: pct(v) })} />
+        </Field>
+        <Field label={tr('배수 기기 기호', 'Drain device tag')} hint={tr('켜져 있는 동안 수위가 내림 (배수 펌프)', 'lowers the level while on (drain pump)')}>
+          <TagInput value={p.drainTag ?? ''} onChange={(v) => set({ drainTag: v || undefined })} placeholder="M2" />
+        </Field>
+        <Field label={tr('배수 속도 (%/s)', 'Drain rate (%/s)')}>
+          <NumberInput value={s.drain} min={0} max={100} step={0.5} onChange={(v) => set({ drainRate: pct(v) })} />
+        </Field>
+      </div>
+      <p className="small muted">
+        {tr(
+          '전극봉 E1 · E2 · E3 을 플로트리스 릴레이의 같은 이름 단자에 잇습니다. 물에 잠긴 전극끼리 통해서, 릴레이는 E1 에 닿으면 켜지고 E2 아래로 내려가면 꺼집니다 (급수는 Tb, 배수는 Ta 로 펌프). 시뮬레이션 중 수조를 누르면 누른 높이로 수위가 바뀌고, 조작 순서의 [수위 →] 로도 바꿉니다.',
+          'Wire E1, E2, E3 to the same-named terminals of the floatless relay. Submerged electrodes conduct: the relay picks up at E1 and drops below E2 (pump on Tb for filling, Ta for draining). Click the tank while simulating to set the level there, or use [Level →] in the sequence.',
+        )}
+      </p>
+    </>
+  );
+}
+
 function SkProps({ p, set }: { p: Part; set: (patch: Partial<Part>) => void }) {
   const { uf, ohm } = skValues(p);
   const ma = skLeakMa(p, 220);
@@ -2292,6 +2403,9 @@ function TempProps({ p, circuit, set }: { p: Part; circuit: Circuit; set: (patch
             <Field label={tr('내리는 속도 (℃/초)', 'Fall (℃/s)')}>
               <NumberInput value={p.fall ?? 0.5} min={0.001} max={1000} step={0.1} onChange={(v) => v !== undefined && set({ fall: v })} />
             </Field>
+            <Field label={tr('지연 시간 (초)', 'Dead time (s)')} hint={tr('히터를 켜고 끈 뒤 센서 온도가 바뀌기 시작할 때까지 (열이 퍼지는 시간). 있으면 ON/OFF 제어가 설정을 넘칩니다', 'Time before the sensor feels a heater change. With it, ON/OFF control overshoots')}>
+              <NumberInput value={p.lag} allowEmpty placeholder="0" min={0} max={3600} step={1} onChange={(v) => set({ lag: v && v > 0 ? v : undefined })} />
+            </Field>
           </>
         )}
         <Field label={tr('온도 묶음 이름', 'Zone name')} hint={tr('같은 이름의 온도 기기는 같은 온도를 잽니다 (예: 판넬). 비우면 이 기기만', 'Devices with the same name read the same temperature')}>
@@ -2307,18 +2421,24 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
   const devices = model.operable().map((t) => {
     const p = model.mainPart.get(t)!;
     const name = model.hmiDef.get(t) ? `HMI ${model.hmiDef.get(t)!.label}` : circuit.parts.find((q) => tagKey(q) === t && q.name)?.name;
-    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: model.momentary(t), sel3: p.type === 'r_ss3' ? p : undefined, temp: model.tagKind.get(t) === 'temp' ? p : undefined, leak: false };
+    return { value: model.label(t), label: `${model.label(t)}${name ? `  ${name}` : ''}`, momentary: model.momentary(t), sel3: p.type === 'r_ss3' ? p : undefined, temp: model.tagKind.get(t) === 'temp' ? p : undefined, leak: false, tank: false };
   });
+  // 수조: 동작은 수위 하나
+  for (const [t, d] of model.tankDef) devices.push({ value: model.label(t), label: `${model.label(t)}  ${d.part.name ?? ''} · ${tr('수위', 'level')}`, momentary: false, sel3: undefined, temp: undefined, leak: false, tank: true });
   // 누전을 일으킬 수 있는 기기 (전동기 · 히터 · 콘센트 …): 동작은 누전 하나
   for (const [t, d] of model.faultDev) {
     if (devices.some((x) => normTag(x.value) === t)) continue;
-    devices.push({ value: model.label(t), label: `${model.label(t)}  ${d.part.name ?? ''} · ${tr('누전', 'fault')}`, momentary: false, sel3: undefined, temp: undefined, leak: true });
+    devices.push({ value: model.label(t), label: `${model.label(t)}  ${d.part.name ?? ''} · ${tr('누전', 'fault')}`, momentary: false, sel3: undefined, temp: undefined, leak: true, tank: false });
   }
   const setOps = (next: OpStep[]) => onChange({ ...circuit, ops: next });
   const setOp = (i: number, patch: Partial<OpStep>) => setOps(ops.map((o, k) => (k === i ? { ...o, ...patch } : o)));
   const add = () => {
     const used = new Set(ops.map((o) => normTag(o.tag)));
-    const d = devices.find((x) => !x.leak && !used.has(normTag(x.value))) ?? devices.find((x) => !x.leak) ?? devices[0];
+    const d = devices.find((x) => !x.leak && !x.tank && !used.has(normTag(x.value))) ?? devices.find((x) => !x.leak) ?? devices[0];
+    if (d?.tank) {
+      setOps([...ops, { id: uid('op'), wait: ops.length ? 2000 : 500, tag: d.value, action: 'level', value: 50, hold: 0 }]);
+      return;
+    }
     if (d?.leak) {
       setOps([...ops, { id: uid('op'), wait: ops.length ? 2000 : 500, tag: d.value, action: 'leak', value: 0, hold: 0 }]);
       return;
@@ -2349,6 +2469,7 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
             const sel3 = devices.find((d) => normTag(d.value) === normTag(o.tag))?.sel3;
             const tempDev = devices.find((d) => normTag(d.value) === normTag(o.tag))?.temp;
             const leakDev = devices.find((d) => normTag(d.value) === normTag(o.tag))?.leak;
+            const tankDev = devices.find((d) => normTag(d.value) === normTag(o.tag))?.tank;
             return (
               <div className="cc-op" key={o.id}>
                 <div className="cc-op-top">
@@ -2359,9 +2480,10 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                     onChange={(e) => {
                       // 온도 기기로 바꾸면 동작도 온도로 (반대로도)
                       const d = devices.find((x) => x.value === e.target.value);
-                      if (d?.leak) setOp(i, { tag: e.target.value, action: 'leak', value: o.action === 'leak' ? o.value : 0, hold: o.action === 'leak' ? o.hold : 0 });
+                      if (d?.tank) setOp(i, { tag: e.target.value, action: 'level', value: o.action === 'level' ? o.value : 50, hold: o.action === 'level' ? o.hold : 0 });
+                      else if (d?.leak) setOp(i, { tag: e.target.value, action: 'leak', value: o.action === 'leak' ? o.value : 0, hold: o.action === 'leak' ? o.hold : 0 });
                       else if (d?.temp) setOp(i, { tag: e.target.value, action: 'temp', value: o.value ?? tempSetting(d.temp).sv + 5, hold: o.action === 'temp' ? o.hold : 0 });
-                      else setOp(i, { tag: e.target.value, ...(o.action === 'temp' || o.action === 'leak' ? { action: d?.sel3 ? 'right' : d && !d.momentary ? 'on' : 'press', hold: 300, value: undefined } : {}) });
+                      else setOp(i, { tag: e.target.value, ...(o.action === 'temp' || o.action === 'leak' || o.action === 'level' ? { action: d?.sel3 ? 'right' : d && !d.momentary ? 'on' : 'press', hold: 300, value: undefined } : {}) });
                     }}
                     aria-label={tr('기기', 'Device')}
                   >
@@ -2373,7 +2495,9 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                     ))}
                   </select>
                   <select className="input cc-op-act" value={o.action} onChange={(e) => setOp(i, { action: e.target.value as OpStep['action'] })} aria-label={tr('동작', 'Action')}>
-                    {leakDev ? (
+                    {tankDev ? (
+                      <option value="level">{tr('수위 →', 'Level →')}</option>
+                    ) : leakDev ? (
                       <option value="leak">{tr('누전 (절연 불량)', 'Earth fault')}</option>
                     ) : tempDev ? (
                       <option value="temp">{tr('온도 →', 'Temp. →')}</option>
@@ -2416,6 +2540,16 @@ function OpsPane({ circuit, model, res, onChange }: { circuit: Circuit; model: C
                       </label>
                       <label title={tr('누전이 이어지는 시간 (0 = 끝까지)', 'How long the fault lasts (0 = to the end)')}>
                         {tr('지속', 'Lasts')} <TimeInput value={o.hold} onChange={(v) => v !== undefined && setOp(i, { hold: v })} />
+                      </label>
+                    </>
+                  )}
+                  {o.action === 'level' && (
+                    <>
+                      <label title={tr('바꿀 수위 (바닥 0% ~ 위 100%)', 'Target level (0% bottom to 100% top)')}>
+                        % <NumberInput value={o.value ?? 50} min={0} max={100} step={5} onChange={(v) => v !== undefined && setOp(i, { value: Math.min(100, Math.max(0, v)) })} />
+                      </label>
+                      <label title={tr('이 시간 동안 일정하게 바뀜 (0 = 바로)', 'Changes evenly over this time (0 = at once)')}>
+                        {tr('걸림', 'Over')} <TimeInput value={o.hold} onChange={(v) => v !== undefined && setOp(i, { hold: v })} />
                       </label>
                     </>
                   )}

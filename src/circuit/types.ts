@@ -9,6 +9,7 @@ export type PartType =
   | 'fuse'
   | 'sk' // 스파크 킬러 (CR 서지 흡수기) 기호: 코일 양단에
   | 'imp' // 임펄스 릴레이 (래칭 릴레이) 코일 기호: 누를 때마다 같은 기호의 접점이 바뀌고 그대로 유지
+  | 'diode' // 다이오드 기호 (직류 코일 서지 흡수): 캐소드 (띠) 가 + 쪽이 되게 코일 양단에
   | 'fuse3'
   | 'mcb' // 배선용 차단기 1P (클릭: ON/OFF)
   | 'mcb3'
@@ -60,6 +61,9 @@ export type PartType =
   | 'r_vfd' // 인버터 (VFD): 전원 R/L1 · S/L2 · T/L3, 출력 U · V · W, 무전압 입력 STF · STR · RH · RM · RL (SD 공통), 고장 릴레이 A · B · C
   | 'r_imp' // 임펄스 릴레이 (래칭, DIN 레일): 코일 A1 · A2 에 펄스가 들어올 때마다 13-14 a · 21-22 b 가 바뀌고 유지
   | 'r_sk' // 스파크 킬러 (CR 서지 흡수기, 리드선 2가닥): 교류 SOL · MC · 릴레이 코일 양단에
+  | 'r_diode' // 다이오드 (서지 흡수, 리드선 2가닥 A · K): 직류 코일 양단에 K 를 + 쪽으로
+  | 'r_flr' // 플로트리스 릴레이 (61F 꼴, 전극식 수위): 전원 S1 · S2, 전극 E1 (상한) · E2 (하한) · E3 (공통), 출력 Tc → Ta (a) · Tb (b)
+  | 'r_tank' // 수조 (물탱크) + 전극봉 E1 · E2 · E3: 물에 잠긴 전극끼리 통한다. 수위는 급수 · 배수 부하와 사용량으로 바뀐다
   | 'r_smps' // SMPS (실물): L N FG → +V -V
   | 'r_prox' // 근접 · 광전 센서 3선식 (실물): 갈색 +, 검정 출력, 파랑 0V
   | 'r_prox2' // 근접 센서 2선식 (실물): 갈색 · 파랑 두 선이 부하와 직렬 (스위치처럼). 직류는 갈색이 + 쪽
@@ -260,6 +264,21 @@ export interface Part {
   /** 오르는 · 내리는 속도 (℃/s) */
   rise?: number;
   fall?: number;
+  /** 지연 시간 (s, 없으면 0): 부하를 켜고 끈 뒤 센서 온도가 바뀌기 시작할 때까지 (열이 퍼지는 시간). 있으면 ON/OFF 제어가 설정을 넘친다 */
+  lag?: number;
+  /** 수조: 처음 수위 (%, 없으면 50) */
+  lv0?: number;
+  /** 수조: 전극봉 끝의 높이 (바닥에서 %, 없으면 E1 80 · E2 40 · E3 10). 물이 이 높이 이상이면 그 전극이 잠긴다 */
+  e1?: number;
+  e2?: number;
+  e3?: number;
+  /** 수조: 급수 · 배수 기기의 기호 (펌프 · 솔레노이드 밸브 …, 켜져 있는 동안 수위가 오르고 · 내린다) */
+  fillTag?: string;
+  drainTag?: string;
+  /** 수조: 급수 · 배수 속도 (%/s, 없으면 5 · 5), 늘 쓰는 양 (%/s, 없으면 0) */
+  fillRate?: number;
+  drainRate?: number;
+  useRate?: number;
 }
 
 /** 전선 색: 갈색 L1, 검정 L2, 회색 L3, 파랑 N, 녹황 PE, 그 밖 제어선 */
@@ -307,11 +326,12 @@ export interface OpStep {
   /**
    * press = 눌렀다 뗌 (hold 동안), on = 켬·누른 채 유지, off = 끔·뗌 (3단 셀렉터는 가운데), left · right = 3단 셀렉터를 왼쪽 · 오른쪽으로,
    * temp = 온도 기기의 온도를 value (℃) 로 (hold 동안 일정하게 바뀜, 0 이면 바로),
-   * leak = 기기의 누전 (절연 불량: 충전부가 외함에 닿음, value = 절연 저항 Ω, hold 동안, 0 이면 끝까지)
+   * leak = 기기의 누전 (절연 불량: 충전부가 외함에 닿음, value = 절연 저항 Ω, hold 동안, 0 이면 끝까지),
+   * level = 수조의 수위를 value (%) 로 (hold 동안 일정하게 바뀜, 0 이면 바로)
    */
-  action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp' | 'leak';
+  action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp' | 'leak' | 'level';
   hold: number;
-  /** temp: 바꿀 온도 (℃), leak: 절연 저항 (Ω, 0 = 완전 지락) */
+  /** temp: 바꿀 온도 (℃), leak: 절연 저항 (Ω, 0 = 완전 지락), level: 수위 (%) */
   value?: number;
   /** 적으면 타임차트의 공정 스텝 이름이 된다 */
   note?: string;

@@ -110,6 +110,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (temp(q.tmax)) p.tmax = q.tmax as number;
     if (typeof q.rise === 'number' && q.rise > 0 && q.rise <= 1000) p.rise = q.rise;
     if (typeof q.fall === 'number' && q.fall > 0 && q.fall <= 1000) p.fall = q.fall;
+    if (typeof q.lag === 'number' && q.lag > 0 && q.lag <= 3600) p.lag = q.lag;
     if (optStr(q.term)) p.term = str(q.term).slice(0, 24);
     if (typeof q.w === 'number' && q.w >= 2) p.w = Math.min(400, Math.round(q.w));
     if (typeof q.h === 'number' && q.h >= 2) p.h = Math.min(400, Math.round(q.h));
@@ -124,6 +125,9 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (q.pos0 === -1 || q.pos0 === 1) p.pos0 = q.pos0;
     if (typeof q.idn === 'number' && q.idn > 0 && q.idn <= 3000) p.idn = q.idn;
     if (q.pe === true) p.pe = true;
+    // 수조: 수위 · 전극봉 높이 · 속도 (%, %/s)
+    for (const k of ['lv0', 'e1', 'e2', 'e3', 'fillRate', 'drainRate', 'useRate'] as const) if (typeof q[k] === 'number' && Number.isFinite(q[k]) && (q[k] as number) >= 0 && (q[k] as number) <= 100) p[k] = q[k] as number;
+    for (const k of ['fillTag', 'drainTag'] as const) if (typeof q[k] === 'string' && (q[k] as string).trim()) p[k] = (q[k] as string).slice(0, 40);
     if (Array.isArray(q.hmi)) {
       // HMI 화면 칸: 버튼 · 스위치 · 램프 (최대 12)
       p.hmi = q.hmi
@@ -151,10 +155,11 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
   for (const r of Array.isArray(o.ops) ? o.ops : []) {
     if (!r || typeof r !== 'object') continue;
     const q = r as Record<string, unknown>;
-    const action = q.action === 'on' || q.action === 'off' || q.action === 'left' || q.action === 'right' || q.action === 'temp' || q.action === 'leak' ? q.action : 'press';
-    const op: OpStep = { id: str(q.id) || uid('op'), wait: Math.max(0, num(q.wait)), tag: str(q.tag), action, hold: Math.max(0, num(q.hold, action === 'temp' || action === 'leak' ? 0 : 300)) };
+    const action = q.action === 'on' || q.action === 'off' || q.action === 'left' || q.action === 'right' || q.action === 'temp' || q.action === 'leak' || q.action === 'level' ? q.action : 'press';
+    const op: OpStep = { id: str(q.id) || uid('op'), wait: Math.max(0, num(q.wait)), tag: str(q.tag), action, hold: Math.max(0, num(q.hold, action === 'temp' || action === 'leak' || action === 'level' ? 0 : 300)) };
     if (action === 'temp') op.value = Math.min(2000, Math.max(-100, num(q.value, 20)));
     if (action === 'leak') op.value = Math.min(1e8, Math.max(0, num(q.value, 0)));
+    if (action === 'level') op.value = Math.min(100, Math.max(0, num(q.value, 50)));
     if (optStr(q.note)) op.note = str(q.note);
     ops.push(op);
   }

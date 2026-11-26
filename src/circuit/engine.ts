@@ -1,7 +1,7 @@
 import type { WavePoint } from '../model/types';
 import type { Circuit, OpStep, Part, PartType } from './types';
 import { buildNetlist, type Netlist } from './netlist';
-import { ALWAYS_ON, counterPreset, hmiTag, isLinkedSensor, isPlcPart, isTempCtrl, isTempDevice, pidSetting, rtdElements, rtdInputPins, tempSetting, vfdSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, REAL, RPLC, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
+import { ALWAYS_ON, counterPreset, tankSetting, hmiTag, isLinkedSensor, isPlcPart, isTempCtrl, isTempDevice, pidSetting, rtdElements, rtdInputPins, tempSetting, vfdSetting, OPERATOR, partPins, partPoles, PARTS, plcAddresses, REAL, RPLC, POLE_IDENTITY, POLE_SYSTEM, PROX_TYPES, schedOn, SMPS_TYPES, tswSched, VALVES } from './parts';
 import { formatTime } from '../model/format';
 import { poleLive } from './supply';
 import type { PlcConfig, SimSettings } from '../plc/types';
@@ -21,7 +21,7 @@ import { conductorGraph, earthFault, earthingOf, FAULTABLE, faultText, feedPath,
  *  - 타이머 만료, 실린더 도착 시각을 다음 사건으로 잡아서 시간을 건너뛴다.
  */
 
-export type TagKind = 'coil' | 'timer' | 'tsw' | 'counter' | 'temp' | 'thr' | 'sensor' | 'operator';
+export type TagKind = 'coil' | 'timer' | 'tsw' | 'counter' | 'temp' | 'flr' | 'thr' | 'sensor' | 'operator';
 
 const DAY = 86400000;
 
@@ -51,6 +51,8 @@ export interface Conductor {
   power?: string;
   /** 타이머의 순시 접점: 한시 출력이 아니라 코일을 따른다 */
   inst?: boolean;
+  /** 수조의 전극봉 두 개: 수위가 이 높이 (%) 이상이면 물로 통한다 (tag = 수조 기호) */
+  wet?: number;
   /** 3단 셀렉터: 이 자리 (-1 왼쪽, 1 오른쪽) 에서 닫힌다 */
   sel?: -1 | 1;
   /** 직류 2선식 센서: a = 갈색, b = 파랑. 파랑이 + 쪽이거나 갈색이 0V 쪽이면 (거꾸로 이으면) 켜지지 않는다 */
@@ -78,6 +80,19 @@ export interface TempDef {
   pid: { pb: number; ti: number; td: number; cycle: number } | null;
 }
 
+/** 수조 하나: 처음 수위, 전극봉 높이 (E1 · E2 · E3, %), 급수 · 배수 기기 기호, 속도 (%/s) */
+export interface TankDef {
+  part: Part;
+  label: string;
+  lv0: number;
+  e: [number, number, number];
+  fill: string;
+  drain: string;
+  fillRate: number;
+  drainRate: number;
+  useRate: number;
+}
+
 /** 온도 묶음: 처음 · 주위 온도, 최고 온도, 오르는 · 내리는 속도 (℃/s), 온도를 바꾸는 부하 */
 export interface TempZone {
   label: string;
@@ -87,6 +102,8 @@ export interface TempZone {
   fall: number;
   load: string;
   loadCool: boolean;
+  /** 지연 시간 (ms): 부하를 켜고 끈 효과가 이만큼 늦게 온도에 나타난다 */
+  lag: number;
 }
 
 export interface TempView {
@@ -189,7 +206,7 @@ export interface HmiButton {
   toggle: boolean;
 }
 
-export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'impOut' | 'vfdHz' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut' | 'leak' | 'earthA';
+export type TrackKind = 'operator' | 'selector' | 'sensor' | 'coil' | 'impOut' | 'vfdHz' | 'timerCoil' | 'timerOut' | 'tsw' | 'counterVal' | 'counterOut' | 'tempVal' | 'tempOut' | 'tempAlarm' | 'tempSw' | 'load' | 'motor' | 'cyl' | 'plcIn' | 'plcOut' | 'leak' | 'earthA' | 'level' | 'flrOut';
 
 export interface Track {
   key: string;
@@ -256,6 +273,10 @@ export class CircuitModel {
   readonly vfdList: { part: Part; tag: string; rst: number[]; uvw: number[]; ins: number[]; sd: number }[] = [];
   /** 임펄스 (래칭) 릴레이 기호: 코일 펄스마다 접점이 바뀌어 유지된다 */
   readonly impTags = new Set<string>();
+  /** 수조: 전극봉 높이 · 급수 · 배수 기기 · 속도 (%/s) */
+  readonly tankDef = new Map<string, TankDef>();
+  /** 플로트리스 릴레이: 전극 단자 E1 · E2 · E3 넷 */
+  readonly flrDef = new Map<string, { part: Part; e: [number, number, number] }>();
   /** 공압: 공압원 넷, 늘 통하는 쌍(FRL·속도 제어), 속도 제어, 밸브, 실린더 포트 */
   readonly airNets = new Set<number>();
   readonly airSrc: number[] = [];
@@ -270,7 +291,7 @@ export class CircuitModel {
   ) {
     this.net = buildNetlist(circuit);
     this.relayMs = Math.min(1000, Math.max(0, circuit.relayMs ?? 0));
-    const rank: Record<TagKind, number> = { coil: 5, timer: 5, tsw: 5, counter: 5, temp: 5, thr: 4, sensor: 3, operator: 2 };
+    const rank: Record<TagKind, number> = { coil: 5, timer: 5, tsw: 5, counter: 5, temp: 5, flr: 5, thr: 4, sensor: 3, operator: 2 };
     const zoneParts = new Map<string, Part[]>();
     const setKind = (tag: string, k: TagKind, p: Part) => {
       const cur = this.tagKind.get(tag);
@@ -303,6 +324,16 @@ export class CircuitModel {
           const zone = normTag(p.zone ?? '') || tag;
           this.tempDef.set(tag, { part: p, zone, tc: isTempCtrl(p), sv: s.sv, hys: s.hys, alarm: (p.type === 'r_tc' || p.type === 'r_tk4') && typeof p.alarm === 'number' ? p.alarm : null, cool: p.tcMode === 'cool', sensorOk: true, pid: pidSetting(p) });
           zoneParts.set(zone, [...(zoneParts.get(zone) ?? []), p]);
+        }
+      } else if (p.type === 'r_flr') {
+        // 플로트리스 릴레이: 전원 S1 · S2 (부하), 전극 E1 · E2 · E3 은 무전압 (물로 E3 과 이어지는지만 본다)
+        setKind(tag, 'flr', p);
+        const pn = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
+        if (!this.flrDef.has(tag)) this.flrDef.set(tag, { part: p, e: [pn(2), pn(3), pn(4)] });
+      } else if (p.type === 'r_tank') {
+        if (!this.tankDef.has(tag)) {
+          const s = tankSetting(p);
+          this.tankDef.set(tag, { part: p, label: p.tag.trim() || 'TANK', lv0: s.lv0, e: s.e, fill: normTag(p.fillTag ?? ''), drain: normTag(p.drainTag ?? ''), fillRate: s.fill, drainRate: s.drain, useRate: s.use });
         }
       } else if (p.type === 'r_tsw') {
         setKind(tag, 'tsw', p);
@@ -365,6 +396,16 @@ export class CircuitModel {
       }
       const pin = (i: number) => this.net.pinNet.get(`${p.id}:${i}`)!;
       partPins(p).forEach((pd, i) => pd.air && this.airNets.add(pin(i)));
+      // 수조의 전극봉: 두 전극이 다 잠기면 (수위 ≥ 둘 중 높은 쪽 끝) 물로 통한다
+      if (p.type === 'r_tank') {
+        const e = tankSetting(p).e;
+        for (const [i, j] of [
+          [0, 1],
+          [0, 2],
+          [1, 2],
+        ])
+          this.conductors.push({ part: p, a: pin(i), b: pin(j), ia: i, ib: j, tag, nc: false, always: false, wet: Math.max(e[i], e[j]) });
+      }
       const tubed = (n: number) => this.net.pinCount[n] > 1 || this.net.hasWire[n];
       if (PROX_TYPES.has(p.type)) {
         // PNP: 감지하면 출력이 + 에, NPN: 출력이 0V 에 이어진다
@@ -408,6 +449,7 @@ export class CircuitModel {
         fall: Math.max(0.001, (first('fall') as number | undefined) ?? 0.5),
         load: normTag(owner.tLoad ?? ''),
         loadCool: !!owner.tLoadCool,
+        lag: Math.min(3600, Math.max(0, (first('lag') as number | undefined) ?? 0)) * 1000,
       });
     }
     // PLC: 입력은 단자 넷의 극으로 읽고, 출력은 공통 C ↔ Qn 접점
@@ -524,7 +566,7 @@ export class CircuitSim {
    * 온도 묶음: since 시각의 온도, 바뀌는 속도 (℃/ms), 향하는 온도 (닿으면 멈춤),
    * forced = 조작 순서로 바꾸는 중 (부하와 상관없이 goal 까지)
    */
-  readonly zones = new Map<string, { pv: number; since: number; rate: number; goal: number; forced: boolean }>();
+  readonly zones = new Map<string, { pv: number; since: number; rate: number; goal: number; forced: boolean; heat: boolean; cmd: boolean; queue: { at: number; heat: boolean }[] }>();
   /** 온도 기기: 설정 온도 이상 (hot, 히스테리시스), 경보 온도 이상, 제어 출력 · 경보 출력 */
   readonly temps = new Map<string, TempState>();
   /** 넷마다 이어진 묶음 (닫힌 접점까지 따라간 것) */
@@ -544,6 +586,10 @@ export class CircuitSim {
   readonly vfd = new Map<string, { pv: number; since: number; rate: number; target: number; dir: 1 | -1 | 0 }>();
   /** 임펄스 릴레이의 접점 상태 (코일이 붙는 순간마다 뒤집힘, 전원이 끊겨도 유지) */
   readonly latch = new Map<string, boolean>();
+  /** 수조 수위: since 시각의 값 pv (%) 에서 rate (%/ms) 로 goal 까지 (닿으면 멈춤), forced = 조작 순서로 바꾸는 중 */
+  readonly tanks = new Map<string, { pv: number; since: number; rate: number; goal: number; forced: boolean }>();
+  /** 플로트리스 릴레이 내부 릴레이 (켜지면 Tc-Ta 닫힘 · Tc-Tb 열림) */
+  readonly flr = new Map<string, boolean>();
   readonly openPhase = new Set<string>();
   shorted = false;
   readonly plcIn = new Map<string, boolean[]>();
@@ -596,7 +642,10 @@ export class CircuitSim {
       if (at) this.act.set(tag, true);
     }
     for (const tag of m.counterDef.keys()) this.counters.set(tag, { n: 0, out: false, cp: false, rst: false });
-    for (const [z, d] of m.tempZones) this.zones.set(z, { pv: d.amb, since: 0, rate: 0, goal: d.amb, forced: false });
+    // heat = 지금 온도에 나타나는 가열 여부, cmd = 부하가 지금 하는 것 (지연 시간이 있으면 queue 로 늦게 heat 이 된다)
+    for (const [z, d] of m.tempZones) this.zones.set(z, { pv: d.amb, since: 0, rate: 0, goal: d.amb, forced: false, heat: d.loadCool, cmd: d.loadCool, queue: [] });
+    for (const [tag, d] of m.tankDef) this.tanks.set(tag, { pv: d.lv0, since: 0, rate: 0, goal: d.lv0, forced: false });
+    for (const tag of m.flrDef.keys()) this.flr.set(tag, false);
     for (const tag of m.tempDef.keys()) this.temps.set(tag, { hot: false, alHot: false, out: false, al: false, pidOn: false, cycleAt: null, offAt: null, integ: 0, lastPv: null, mv: 0 });
     for (const tag of m.cylDef.keys()) this.cyl.set(tag, { pos: 0, target: 0, atPlus: false, atMinus: true, hold: false });
     for (const v of m.valves) this.valvePos.set(v.part.id, v.part.type === 'v53' ? 'c' : 'b');
@@ -724,6 +773,8 @@ export class CircuitSim {
         return this.tsw.get(tag)?.out ?? false;
       case 'counter':
         return this.counters.get(tag)?.out ?? false;
+      case 'flr':
+        return this.flr.get(tag) ?? false;
       case 'temp': {
         const st = this.temps.get(tag);
         return !!st && (this.m.tempDef.get(tag)!.tc ? st.out : st.hot);
@@ -754,6 +805,47 @@ export class CircuitSim {
 
   loadOn(tag: string): boolean {
     return (this.m.loadParts.get(tag) ?? []).some((id) => this.energized.has(id));
+  }
+
+  /** 수조의 지금 수위 (%) */
+  tankLevel(tag: string): number {
+    const s = this.tanks.get(tag);
+    if (!s) return 0;
+    if (!s.rate) return s.pv;
+    const v = s.pv + s.rate * (this.t - s.since);
+    return s.rate > 0 ? Math.min(s.goal, v) : Math.max(s.goal, v);
+  }
+
+  /** 수조 수위를 value (%) 로 바꾼다 (ramp ms 동안 일정하게, 0 이면 바로) */
+  private setLevel(tag: string, value: number, ramp: number): boolean {
+    const s = this.tanks.get(tag);
+    if (!s) return false;
+    value = Math.min(100, Math.max(0, value));
+    s.pv = this.tankLevel(tag);
+    s.since = this.t;
+    if (ramp > 0 && Math.abs(value - s.pv) > 1e-6) {
+      Object.assign(s, { forced: true, goal: value, rate: (value - s.pv) / ramp });
+      return true;
+    }
+    // 바로 바꾸면 차트에 수직선이 되도록 바로 앞 (0.001 ms) 에 지금 수위를 찍어 둔다
+    const tr = this.tracks.find((x) => x.key === `lv:${tag}`);
+    const t0 = Math.round((this.t - 0.001) * 1000) / 1000;
+    if (tr && Math.abs(value - s.pv) > 1e-6 && t0 > (tr.points[tr.points.length - 1]?.t ?? 0)) tr.points.push({ t: t0, v: Math.round(s.pv * 100) / 100 });
+    Object.assign(s, { pv: value, goal: value, rate: 0, forced: false });
+    return true;
+  }
+
+  /** 시뮬레이션 중 수위를 바꾼다 (수조를 눌러서) */
+  changeLevel(tag: string, value: number, ramp = 0): boolean {
+    if (!this.setLevel(tag, value, ramp)) return false;
+    this.settle();
+    this.record();
+    return true;
+  }
+
+  /** 기호가 켜져 있는가 (부하면 전원이 들어옴, 아니면 동작 중) — 수조의 급수 · 배수 기기 */
+  private active(tag: string): boolean {
+    return this.m.loadParts.has(tag) ? this.loadOn(tag) : this.on(tag);
   }
 
   /** 온도 묶음의 지금 온도 (℃) */
@@ -807,7 +899,7 @@ export class CircuitSim {
 
   /**
    * PID 제어 주기 하나 시작: 조작량 MV = 100 / P × (편차 + 적분 / I + D × 편차 변화율), 0~100 %.
-   * 주기 T 중 MV % 만큼 출력을 켜 둔다 (릴레이 · SSR 시간 비례). 적분은 MV 가 0~100 % 를 넘을 때 더하지 않는다 (와인드업 방지)
+   * 주기 T 중 MV % 만큼 출력을 켜 둔다 (릴레이 · SSR 시간 비례). 적분은 MV 가 0~100 % 를 넘거나 편차가 비례대 밖일 때 더하지 않는다 (와인드업 방지)
    */
   private pidCycle(d: TempDef, st: TempState, pv: number): void {
     const P = d.pid!;
@@ -819,7 +911,8 @@ export class CircuitSim {
     const mvOf = (integ: number) => (100 / P.pb) * (e + (P.ti > 0 ? integ / P.ti : 0) + P.td * de);
     let integ = P.ti > 0 ? Math.max(0, Math.min(P.pb * P.ti, st.integ + e * P.cycle)) : 0;
     const raw = mvOf(integ);
-    if ((raw > 100 && e > 0) || (raw < 0 && e < 0)) integ = st.integ;
+    // 와인드업 방지: 출력이 0~100 % 를 넘거나, 편차가 비례대 밖 (아직 멀리 떨어짐) 이면 적분을 쌓지 않는다
+    if ((raw > 100 && e > 0) || (raw < 0 && e < 0) || Math.abs(e) > P.pb) integ = Math.min(st.integ, P.ti > 0 ? P.pb * P.ti : 0);
     const mv = Math.max(0, Math.min(100, mvOf(integ)));
     let on = (mv / 100) * cyc;
     if (on < 1) on = 0;
@@ -827,8 +920,27 @@ export class CircuitSim {
     Object.assign(st, { integ, lastPv: pv, mv: Math.round(mv * 10) / 10, pidOn: on > 0, cycleAt: this.t + cyc, offAt: on > 0 && on < cyc ? this.t + on : null });
   }
 
+  /** 급수 · 배수 기기 상태에 따라 수위가 향하는 곳과 속도를 다시 정한다. 넘치거나 · 물 없이 배수하면 알린다 */
+  private retargetTanks(): void {
+    for (const [tag, s] of this.tanks) {
+      const d = this.m.tankDef.get(tag)!;
+      const fill = !!d.fill && this.active(d.fill);
+      const drain = !!d.drain && this.active(d.drain);
+      const pv = this.tankLevel(tag);
+      if (fill && pv >= 100 - 1e-6) this.warn(`${formatTime(this.t, 's')}: ${d.label} 이(가) 가득 찼는데 급수 (${this.m.label(d.fill)}) 가 계속됩니다 (넘침). 상한 전극 E1 · 플로트리스 릴레이 결선을 확인하세요`, `overflow:${tag}`);
+      if (drain && pv <= 1e-6) this.warn(`${formatTime(this.t, 's')}: ${d.label} 이(가) 비었는데 배수 (${this.m.label(d.drain)}) 가 계속됩니다 (펌프 공운전)`, `dry:${tag}`);
+      if (s.forced) continue;
+      s.pv = pv;
+      s.since = this.t;
+      const r = ((fill ? d.fillRate : 0) - (drain ? d.drainRate : 0) - d.useRate) / 1000;
+      s.goal = r > 0 ? 100 : r < 0 ? 0 : pv;
+      s.rate = Math.abs(s.goal - pv) > 1e-6 ? r : 0;
+    }
+  }
+
   /** 부하 (히터 · 팬) 상태에 따라 온도가 향하는 곳과 속도를 다시 정한다 */
   private retarget(): void {
+    this.retargetTanks();
     for (const [z, s] of this.zones) {
       if (s.forced) continue;
       const d = this.m.tempZones.get(z)!;
@@ -839,8 +951,14 @@ export class CircuitSim {
         s.goal = s.pv;
         continue;
       }
-      // 가열 부하가 켜졌거나, 식히는 부하 (팬) 가 꺼졌으면 최고 온도 쪽으로
-      const heating = this.loadOn(d.load) !== d.loadCool;
+      // 가열 부하가 켜졌거나, 식히는 부하 (팬) 가 꺼졌으면 최고 온도 쪽으로. 지연 시간이 있으면 그만큼 늦게
+      const want = this.loadOn(d.load) !== d.loadCool;
+      if (want !== s.cmd) {
+        s.cmd = want;
+        if (d.lag > 0) s.queue.push({ at: this.t + d.lag, heat: want });
+      }
+      if (d.lag <= 0) s.heat = want;
+      const heating = s.heat;
       s.goal = heating ? d.tmax : d.amb;
       s.rate = s.pv < s.goal - 1e-6 ? d.rise / 1000 : s.pv > s.goal + 1e-6 ? -d.fall / 1000 : 0;
     }
@@ -893,9 +1011,13 @@ export class CircuitSim {
   }
 
   /** 같은 순간의 조작을 한꺼번에 바꾸고 한 번만 자리 잡는다 (두 버튼을 동시에 누름 · 뗌) */
-  applyAll(list: { tag: string; on: boolean; pos?: -1 | 0 | 1; temp?: number; ramp?: number; leak?: number | null }[]): void {
+  applyAll(list: { tag: string; on: boolean; pos?: -1 | 0 | 1; temp?: number; level?: number; ramp?: number; leak?: number | null }[]): void {
     let changed = false;
     for (const e of list) {
+      if (e.level !== undefined) {
+        changed = this.setLevel(e.tag, e.level, e.ramp ?? 0) || changed;
+        continue;
+      }
       if (e.leak !== undefined) {
         if (!this.m.faultDev.has(e.tag)) continue;
         if (e.leak === null) {
@@ -996,6 +1118,11 @@ export class CircuitSim {
   conductorClosed(c: Conductor): boolean {
     if (c.sel !== undefined) return (this.sel.get(c.tag) ?? 0) === c.sel;
     if (c.al) return !!this.temps.get(c.tag)?.al;
+    if (c.wet !== undefined) {
+      // 전극 끝에 딱 닿은 순간: 오르는 중이면 잠김, 내리는 중이면 떨어짐 (그 순간이 사건이 되게)
+      const lv = this.tankLevel(c.tag);
+      return (this.tanks.get(c.tag)?.rate ?? 0) < 0 ? lv > c.wet + 1e-6 : lv >= c.wet - 1e-6;
+    }
     const closed = c.plcOut !== undefined ? !!this.plcOut.get(c.part.id)?.[c.plcOut] && this.plcRunning(c.part.id) : c.always || (c.inst ? !!this.timers.get(c.tag)?.coil : this.on(c.tag)) !== c.nc;
     return closed && !(c.power && !this.powered.get(c.power));
   }
@@ -1281,6 +1408,17 @@ export class CircuitSim {
         return true;
       }
     }
+    // 플로트리스 릴레이: 전원 (S1 · S2) 이 있을 때 E1 이 E3 과 물로 통하면 켜지고, E2 가 E3 과 통하는 동안 유지
+    for (const [tag, d] of this.m.flrDef) {
+      const cur = this.flr.get(tag) ?? false;
+      const pw = this.energized.has(d.part.id);
+      const wet = (n: number) => this.root[n] === this.root[d.e[2]];
+      const want = pw && (wet(d.e[0]) || (cur && wet(d.e[1])));
+      if (want !== cur) {
+        this.flr.set(tag, want);
+        return true;
+      }
+    }
     // 3선식 센서·SMPS 전원
     for (const s of this.m.proxs) {
       const want = powerBetween(this.netPole[s.bn], this.netPole[s.bu], true);
@@ -1526,6 +1664,14 @@ export class CircuitSim {
       }
       for (const m of marks) if (s.rate > 0 ? m > pv + 1e-6 : m < pv - 1e-6) best = Math.min(best, this.t + (m - pv) / s.rate);
     }
+    // 수조: 향하는 수위 · 전극봉 끝에 닿는 시각
+    for (const [tag, s] of this.tanks) {
+      if (!s.rate) continue;
+      const pv = this.tankLevel(tag);
+      for (const m of [s.goal, ...this.m.tankDef.get(tag)!.e]) if (s.rate > 0 ? m > pv + 1e-6 : m < pv - 1e-6) best = Math.min(best, this.t + (m - pv) / s.rate);
+    }
+    // 온도 지연: 부하를 켜고 끈 효과가 온도에 나타나는 시각
+    for (const s of this.zones.values()) if (s.queue.length) best = Math.min(best, s.queue[0].at);
     // PID 조절기: 다음 제어 주기 · 켜 둔 시간이 끝나는 시각
     for (const st of this.temps.values()) {
       if (st.cycleAt !== null) best = Math.min(best, st.cycleAt);
@@ -1587,7 +1733,7 @@ export class CircuitSim {
         s.rate = 0;
       }
     }
-    for (const s of this.zones.values()) {
+    for (const s of [...this.zones.values(), ...this.tanks.values()]) {
       if (!s.rate) {
         s.since = Math.max(s.since, t2);
         continue;
@@ -1627,6 +1773,8 @@ export class CircuitSim {
         this.tripAt.delete(bt);
         this.act.set(bt, false);
       }
+      // 온도 지연: 이제 온도에 나타나는 가열 · 식힘 (settle 끝의 retarget 이 속도를 다시 정한다)
+      for (const s of this.zones.values()) while (s.queue.length && s.queue[0].at <= this.t + EPS) s.heat = s.queue.shift()!.heat;
       // 릴레이 동작 시간이 지난 코일 · 타이머
       const chatter: string[] = [];
       for (const [key, pd] of [...this.pending]) {
@@ -1686,7 +1834,8 @@ export class CircuitSim {
       else if (k === 'counter') {
         add(`cv:${tag}`, tag, 'counterVal');
         add(`cq:${tag}`, tag, 'counterOut');
-      } else if (k === 'temp') {
+      } else if (k === 'flr') add(`fr:${tag}`, tag, 'flrOut');
+      else if (k === 'temp') {
         const d = m.tempDef.get(tag)!;
         if (d.tc) {
           add(`to:${tag}`, tag, 'tempOut');
@@ -1699,9 +1848,11 @@ export class CircuitSim {
       const first = [...m.tempDef.values()].find((x) => x.zone === z)!;
       this.tracks.push({ key: `tv:${z}`, tag: d.label, kind: 'tempVal', part: first.part, points: [], last: null });
     }
+    // 수조마다 수위 (아날로그, %)
+    for (const [tag, d] of m.tankDef) this.tracks.push({ key: `lv:${tag}`, tag: d.label, kind: 'level', part: d.part, points: [], last: null });
     for (const [tag, ids] of m.loadParts) {
       const k = m.tagKind.get(tag);
-      if (k === 'coil' || k === 'timer' || k === 'counter' || k === 'temp') continue;
+      if (k === 'coil' || k === 'timer' || k === 'counter' || k === 'temp' || k === 'flr') continue;
       const types = new Set(ids.map((id) => m.circuit.parts.find((p) => p.id === id)!.type));
       const motor = types.has('motor3') || types.has('motor') || types.has('r_motor3');
       const t = this.tracks.length;
@@ -1754,6 +1905,10 @@ export class CircuitSim {
         return this.counters.get(tag)?.out ? 1 : 0;
       case 'tempVal':
         return Math.round(this.zoneTemp(tag) * 100) / 100;
+      case 'level':
+        return Math.round(this.tankLevel(tag) * 100) / 100;
+      case 'flrOut':
+        return this.flr.get(tag) ? 1 : 0;
       case 'leak':
         return this.faults.has(tag) ? 1 : 0;
       case 'earthA': {
@@ -1791,7 +1946,7 @@ export class CircuitSim {
     for (const tr of this.tracks) {
       const v = this.trackValue(tr);
       // 온도는 값이 같아도 바뀌는 속도가 달라지면 점을 찍는다 (그래야 차트의 선이 그 자리에서 꺾인다)
-      const key = tr.kind === 'tempVal' ? `${v}|${this.zones.get(tr.key.slice(3))?.rate ?? 0}` : tr.kind === 'vfdHz' ? `${v}|${this.vfd.get(tr.part.id)?.rate ?? 0}` : v;
+      const key = tr.kind === 'tempVal' ? `${v}|${this.zones.get(tr.key.slice(3))?.rate ?? 0}` : tr.kind === 'level' ? `${v}|${this.tanks.get(tr.key.slice(3))?.rate ?? 0}` : tr.kind === 'vfdHz' ? `${v}|${this.vfd.get(tr.part.id)?.rate ?? 0}` : v;
       if (tr.last !== null && tr.last === key) continue;
       const pt: WavePoint = { t, v };
       if (tr.kind === 'cyl') {
@@ -1820,6 +1975,8 @@ export interface OpEvent {
   pos?: -1 | 0 | 1;
   /** 온도 기기: 바꿀 온도 (℃) 와 걸리는 시간 (ms) */
   temp?: number;
+  /** 수조: 바꿀 수위 (%) */
+  level?: number;
   ramp?: number;
   /** 누전: 절연 저항 (Ω) 으로 시작, null = 끝 */
   leak?: number | null;
@@ -1842,6 +1999,7 @@ export function opsToEvents(ops: OpStep[]): OpEvent[] {
       ev.push({ t, tag, on: true });
       ev.push({ t: t + Math.max(0, o.hold), tag, on: false });
     } else if (o.action === 'temp') ev.push({ t, tag, on: false, temp: o.value ?? 0, ramp: Math.max(0, o.hold || 0) });
+    else if (o.action === 'level') ev.push({ t, tag, on: false, level: o.value ?? 0, ramp: Math.max(0, o.hold || 0) });
     else if (o.action === 'leak') {
       ev.push({ t, tag, on: false, leak: Math.max(0, o.value ?? 0) });
       if (o.hold > 0) ev.push({ t: t + o.hold, tag, on: false, leak: null });
@@ -1888,7 +2046,7 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
     for (; i < events.length && events[i].t <= t + EPS; i++) {
       const ev = events[i];
       const k = model.tagKind.get(ev.tag);
-      if (ev.leak !== undefined ? !model.faultDev.has(ev.tag) : ev.temp !== undefined ? k !== 'temp' : k !== 'operator' && k !== 'thr') {
+      if (ev.leak !== undefined ? !model.faultDev.has(ev.tag) : ev.level !== undefined ? !model.tankDef.has(ev.tag) : ev.temp !== undefined ? k !== 'temp' : k !== 'operator' && k !== 'thr') {
         missing.add(ev.tag);
         continue;
       }
@@ -1915,8 +2073,8 @@ export function runScenario(c: Circuit, model: CircuitModel = new CircuitModel(c
       sim.advanceTo(next);
     }
   }
-  // 온도는 사건 사이에도 바뀌므로 끝 시각의 값을 한 번 더 찍는다
-  if (model.tempZones.size) sim.record();
+  // 온도 · 수위는 사건 사이에도 바뀌므로 끝 시각의 값을 한 번 더 찍는다
+  if (model.tempZones.size || model.tankDef.size) sim.record();
   let last = lastOp;
   for (const tr of sim.tracks) {
     const p = tr.points[tr.points.length - 1];
