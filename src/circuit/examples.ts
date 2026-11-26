@@ -1863,6 +1863,213 @@ function pidLearn(): Circuit {
   return c;
 }
 
+// ───────────────────── 온도 유지 회로 모음 ─────────────────────
+
+/**
+ * 냉동 창고: 온도 조절기 (TK4S 꼴, 냉각 ON/OFF · Pt100 영하 측정) 가 -18℃ 이상이면 C1-OUT1 을 닫아 압축기 전자접촉기를 켜고 -20℃ 에서 끈다.
+ * 제상 타이머 T1 (트윈 타이머: 12분 냉각 · 3분 제상) 의 한시 a접점 8-6 이 냉각을 허락하고, b접점 1-4 가 제상 히터 · 제상등을 켠다.
+ * 냉동실: 처음 10℃, 압축기가 돌면 초당 0.1℃ 내려가고 (끝 -25℃) 멈추면 0.03℃ 오른다 (끝 15℃), 냉기가 센서까지 10초 늦다
+ */
+function freezerDefrost(): Circuit {
+  const b = new Builder();
+  const T = (pole: 'L1' | 'L2' | 'L3' | 'N' | 'PE', x: number) => b.part('r_term', x, 0, '', { pole });
+  const [t1, t2, t3, tN, tPE] = [T('L1', 2), T('L2', 4), T('L3', 6), T('N', 8), T('PE', 10)];
+  const mccb = b.part('r_mcb3', 4, 6, 'MCCB', { name: tr('냉동기 전원', 'Refrigeration supply'), amps: 20 });
+  const f1 = b.part('r_fuse', 14, 6, 'F1', { name: tr('조작 회로', 'Control'), amps: 2 });
+  const mc = b.part('r_mc', 5, 20, 'MC1', { name: tr('압축기 운전', 'Compressor run'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  const thr = b.part('r_thr', 4, 34, 'THR1', { name: tr('과부하', 'Overload') });
+  const m1 = b.part('r_motor3', 4, 46, 'M1', { name: tr('압축기', 'Compressor'), spec: 'AC 380V 3.7kW' });
+  const ss = b.part('r_ss', 22, 8, 'SS1', { name: tr('운전', 'Run') });
+  const t1m = b.part('r_timer8', 30, 24, 'T1', { name: tr('제상 타이머 (냉각 12분 · 제상 3분)', 'Defrost timer (12 min cool, 3 min defrost)'), sock: 'pf', timerMode: 'flicker', preset: 12 * 60000, presetOff: 3 * 60000 });
+  const tc = b.part('r_tk4', 46, 24, 'TC1', { name: tr('냉동실 온도 (냉각 ON/OFF)', 'Freezer temp. (cooling ON/OFF)'), spec: 'TK4S-T4RN', ctrl: 'onoff', sv: -18, hys: 2, tcMode: 'cool', zone: tr('냉동실', 'Freezer'), tLoad: 'M1', tLoadCool: true, amb: -25, tmax: 15, t0: 10, rise: 0.03, fall: 0.1, lag: 10 });
+  const pt = b.part('r_rtd', 47, 8, 'PT1', { name: 'Pt100' });
+  const ht = b.part('r_load1', 62, 40, 'HT1', { name: tr('제상 히터 500 W', 'Defrost heater 500 W'), watt: 500, pf: 1 });
+  const gl = b.part('r_lamp', 58, 12, 'GL1', { name: tr('냉각 운전', 'Cooling'), color: 'green' });
+  const yl = b.part('r_lamp', 64, 12, 'YL1', { name: tr('제상 중', 'Defrosting'), color: 'yellow' });
+  b.part('text', 0, -5, '', { text: tr('냉동 창고: 온도 조절기 (냉각) → 압축기, 제상 타이머 (12분 냉각 · 3분 제상) 가 제상 중에는 압축기를 멈추고 제상 히터를 켠다', 'Freezer: controller (cooling) → compressor; the defrost timer (12 min cool, 3 min defrost) stops the compressor and runs the defrost heater') });
+  routeNets(b, 'freezer-defrost', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [t1, ''], [mccb, '1']);
+    net('black', [t2, ''], [mccb, '3']);
+    net('grey', [t3, ''], [mccb, '5']);
+    net('brown', [mccb, '2'], [mc, '1/L1'], [f1, '1']);
+    net('black', [mccb, '4'], [mc, '3/L2']);
+    net('grey', [mccb, '6'], [mc, '5/L3']);
+    net('brown', [mc, '2/T1'], [thr, '1/L1']);
+    net('black', [mc, '4/T2'], [thr, '3/L2']);
+    net('grey', [mc, '6/T3'], [thr, '5/L3']);
+    net('brown', [thr, '2/T1'], [m1, 'U']);
+    net('black', [thr, '4/T2'], [m1, 'V']);
+    net('grey', [thr, '6/T3'], [m1, 'W']);
+    // 조작: F1 → 조절기 전원 · 운전 SS1 · MC1 보조 13, SS1 → 제상 타이머 코일 2 와 공통 8 · 1
+    net('red', [f1, '2'], [tc, 'L'], [ss, '23'], [mc, '13NO']);
+    net('red', [ss, '24'], [t1m, '2'], [t1m, '8'], [t1m, '1']);
+    // 냉각: 타이머 8-6 (a) → 조절기 C1-OUT1 → THR 95-96 → MC1 코일
+    net('red', [t1m, '6'], [tc, 'C1']);
+    net('red', [tc, 'OUT1'], [thr, '95']);
+    net('red', [thr, '96'], [mc, 'A1']);
+    // 제상: 타이머 1-4 (b) → 제상 히터 · 제상등
+    net('red', [t1m, '4'], [ht, 'L'], [yl, 'X1']);
+    net('red', [mc, '14NO'], [gl, 'X1']);
+    net('blue', [tN, ''], [t1m, '7'], [tc, 'N'], [mc, 'A2'], [ht, 'N'], [gl, 'X2'], [yl, 'X2']);
+    net('gy', [tPE, ''], [m1, 'PE']);
+    net('red', [pt, 'A'], [tc, 'A']);
+    net('white', [pt, 'B'], [tc, 'B']);
+    net('white', [pt, "B'"], [tc, "B'"]);
+    return nets;
+  });
+  b.op(1000, 'SS1', 'on', tr('운전', 'Run'));
+  const c = b.done();
+  c.duration = 30 * 60000;
+  return c;
+}
+
+/**
+ * 전기 온수기 (보온 탱크): 물탱크 전극봉 → 플로트리스 릴레이 FLR1.
+ *  - 물이 E2 (40%) 아래면 Tc-Tb 로 급수 밸브 SOL1 (급수등 YL1) 이 열리고 E1 (80%) 에서 닫힘
+ *  - 물이 있을 때만 (Tc-Ta) 히터 회로가 살아 있음 (공가열 방지) → 과열 방지 서모스탯 TH1 (90℃ 에서 열림) → 온도 조절기 COM-NO (60℃ 유지) → MC1 → 히터 3 kW
+ * 온수: 15℃ 에서 히터가 켜지면 초당 0.3℃ 오르고 꺼지면 0.05℃ 식음 (5초 지연). 탱크는 늘 초당 1% 씀
+ */
+function waterHeater(): Circuit {
+  const b = new Builder();
+  const tL = b.part('r_term', 0, 0, '', { pole: 'L' });
+  const tN = b.part('r_term', 2, 0, '', { pole: 'N' });
+  const tPE = b.part('r_term', 5, 0, '', { pole: 'PE' });
+  const elb = b.part('r_mcb2', 1, 8, 'ELB1', { name: tr('온수기 전원', 'Water heater supply'), spec: 'AC 220V 30A', amps: 30, elb: true, idn: 30 });
+  const f1 = b.part('r_fuse', 10, 8, 'F1', { name: tr('조작 회로', 'Control'), amps: 2 });
+  const ss = b.part('r_ss', 18, 8, 'SS1', { name: tr('운전', 'Run') });
+  const mc = b.part('r_mc', 8, 26, 'MC1', { name: tr('히터 개폐', 'Heater contactor'), spec: tr('코일 AC 220V, 주접점 AC-1 25A', 'coil AC 220V, AC-1 25 A') });
+  const ht = b.part('r_load1', 6, 42, 'HT1', { name: tr('온수 히터 3 kW', 'Immersion heater 3 kW'), watt: 3000, pf: 1, pe: true });
+  const flr = b.part('r_flr', 28, 26, 'FLR1', { name: tr('수위 (급수 · 공가열 방지)', 'Level (fill, dry-fire guard)') });
+  const sol = b.part('r_sol', 44, 10, 'SOL1', { name: tr('급수 밸브', 'Fill valve'), spec: 'AC 220V' });
+  const yl = b.part('r_lamp', 50, 10, 'YL1', { name: tr('급수 중', 'Filling'), color: 'yellow' });
+  const zone = tr('온수', 'Water');
+  const th = b.part('r_thermo', 40, 30, 'TH1', { name: tr('과열 방지 (90℃)', 'Over-temp cut-out (90℃)'), ncOut: true, sv: 90, hys: 10, zone });
+  const tc = b.part('r_tc8', 52, 30, 'TC1', { name: tr('온수 온도', 'Water temp.'), spec: 'T3S-B4RP2C-N', sv: 60, hys: 3, zone, tLoad: 'HT1', amb: 15, rise: 0.3, fall: 0.05, lag: 5 });
+  const pt = b.part('r_rtd', 53, 16, 'PT1', { name: 'Pt100' });
+  const gl = b.part('r_lamp', 62, 22, 'GL1', { name: tr('가열 중', 'Heating'), color: 'green' });
+  const tank = b.part('r_tank', 74, 44, 'TANK1', { name: tr('온수 탱크', 'Hot water tank'), fillTag: 'SOL1', fillRate: 5, useRate: 1, lv0: 31 });
+  b.part('text', 0, -5, '', { text: tr('전기 온수기: 물이 적으면 급수 밸브를 열고, 물이 있을 때만 히터를 켜 (공가열 방지) 60℃ 유지, 90℃ 면 과열 방지 서모스탯이 끊음', 'Water heater: fills when low, heats only with water present (dry-fire guard) to hold 60℃, over-temp thermostat cuts at 90℃') });
+  routeNets(b, 'water-heater', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [tL, ''], [elb, '1']);
+    net('blue', [tN, ''], [elb, '3']);
+    net('brown', [elb, '2'], [mc, '1/L1'], [f1, '1']);
+    net('blue', [elb, '4'], [mc, '3/L2'], [mc, 'A2'], [flr, 'S2'], [tc, 'N'], [sol, '2'], [yl, 'X2'], [gl, 'X2']);
+    net('brown', [mc, '2/T1'], [ht, 'L']);
+    net('blue', [mc, '4/T2'], [ht, 'N']);
+    net('gy', [tPE, ''], [ht, 'PE']);
+    // 조작: F1 → FLR 전원 · 조절기 전원 · 운전 SS1 · MC1 보조 13, SS1 → FLR 출력 공통 Tc
+    net('red', [f1, '2'], [flr, 'S1'], [tc, 'L'], [ss, '23'], [mc, '13NO']);
+    net('red', [ss, '24'], [flr, 'Tc']);
+    net('red', [flr, 'Tb'], [sol, '1'], [yl, 'X1']);
+    net('red', [flr, 'Ta'], [th, '1']);
+    net('red', [th, '2'], [tc, 'COM']);
+    net('red', [tc, 'NO'], [mc, 'A1']);
+    net('red', [mc, '14NO'], [gl, 'X1']);
+    net('white', [flr, 'E1'], [tank, 'E1']);
+    net('white', [flr, 'E2'], [tank, 'E2']);
+    net('white', [flr, 'E3'], [tank, 'E3']);
+    net('red', [pt, 'A'], [tc, 'A']);
+    net('white', [pt, 'B'], [tc, 'B']);
+    net('white', [pt, "B'"], [tc, "B'"]);
+    return nets;
+  });
+  b.op(1000, 'SS1', 'on', tr('운전', 'Run'));
+  b.temp(299000, 'TC1', 95, 20000, tr('조절기 고장 가정: 95℃ 까지', 'Assume a controller fault: up to 95℃'));
+  const c = b.done();
+  c.system = '1p2w';
+  c.duration = 6 * 60000;
+  return c;
+}
+
+/**
+ * 온도 경보 회로 (부저 정지 · 경보등 유지): 온도 조절기 TC1 이 히터를 60℃ 로 유지하고, 80℃ 이상이면 AL → 경보 릴레이 X1 · 경보등 RL1.
+ * 부저 BZ1 = X1 8-6 (a) → 확인 릴레이 X2 8-5 (b). 확인 버튼 PB1 을 누르면 X2 가 X1 1-3 을 지나 자기유지 → 부저만 멈추고 경보등은 온도가 내려갈 때까지 켜짐.
+ * 온도가 경보 아래로 돌아오면 X1 이 떨어져 X2 도 풀리므로 다음 과열에는 다시 부저가 운다
+ */
+function tempAlarm(): Circuit {
+  const b = new Builder();
+  const tL = b.part('r_term', 2, 0, '', { pole: 'L' });
+  const tN = b.part('r_term', 4, 0, '', { pole: 'N' });
+  const mcb = b.part('r_mcb2', 3, 8, 'MCB1', { name: tr('히터 전원', 'Heater supply'), spec: 'AC 220V 20A', amps: 20 });
+  const f1 = b.part('r_fuse', 12, 8, 'F1', { name: tr('조작 회로', 'Control'), amps: 2 });
+  const ss = b.part('r_ss', 20, 8, 'SS1', { name: tr('운전', 'Run') });
+  const tc = b.part('r_tc', 32, 14, 'TC1', { name: tr('히터 온도', 'Heater temp.'), sv: 60, hys: 3, alarm: 80, tLoad: 'H1', amb: 20, rise: 0.5, fall: 0.2 });
+  const mc = b.part('r_mc', 6, 26, 'MC1', { name: tr('히터 개폐', 'Heater contactor'), spec: tr('코일 AC 220V', 'coil AC 220V') });
+  const h1 = b.part('r_load1', 5, 42, 'H1', { name: tr('히터 2 kW', 'Heater 2 kW'), watt: 2000, pf: 1 });
+  const x1 = b.part('r_relay8', 28, 32, 'X1', { name: tr('경보 릴레이', 'Alarm relay'), sock: 'pf' });
+  const x2 = b.part('r_relay8', 42, 32, 'X2', { name: tr('확인 (부저 정지)', 'Acknowledge'), sock: 'pf' });
+  const pb = b.part('r_pb', 44, 14, 'PB1', { name: tr('부저 정지 (확인)', 'Silence (acknowledge)'), color: 'yellow' });
+  const bz = b.part('r_buzzer', 56, 30, 'BZ1', { name: tr('경보 부저', 'Alarm buzzer') });
+  const rl = b.part('r_lamp', 56, 20, 'RL1', { name: tr('과열 경보', 'Over-temp alarm'), color: 'red' });
+  b.part('text', 0, -5, '', { text: tr('온도 경보: 80℃ 이상이면 경보등 + 부저. 확인 버튼을 누르면 부저만 멈추고 경보등은 온도가 내려갈 때까지 켜짐 (다음 과열에는 다시 울림)', 'Temperature alarm: lamp + buzzer above 80℃; the acknowledge button silences the buzzer, the lamp stays until the temperature drops (sounds again on the next alarm)') });
+  routeNets(b, 'temp-alarm', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [tL, ''], [mcb, '1']);
+    net('blue', [tN, ''], [mcb, '3']);
+    net('brown', [mcb, '2'], [mc, '1/L1'], [f1, '1']);
+    net('blue', [mcb, '4'], [mc, '3/L2'], [mc, 'A2'], [tc, 'A2'], [x1, '7'], [x2, '7'], [bz, 'X2'], [rl, 'X2']);
+    net('brown', [mc, '2/T1'], [h1, 'L']);
+    net('blue', [mc, '4/T2'], [h1, 'N']);
+    // 경보 회로는 운전 스위치와 상관없이 F1 뒤에서
+    net('red', [f1, '2'], [ss, '23'], [tc, 'C2'], [x1, '1'], [x1, '8']);
+    net('red', [ss, '24'], [tc, 'A1'], [tc, 'C1']);
+    net('red', [tc, 'OUT'], [mc, 'A1']);
+    net('red', [tc, 'AL'], [x1, '2'], [rl, 'X1']);
+    // 확인: X1 1-3 (경보 중) → PB1 ∥ X2 1-3 (자기유지) → X2 코일
+    net('red', [x1, '3'], [pb, '23'], [x2, '1']);
+    net('red', [pb, '24'], [x2, '3'], [x2, '2']);
+    // 부저: X1 8-6 (경보 중) → X2 8-5 (확인 전) → 부저
+    net('red', [x1, '6'], [x2, '8']);
+    net('red', [x2, '5'], [bz, 'X1']);
+    return nets;
+  });
+  b.op(1000, 'SS1', 'on', tr('운전', 'Run'));
+  b.temp(119000, 'TC1', 90, 0, tr('과열 (90℃)', 'Over-temperature (90℃)'));
+  b.op(10000, 'PB1', 'press', tr('부저 정지 (확인)', 'Acknowledge'));
+  b.temp(170000, 'TC1', 85, 0, tr('다시 과열 (85℃)', 'Over-temperature again (85℃)'));
+  const c = b.done();
+  c.system = '1p2w';
+  c.duration = 360000;
+  return c;
+}
+
+/**
+ * 배관 동파 방지 열선: 누전차단기 → 서모스탯 TS1 (NC, 3℃ 이하면 닫힘 · 8℃ 에서 열림) → 자기 제어형 열선 600 W (외함 접지), 운전등.
+ * 배관: 처음 6℃, 밤공기 -10℃ 쪽으로 초당 0.02℃ 식고, 열선이 켜지면 초당 0.03℃ 오름. 20분에 해가 들어 30분 동안 12℃ 까지 오름
+ */
+function pipeFreeze(): Circuit {
+  const b = new Builder();
+  const tL = b.part('r_term', 2, 0, '', { pole: 'L' });
+  const tN = b.part('r_term', 4, 0, '', { pole: 'N' });
+  const tPE = b.part('r_term', 7, 0, '', { pole: 'PE' });
+  const elb = b.part('r_mcb2', 3, 8, 'ELB1', { name: tr('열선 전원', 'Heat trace supply'), spec: 'AC 220V 15A', amps: 15, elb: true, idn: 30 });
+  const ts = b.part('r_thermo', 14, 14, 'TS1', { name: tr('동파 방지 (3 ↔ 8℃)', 'Frost protection (3 ↔ 8℃)'), ncOut: true, sv: 8, hys: 5, zone: tr('배관', 'Pipe'), tLoad: 'HT1', amb: -10, t0: 6, rise: 0.03, fall: 0.02 });
+  const ht = b.part('r_load1', 22, 28, 'HT1', { name: tr('배관 열선 600 W (자기 제어형)', 'Pipe heat trace 600 W (self-regulating)'), watt: 600, pf: 1, pe: true });
+  const gl = b.part('r_lamp', 30, 18, 'GL1', { name: tr('열선 운전', 'Heat trace on'), color: 'green' });
+  b.part('text', 0, -5, '', { text: tr('배관 동파 방지: 누전차단기 → 서모스탯 (3℃ 이하면 닫힘, 8℃ 에서 열림) → 열선 (외함 접지). 밤 -10℃ 에서 배관을 3~8℃ 로 지킴', 'Pipe frost protection: RCD → thermostat (closes below 3℃, opens at 8℃) → heat trace (earthed); keeps the pipe at 3–8℃ on a -10℃ night') });
+  routeNets(b, 'pipe-freeze', () => {
+    const nets: NetList = [];
+    const net = (color: WireColor, ...pins: NetPin[]) => nets.push([color, pins]);
+    net('brown', [tL, ''], [elb, '1']);
+    net('blue', [tN, ''], [elb, '3']);
+    net('brown', [elb, '2'], [ts, '1']);
+    net('brown', [ts, '2'], [ht, 'L'], [gl, 'X1']);
+    net('blue', [elb, '4'], [ht, 'N'], [gl, 'X2']);
+    net('gy', [tPE, ''], [ht, 'PE']);
+    return nets;
+  });
+  b.temp(20 * 60000, 'TS1', 12, 30 * 60000, tr('아침: 햇볕 (30분 동안 12℃ 까지)', 'Morning sun (up to 12℃ over 30 min)'));
+  const c = b.done();
+  c.system = '1p2w';
+  c.duration = 60 * 60000;
+  return c;
+}
+
 // ───────────────────── 누전 · 지락: 접지와 누전차단기 (TT 계통) ─────────────────────
 
 /**
@@ -2231,13 +2438,14 @@ function plcPanelProgram(): PlcConfig {
   return { dialect: 'ls', source, comments, sim: { ...defaultSimSettings(), watch: [] }, view: 'ladder', ladder: ilToLadder(source, 'ls').ladder };
 }
 
-export type ExampleGroup = 'motor' | 'panel' | 'home' | 'power' | 'basic';
+export type ExampleGroup = 'motor' | 'panel' | 'temp' | 'home' | 'power' | 'basic';
 
 /** 예제 메뉴의 묶음 (차례대로) */
 export function exampleGroups(): { key: ExampleGroup; title: string }[] {
   return [
     { key: 'motor', title: tr('전동기 제어 (실물 배선)', 'Motor control (real wiring)') },
     { key: 'panel', title: tr('제어반 · 릴레이 · 센서 (실물 배선)', 'Panels, relays, sensors (real wiring)') },
+    { key: 'temp', title: tr('온도 유지 · 제어 (실물 배선)', 'Temperature control (real wiring)') },
     { key: 'home', title: tr('전등 · 주거 (실물 배선)', 'Lighting & home (real wiring)') },
     { key: 'power', title: tr('분전반 · 계통 해석', 'Panelboards & system analysis') },
     { key: 'basic', title: tr('기호 회로 (시퀀스 · 공압 · PLC)', 'Schematics (sequence, pneumatics, PLC)') },
@@ -2257,11 +2465,11 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   'lamp-delay': 'home',
   'pump-manual-auto': 'motor',
   'counter': 'panel',
-  'ssr-heater': 'panel',
+  'ssr-heater': 'temp',
   prox2: 'panel',
   'sensor-oneshot': 'basic',
-  'tc-heater': 'panel',
-  'panel-thermo': 'panel',
+  'tc-heater': 'temp',
+  'panel-thermo': 'temp',
   'pump-float': 'motor',
   panel: 'panel',
   'relay-socket': 'panel',
@@ -2275,12 +2483,16 @@ const EXAMPLE_GROUP: Record<string, ExampleGroup> = {
   substation: 'power',
   'plc-panel': 'panel',
   'earth-fault': 'power',
-  'blower-timer': 'panel',
-  'oven-pid': 'panel',
+  'blower-timer': 'temp',
+  'oven-pid': 'temp',
   'stair-impulse': 'home',
   'vfd-fwd-rev': 'motor',
   'water-supply': 'motor',
-  'pid-learn': 'panel',
+  'pid-learn': 'temp',
+  'freezer-defrost': 'temp',
+  'water-heater': 'temp',
+  'temp-alarm': 'temp',
+  'pipe-freeze': 'temp',
 };
 
 export interface CircuitExample {
@@ -2352,6 +2564,30 @@ export function circuitExamples(): CircuitExample[] {
       name: tr('계단 조명: 세 곳에서 켜고 끄기 (임펄스 릴레이)', 'Stair lighting from three places (impulse relay)'),
       desc: tr('푸시버튼 3개를 나란히 임펄스 릴레이 코일에, 누를 때마다 전등이 켜짐 ↔ 꺼짐', 'Three push buttons in parallel on an impulse relay; each press toggles the lamp'),
       build: stairImpulse,
+    },
+    {
+      id: 'freezer-defrost',
+      name: tr('냉동 창고: 냉각 온도 조절 + 압축기 + 제상 타이머', 'Freezer: cooling control, compressor, defrost timer'),
+      desc: tr('온도 조절기 (냉각) 가 -18 ↔ -20℃ 로 압축기를 켜고 끄고, 트윈 타이머가 12분마다 3분 제상 (압축기 정지 · 제상 히터)', 'A cooling controller cycles the compressor between -18 and -20℃; a twin timer defrosts 3 min every 12 min (compressor off, defrost heater on)'),
+      build: freezerDefrost,
+    },
+    {
+      id: 'water-heater',
+      name: tr('전기 온수기: 급수 · 60℃ 유지 · 공가열 방지 · 과열 차단', 'Electric water heater: fill, hold 60℃, dry-fire guard, over-temp cut-out'),
+      desc: tr('전극봉 → 플로트리스 릴레이: 물이 적으면 급수 밸브, 물이 있을 때만 히터. 온도 조절기 60℃, 과열 방지 서모스탯 90℃', 'Electrodes → floatless relay: fill valve when low, heater only with water; controller 60℃, over-temp thermostat 90℃'),
+      build: waterHeater,
+    },
+    {
+      id: 'temp-alarm',
+      name: tr('온도 경보 회로: 부저 정지 (확인) · 경보등 유지', 'Temperature alarm: silence button, lamp stays on'),
+      desc: tr('80℃ 이상이면 경보 릴레이 → 경보등 + 부저. 확인 버튼을 누르면 확인 릴레이가 자기유지해 부저만 멈춤, 온도가 내려가면 풀림', 'Above 80℃ the alarm relay lights the lamp and sounds the buzzer; the acknowledge relay latches to silence it until the temperature drops'),
+      build: tempAlarm,
+    },
+    {
+      id: 'pipe-freeze',
+      name: tr('배관 동파 방지 열선 (서모스탯 · 누전차단기)', 'Pipe frost protection (thermostat, RCD)'),
+      desc: tr('서모스탯이 3℃ 이하면 열선을 켜고 8℃ 에서 끔. 밤 -10℃ 에서 배관 온도를 지키고, 아침 햇볕에 꺼진 채로', 'The thermostat runs the heat trace below 3℃ and stops at 8℃, holding the pipe on a -10℃ night'),
+      build: pipeFreeze,
     },
     {
       id: 'pid-learn',

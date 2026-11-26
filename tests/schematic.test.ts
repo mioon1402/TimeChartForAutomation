@@ -37,7 +37,7 @@ describe('wiring diagram → schematic', () => {
 
   it('says what it could not draw (devices without a schematic symbol)', () => {
     const noted = realExamples.filter((ex) => toSchematic(ex.build()).notes.length).map((ex) => ex.id);
-    expect(noted.sort()).toEqual(['blower-timer', 'counter', 'earth-fault', 'oven-pid', 'pid-learn', 'plc-panel', 'sol-alternate', 'substation', 'tc-heater', 'tsw-light', 'tsw-panel', 'vfd-fwd-rev', 'water-supply']);
+    expect(noted.sort()).toEqual(['blower-timer', 'counter', 'earth-fault', 'freezer-defrost', 'oven-pid', 'pid-learn', 'plc-panel', 'sol-alternate', 'substation', 'tc-heater', 'temp-alarm', 'tsw-light', 'tsw-panel', 'vfd-fwd-rev', 'water-heater', 'water-supply']);
     expect(toSchematic(circuitExamples().find((e) => e.id === 'counter')!.build()).notes[0]).toContain('카운터 (C1)');
   });
 

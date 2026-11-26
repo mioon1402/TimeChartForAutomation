@@ -2389,8 +2389,11 @@ function TempProps({ p, circuit, set }: { p: Part; circuit: Circuit; set: (patch
             <Select value={p.tLoadCool ? 'cool' : 'heat'} onChange={(v) => set({ tLoadCool: v === 'cool' || undefined })} options={[{ value: 'heat', label: tr('데운다 (히터)', 'heats (heater)') }, { value: 'cool', label: tr('식힌다 (팬 · 냉방)', 'cools (fan)') }]} />
           </Field>
         )}
-        <Field label={tr('처음 · 주위 온도 (℃)', 'Start / ambient (℃)')}>
+        <Field label={p.tLoadCool ? tr('주위 · 최저 온도 (℃)', 'Ambient / lowest (℃)') : tr('처음 · 주위 온도 (℃)', 'Start / ambient (℃)')} hint={p.tLoadCool ? tr('식히는 부하가 계속 돌면 내려가는 끝', 'reached if the cooler runs on and on') : undefined}>
           <NumberInput value={p.amb ?? 20} min={-100} max={2000} step={1} onChange={(v) => v !== undefined && set({ amb: v })} />
+        </Field>
+        <Field label={tr('처음 온도 (℃)', 'Start temperature (℃)')} hint={tr('비우면 주위 온도에서 시작', 'Empty: starts at the ambient temperature')}>
+          <NumberInput value={p.t0} allowEmpty placeholder={String(p.amb ?? 20)} min={-100} max={2000} step={1} onChange={(v) => set({ t0: v })} />
         </Field>
         {p.tLoad && (
           <>

@@ -107,6 +107,7 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (typeof q.tLoad === 'string' && q.tLoad.trim()) p.tLoad = q.tLoad.slice(0, 40);
     if (q.tLoadCool === true) p.tLoadCool = true;
     if (temp(q.amb)) p.amb = q.amb as number;
+    if (temp(q.t0)) p.t0 = q.t0 as number;
     if (temp(q.tmax)) p.tmax = q.tmax as number;
     if (typeof q.rise === 'number' && q.rise > 0 && q.rise <= 1000) p.rise = q.rise;
     if (typeof q.fall === 'number' && q.fall > 0 && q.fall <= 1000) p.fall = q.fall;
