@@ -35,7 +35,7 @@ export interface Placed {
   pb: number;
 }
 
-export type MainType = 'r_mc' | 'r_relay8' | 'r_my4' | 'r_timer8' | 'r_thr';
+export type MainType = 'r_mc' | 'r_relay8' | 'r_my4' | 'r_timer8' | 'r_thr' | 'r_imp';
 
 /** 기호 하나 (X1 · T1 · MC1 · THR1) 의 배치 */
 export interface TagPlan {
@@ -87,6 +87,7 @@ export function termChoices(type: MainType): { no: string[]; nc: string[] } {
   const pair = (t: PartType, x: number, y: number) => `${pinNo(t, x)}-${pinNo(t, y)}`;
   if (type === 'r_mc') return { no: ['13-14'], nc: ['21-22'] };
   if (type === 'r_thr') return { no: ['97-98'], nc: ['95-96'] };
+  if (type === 'r_imp') return { no: ['13-14'], nc: ['21-22'] };
   const gs = type === 'r_my4' ? bladeGroups('r_my4') : OCTAL_GROUPS;
   return { no: gs.map((g) => pair(type, g.com, g.a)), nc: gs.map((g) => pair(type, g.com, g.b)) };
 }
@@ -292,6 +293,15 @@ export function planContacts(c: Circuit, model: CircuitModel, net: (p: Part, i: 
       left = fill(type === 'r_relay8' ? OCTAL_GROUPS : bladeGroups('r_my4'), list, [], 0, out);
     }
     plans.set(tag, { tag, type, coil: PARTS[type].selfCoil! as [number, number], coilPart: cp, aux: auxFill(left, out), placed: out, left: [], bad });
+  }
+
+  // 임펄스 릴레이 (DIN 모듈): 13-14 a · 21-22 b, 코일 A1 · A2
+  for (const [tag, [ip]] of byTag('imp')) {
+    if (plans.has(tag)) continue;
+    const out = new Map<string, Placed>();
+    const bad: Part[] = [];
+    const left = slotFill('r_imp', { no: [[1, 4]], nc: [[2, 5]] }, uses.get(tag) ?? [], out, bad);
+    plans.set(tag, { tag, type: 'r_imp', coil: [0, 3], coilPart: ip, aux: 0, placed: out, left, bad });
   }
 
   // 타이머 (8핀): 순시 접점이 있으면 1-3 · 1-4 를 순시로, 한시는 8-6 · 8-5

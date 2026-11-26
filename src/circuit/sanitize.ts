@@ -98,6 +98,9 @@ export function sanitizeCircuit(raw: unknown): Circuit | undefined {
     if (temp(q.alarm)) p.alarm = q.alarm as number;
     if (q.tcMode === 'heat' || q.tcMode === 'cool') p.tcMode = q.tcMode;
     if (q.ctrl === 'onoff') p.ctrl = 'onoff';
+    for (const k of ['hz', 'hzH', 'hzM', 'hzL'] as const) if (typeof q[k] === 'number' && Number.isFinite(q[k]) && (q[k] as number) >= 0 && (q[k] as number) <= 400) p[k] = q[k] as number;
+    for (const k of ['acc', 'dec'] as const) if (typeof q[k] === 'number' && Number.isFinite(q[k]) && (q[k] as number) >= 0.1 && (q[k] as number) <= 3600) p[k] = q[k] as number;
+    if (q.ph1 === true) p.ph1 = true;
     for (const k of ['uf', 'ohm'] as const) if (typeof q[k] === 'number' && Number.isFinite(q[k]) && (q[k] as number) > 0 && (q[k] as number) < 1e6) p[k] = q[k] as number;
     for (const k of ['pb', 'ti', 'td', 'cycle'] as const) if (typeof q[k] === 'number' && Number.isFinite(q[k]) && (q[k] as number) >= 0) p[k] = q[k] as number;
     if (typeof q.zone === 'string' && q.zone.trim()) p.zone = q.zone.slice(0, 40);

@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isPlcPart, isTempDevice, pidSetting, pos3Labels, skValues, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isPlcPart, isTempDevice, pidSetting, pos3Labels, skValues, vfdSetting, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
@@ -40,6 +40,7 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   sk: 1,
   ol3: 2,
   coil: 3,
+  imp: 3,
   km3: 3,
   timer: 4,
   pb_no: 5,
@@ -68,6 +69,7 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_lamp: 8,
   r_motor3: 9,
   r_relay8: 3,
+  r_imp: 3,
   r_my2: 3,
   r_my4: 3,
   r_fuse: 0,
@@ -150,7 +152,7 @@ export function socketText(p: Part): string {
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
 function mainOf(parts: Part[]): Part {
   const rank = (p: Part) =>
-    p.type === 'coil' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw' || p.type === 'r_counter' || p.type === 'r_ssr' || p.type === 'r_tc' || p.type === 'r_thermo'
+    p.type === 'coil' || p.type === 'imp' || p.type === 'r_imp' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw' || p.type === 'r_counter' || p.type === 'r_ssr' || p.type === 'r_tc' || p.type === 'r_thermo'
       ? 0
       : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'r_vcb'
         ? 1
@@ -175,6 +177,9 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       if (isContactor(c, tag)) return { kind: tr('전자접촉기', 'Magnetic contactor'), spec: [main ? tr(`주접점 ${main}P`, `${main}P main`) : '', ab ? tr(`보조 ${ab}`, `aux ${ab}`) : ''].filter(Boolean).join(', ') };
       return { kind: tr('릴레이', 'Relay'), spec: ab };
     }
+    case 'imp':
+    case 'r_imp':
+      return { kind: tr('임펄스 릴레이 (래칭)', 'Impulse relay (latching)'), spec: [p.spec?.trim() || tr('코일 AC 220V', 'coil AC 220V'), ab || '1a1b', tr('DIN 레일', 'DIN rail')].join(', ') };
     case 'timer':
       if (p.timerMode === 'flicker') return { kind: tr('플리커 릴레이', 'Flicker relay'), spec: `${timerText(p, 500)} ${tr('간격', 'interval')}${ab ? `, ${ab}` : ''}` };
       return { kind: tr('타이머', 'Timer'), spec: `${p.timerMode === 'off' ? tr('OFF 딜레이', 'off-delay') : p.timerMode === 'interval' ? tr('인터벌', 'interval') : tr('ON 딜레이', 'on-delay')} ${formatTime(p.preset ?? 3000, 's')}${ab ? `, ${ab}` : ''}` };
@@ -234,6 +239,10 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
       return { kind: p.elb ? tr('누전차단기 (ELB)', 'Earth leakage breaker (ELB)') : tr('배선용 차단기', 'Circuit breaker'), spec: `${p.type.slice(-1)}P${p.amps ? ` ${p.amps}A` : ''}${p.ka ? ` ${p.ka}kA` : ''}` };
     case 'r_fuse':
       return { kind: tr('퓨즈 홀더', 'Fuse holder'), spec: `1P${p.amps ? ` ${p.amps}A` : ''}` };
+    case 'r_vfd': {
+      const s = vfdSetting(p);
+      return { kind: tr('인버터 (VFD)', 'Inverter (VFD)'), spec: [p.spec?.trim() || (p.ph1 ? tr('단상 220V 입력, 3상 출력', '1-phase 220V in, 3-phase out') : tr('3상 입력', '3-phase input')), tr(`다단속 ${s.hzH} · ${s.hzM} · ${s.hzL} Hz, 가감속 ${s.acc} · ${s.dec} s`, `preset ${s.hzH}/${s.hzM}/${s.hzL} Hz, accel/decel ${s.acc}/${s.dec} s`)].join(', ') };
+    }
     case 'r_sk':
     case 'sk': {
       const { uf, ohm } = skValues(p);
@@ -435,7 +444,7 @@ export function partsList(c: Circuit): BomRow[] {
   for (const [k, parts] of groups) {
     const main = mainOf(parts);
     // 실물 기기는 몸 안의 보조 접점(1a1b)도 센다
-    const inside = parts.reduce((n, p) => n + (p.type === 'r_my4' ? 4 : p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_my2' ? 2 : p.type === 'r_ls' || p.type === 'r_fsw' || p.type === 'r_float' || p.type === 'r_psw' || p.type === 'r_pbl' || p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' || p.type === 'r_counter' ? 1 : 0), 0);
+    const inside = parts.reduce((n, p) => n + (p.type === 'r_my4' ? 4 : p.type === 'r_relay8' || p.type === 'r_timer8' || p.type === 'r_my2' ? 2 : p.type === 'r_ls' || p.type === 'r_fsw' || p.type === 'r_float' || p.type === 'r_psw' || p.type === 'r_pbl' || p.type === 'r_mc' || p.type === 'r_pb' || p.type === 'r_thr' || p.type === 'r_ss' || p.type === 'r_estop' || p.type === 'r_counter' || p.type === 'r_imp' ? 1 : 0), 0);
     const a = parts.filter((p) => CONTACT_A.has(p.type)).length + inside;
     const b = parts.filter((p) => CONTACT_B.has(p.type)).length + inside;
     const poles = (parts.filter((p) => p.type === 'km3').length + parts.filter((p) => p.type === 'r_mc').length) * 3;

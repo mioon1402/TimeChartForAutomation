@@ -5,7 +5,7 @@ import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
 import { contactNumbers, parseTerm } from '../circuit/contacts';
 import { planGroups } from '../circuit/plan';
-import { SkGlyph, BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { ImpGlyph, SkGlyph, VfdGlyph, BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
@@ -35,6 +35,10 @@ export const POLE_COLOR: Record<string, string> = { L1: '#dc2626', '+24V': '#dc2
 export interface PartState {
   /** 접점 · 코일 기호의 실물 단자 번호 (적은 번호가 없을 때 [실물 배선도 만들기] 가 쓸 단자) */
   terms?: [string, string];
+  /** 인버터 상태 (출력 Hz · 방향 · 운전 · 고장 · 전원) */
+  vfd?: { hz: number; dir: 1 | -1 | 0; run: boolean; trip: boolean; powered: boolean } | null;
+  /** 임펄스 릴레이의 접점 상태 (래치) */
+  latch?: boolean;
   /** 접점이 본체가 아닌 보조 릴레이 (X1-2) 에 들어갈 때 그 기호 */
   termDev?: string;
   closed: boolean;
@@ -92,6 +96,8 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
     const w = nums.where.get(p.id);
     if (w && w.tag !== model.label(tagKey(p))) st.termDev = w.tag;
   }
+  if (p.type === 'r_imp' && sim) st.latch = sim.on(tagKey(p));
+  if (p.type === 'r_vfd' && sim) st.vfd = sim.vfdView(p.id);
   return st;
 }
 
@@ -402,6 +408,18 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       return <Contact closed={st.closed} nc={nc} c={c} actuator={actuatorFor(p, st, c)} act={st.act && (p.type === 'pb_no' || p.type === 'pb_nc')} />;
     case 'coil':
       return <Coil st={st} c={c} />;
+    case 'imp':
+      // 임펄스 릴레이 코일: 네모 안에 계단 (누를 때마다 바뀜) 표시
+      return (
+        <g>
+          <Coil st={st} c={c} />
+          <path d="M-9,5H-3V-5H3V5H9" stroke={st.on ? c.accent : c.ink} strokeWidth={1.3} fill="none" />
+        </g>
+      );
+    case 'r_imp':
+      return <ImpGlyph p={p} st={st} c={c} />;
+    case 'r_vfd':
+      return <VfdGlyph p={p} st={st} c={c} />;
     case 'timer':
       return <Coil st={st} c={c} timer />;
     case 'load':

@@ -5,7 +5,7 @@ import { formatTime, HOUR, MINUTE } from '../model/format';
 import { niceCeil, niceGrid } from '../plc/simulator';
 import type { Circuit, Part } from './types';
 import { CircuitModel, normTag, runScenario, type ScenarioResult, type Track } from './engine';
-import { compareTags, counterPreset, partKindName, pos3Labels, timerText } from './parts';
+import { compareTags, counterPreset, partKindName, pos3Labels, timerText , vfdSetting } from './parts';
 import { tr as t_ } from '../i18n';
 
 /** 대표 부품이 전자접촉기인가 (MC/KM 기호이거나 주접점이 있음) */
@@ -125,6 +125,11 @@ function defaultName(p: Part): string {
       return t_('THR 트립', 'THR trip');
     case 'coil':
       return t_('릴레이', 'Relay');
+    case 'imp':
+    case 'r_imp':
+      return t_('임펄스 릴레이', 'Impulse relay');
+    case 'r_vfd':
+      return t_('인버터 고장 (트립)', 'Inverter fault (trip)');
     case 'timer':
       return t_('타이머', 'Timer');
     case 'lamp':
@@ -181,7 +186,8 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
       continue;
     }
     if (tr.kind !== 'selector') {
-      out.push(bit(tr, 'input', G.op));
+      // 인버터 고장 (눌러서 트립) 은 이름 뒤에 고장을 붙인다
+      out.push(bit(tr, 'input', G.op, tr.part.type === 'r_vfd' ? { name: `${nameOf(c, keyTag(tr), tr.part)} ${t_('고장 (트립)', 'fault (trip)')}` } : {}));
       continue;
     }
     // 3단 셀렉터: 자리 이름으로 (가운데는 0)
@@ -199,9 +205,11 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
   }
 
   // 릴레이·전자접촉기 (그린 순서)
-  for (const tr of res.tracks.filter((t) => t.kind === 'coil')) {
+  for (const tr of res.tracks.filter((t) => t.kind === 'coil' || t.kind === 'impOut')) {
     const mc = isContactor(c, tr.tag);
-    out.push(bit(tr, mc ? 'output' : 'internal', mc ? G.mc : G.relay));
+    if (tr.kind === 'impOut') out.push(bit(tr, 'internal', G.relay, { address: `${tr.tag}.Q`, name: `${nameOf(c, keyTag(tr), tr.part)} ${t_('접점 (래치)', 'contacts (latched)')}` }));
+    else if (res.model.impTags.has(keyTag(tr))) out.push(bit(tr, 'internal', G.relay, { name: `${nameOf(c, keyTag(tr), tr.part)} ${t_('코일 (펄스)', 'coil (pulse)')}` }));
+    else out.push(bit(tr, mc ? 'output' : 'internal', mc ? G.mc : G.relay));
   }
   // 타이머: 코일과 한시 접점 (+ 처음 한 번의 지연 치수선)
   for (const tr of res.tracks.filter((t) => t.kind === 'timerCoil' || t.kind === 'timerOut')) {
@@ -226,6 +234,13 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     const t2 = t1 === undefined ? undefined : edge(row.points, off || interval ? 0 : 1, t1);
     if (t1 !== undefined && t2 !== undefined && t2 > t1) row.dim = [t1, t2];
     out.push(row);
+  }
+
+  // 인버터: 출력 주파수 (아날로그 Hz, 가 · 감속은 기울기로)
+  for (const tr of res.tracks.filter((t) => t.kind === 'vfdHz')) {
+    const s = vfdSetting(tr.part);
+    const hi = Math.max(10, Math.ceil(Math.max(s.hz, s.hzH, s.hzM, s.hzL, ...tr.points.map((q) => Number(q.v))) / 10) * 10);
+    out.push({ ...bit(tr, 'output', t_('인버터', 'Inverter'), { address: `${tr.tag}.Hz`, name: `${nameOf(c, keyTag(tr), tr.part)} ${t_('출력 주파수 (Hz)', 'output frequency (Hz)')}` }), kind: 'analog', points: normalize(tr.points.filter((q) => q.t <= until + 1e-9), 'analog', 0), analogMin: 0, analogMax: hi, unit: 'Hz' });
   }
 
   // 카운터: 센 수와 출력 (설정 수에 닿으면 출력)

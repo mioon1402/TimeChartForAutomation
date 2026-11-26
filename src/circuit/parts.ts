@@ -172,6 +172,8 @@ export const PARTS: Record<PartType, PartDef> = {
     prefix: '',
   },
   fuse: { type: 'fuse', cat: 'protect', pins: V2, poles: [[0, 1]], box: BOX2, prefix: 'F' },
+  // 임펄스 릴레이 (래칭) 코일: 코일에 펄스가 들어올 때마다 같은 기호의 접점이 바뀌어 유지된다
+  imp: { type: 'imp', cat: 'relay', pins: pins2('A1', 'A2'), load: true, box: BOX2, prefix: 'LR' },
   // 스파크 킬러 (CR): 시뮬레이션에서는 아무것도 하지 않는다 (서지 흡수 · 누설은 [검사] 가 본다)
   sk: { type: 'sk', cat: 'protect', pins: V2, box: BOX2, prefix: 'SK' },
   fuse3: { type: 'fuse3', cat: 'protect', pins: P3, poles: POLES3, box: BOX3, prefix: 'F' },
@@ -412,6 +414,53 @@ export const PARTS: Record<PartType, PartDef> = {
   },
   r_buzzer: { type: 'r_buzzer', cat: 'output', pins: [pin(-1, 1, 'X1'), pin(1, 1, 'X2')], load: true, box: [-1.8, -2.8, 1.8, 1.8], prefix: 'BZ' },
   // 솔레노이드 밸브 (5포트 공압 밸브 + 코일). 단자 이름은 partPins 가 결선 방식에 따라 (리드선 + · - / DIN 1 · 2 · 접지)
+  // 인버터 (VFD, 미쓰비시 FR 꼴 단자 이름): 위 전원 R/L1 · S/L2 · T/L3 · 접지 PE · 고장 릴레이 A · B · C (C 공통, A 는 고장 때 닫힘),
+  // 아래 출력 U · V · W 와 무전압 입력 STF (정회전) · STR (역회전) · RH · RM · RL (다단속) · SD (공통). 단자 번호는 기종마다 다르니 기능 이름으로
+  r_vfd: {
+    type: 'r_vfd',
+    cat: 'output',
+    pins: [
+      pin(-8, -6, 'R/L1'),
+      pin(-6, -6, 'S/L2'),
+      pin(-4, -6, 'T/L3'),
+      pin(-2, -6, 'PE'),
+      pin(4, -6, 'A'),
+      pin(6, -6, 'B'),
+      pin(8, -6, 'C'),
+      pin(-8, 6, 'U'),
+      pin(-6, 6, 'V'),
+      pin(-4, 6, 'W'),
+      pin(0, 6, 'STF'),
+      pin(2, 6, 'STR'),
+      pin(4, 6, 'RH'),
+      pin(6, 6, 'RM'),
+      pin(8, 6, 'RL'),
+      pin(10, 6, 'SD'),
+    ],
+    poles: [
+      [6, 4],
+      [6, 5],
+    ],
+    polesNc: [false, true],
+    operate: 'toggle',
+    box: [-9.6, -7, 11.4, 7],
+    prefix: 'INV',
+  },
+  // 임펄스 릴레이 (래칭 · 텔레럽터, DIN 레일 모듈): 위 A1 · 13 · 21, 아래 A2 · 14 · 22. 코일 펄스마다 13-14 a · 21-22 b 가 바뀌고 전원이 없어도 유지
+  r_imp: {
+    type: 'r_imp',
+    cat: 'relay',
+    pins: [pin(-2, -3, 'A1'), pin(0, -3, '13'), pin(2, -3, '21'), pin(-2, 3, 'A2'), pin(0, 3, '14'), pin(2, 3, '22')],
+    poles: [
+      [1, 4],
+      [2, 5],
+    ],
+    polesNc: [false, true],
+    selfCoil: [0, 3],
+    load: true,
+    box: [-3, -4, 3, 4],
+    prefix: 'LR',
+  },
   // 스파크 킬러 (CR 서지 흡수기, 오카야 CRE 꼴): 몸통 아래 리드선 1 · 2 를 코일 양단에
   r_sk: { type: 'r_sk', cat: 'protect', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], box: [-1.8, -1.8, 1.8, 2.4], prefix: 'SK' },
   r_sol: { type: 'r_sol', cat: 'output', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], load: true, box: [-2.9, -3.4, 2.9, 2.9], prefix: 'SOL' },
@@ -594,7 +643,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd', 'r_rtd2', 'r_tk4', 'r_sk']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd', 'r_rtd2', 'r_tk4', 'r_sk', 'r_imp', 'r_vfd']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -693,6 +742,14 @@ export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right' 
     return action === 'left' ? `← ${l}` : action === 'right' || action === 'on' ? `${r} →` : m;
   }
   return action === 'press' ? tr('누름 → 뗌', 'Press') : action === 'on' ? 'ON' : action === 'off' ? 'OFF' : action === 'left' ? tr('왼쪽', 'Left') : tr('오른쪽', 'Right');
+}
+
+/** 인버터 설정: 주파수 (Hz) 와 가속 · 감속 기울기 (Hz/ms, 0 ↔ 60 Hz 를 acc · dec 초에) */
+export function vfdSetting(p: Pick<Part, 'hz' | 'hzH' | 'hzM' | 'hzL' | 'acc' | 'dec'>): { hz: number; hzH: number; hzM: number; hzL: number; acc: number; dec: number; up: number; down: number } {
+  const f = (v: number | undefined, d: number) => (typeof v === 'number' && v >= 0 && v <= 400 ? v : d);
+  const acc = typeof p.acc === 'number' && p.acc >= 0.1 ? p.acc : 5;
+  const dec = typeof p.dec === 'number' && p.dec >= 0.1 ? p.dec : 5;
+  return { hz: f(p.hz, 60), hzH: f(p.hzH, 60), hzM: f(p.hzM, 30), hzL: f(p.hzL, 10), acc, dec, up: 60 / (acc * 1000), down: 60 / (dec * 1000) };
 }
 
 /** 스파크 킬러 값 (없으면 0.1 µF + 120 Ω) */
@@ -989,6 +1046,11 @@ export function partKindName(type: PartType): string {
     case 'r_sk':
     case 'sk':
       return tr('스파크 킬러 (CR 서지 흡수기)', 'Spark killer (RC snubber)');
+    case 'r_imp':
+    case 'imp':
+      return tr('임펄스 릴레이 (래칭)', 'Impulse relay (latching)');
+    case 'r_vfd':
+      return tr('인버터 (VFD)', 'Inverter (VFD)');
     case 'r_smps':
       return tr('SMPS (DC 24V 전원)', 'SMPS (24 V DC supply)');
     case 'r_prox':
@@ -1128,6 +1190,7 @@ export function palette(): PaletteGroup[] {
       items: [
         it('r_mc', tr('전자접촉기', 'Contactor')),
         it('r_relay8', tr('8핀 릴레이 + 소켓', '8-pin relay + socket'), { sock: 'pf' }),
+        it('r_imp', tr('임펄스 릴레이 (래칭)', 'Impulse relay (latching)')),
         it('r_my2', tr('각형 릴레이 2c + 소켓', 'Blade relay 2-pole + socket')),
         it('r_my4', tr('각형 릴레이 4c + 소켓', 'Blade relay 4-pole + socket')),
         it('r_timer8', tr('8핀 타이머 + 소켓', '8-pin timer + socket'), { sock: 'pf', timerMode: 'on', preset: 3000 }),
@@ -1141,6 +1204,7 @@ export function palette(): PaletteGroup[] {
         it('r_ssr', tr('SSR (무접점 릴레이)', 'SSR (solid-state relay)')),
         it('r_tsw', tr('24시간 타임 스위치', '24-h time switch'), { sched: [[18 * 3600000, 23 * 3600000]] }),
         it('r_sol', tr('솔레노이드 밸브', 'Solenoid valve')),
+        it('r_vfd', tr('인버터 (VFD)', 'Inverter (VFD)')),
       ],
     },
     {
@@ -1280,6 +1344,7 @@ export function palette(): PaletteGroup[] {
       items: [
         it('coil', tr('릴레이 코일 X', 'Relay coil'), undefined, 'coil-x'),
         it('coil', tr('전자접촉기 코일 MC', 'Contactor coil'), undefined, 'coil-mc', 'MC'),
+        it('imp', tr('임펄스 릴레이 (래칭) 코일', 'Impulse relay coil'), undefined, 'imp'),
         it('timer', tr('타이머 (ON 딜레이)', 'Timer (on-delay)'), { timerMode: 'on', preset: 3000 }),
         it('timer', tr('플리커 릴레이 (점멸)', 'Flicker relay'), { timerMode: 'flicker', preset: 500 }, 'flicker', 'FR'),
         it('timer', tr('인터벌 타이머 (원샷)', 'Interval timer (one-shot)'), { timerMode: 'interval', preset: 3000 }, 'interval'),
@@ -1378,7 +1443,7 @@ export const POLE_SYSTEM: Record<string, 'dc' | 'ac' | 'pe' | 'hv'> = { '+24V': 
 
 /** 기호를 따라 움직이는 접점 (코일·타이머·THR·스위치) */
 export const FOLLOWER: ReadonlySet<PartType> = new Set(['no', 'nc', 'km3']);
-export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3', 'r_prox', 'r_ls', 'r_pbl', 'r_fsw', 'r_float', 'r_psw', 'r_ss3', 'r_prox2']);
+export const OPERATOR: ReadonlySet<PartType> = new Set(['pb_no', 'pb_nc', 'sw_no', 'sw_nc', 'estop', 'ls_no', 'ls_nc', 'mcb', 'mcb3', 'ol3', 'prox', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mcb4', 'r_vcb', 'r_pb', 'r_thr', 'r_ss', 'r_estop', 'r_sw', 'r_sw3', 'r_prox', 'r_ls', 'r_pbl', 'r_fsw', 'r_float', 'r_psw', 'r_ss3', 'r_prox2', 'r_vfd']);
 export const VALVES: ReadonlySet<PartType> = new Set(['v32', 'v52', 'v52d', 'v53']);
 export const CONTACT_A: ReadonlySet<PartType> = new Set(['no', 'pb_no', 'sw_no', 'ls_no']);
 export const CONTACT_B: ReadonlySet<PartType> = new Set(['nc', 'pb_nc', 'sw_nc', 'ls_nc', 'estop']);

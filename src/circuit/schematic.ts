@@ -334,6 +334,7 @@ const UNSUPPORTED: Partial<Record<PartType, string>> = {
   r_counter: tr('카운터', 'counter'),
   r_tc: tr('온도 조절기', 'temperature controller'),
   r_tc8: tr('온도 조절기', 'temperature controller'),
+  r_vfd: tr('인버터', 'inverter'),
   r_sk: tr('스파크 킬러', 'spark killer'),
   r_tk4: tr('PID 온도 조절기', 'PID temperature controller'),
   r_rtd2: tr('측온저항체', 'RTD sensor'),
@@ -399,6 +400,7 @@ function contactSym(k: Conductor): Sym | null {
     case 'r_my2':
     case 'r_my4':
     case 'r_ssr':
+    case 'r_imp':
       return { type: nc ? 'nc' : 'no', tag, extra: {} };
     case 'r_timer8':
       return { type: nc ? 'nc' : 'no', tag, extra: k.inst ? { inst13: true } : {} };
@@ -432,6 +434,8 @@ function loadSym(p: Part): Sym | null {
       return { type: 'coil', tag, extra: keep('name') };
     case 'r_timer8':
       return { type: 'timer', tag, extra: keep('name', 'timerMode', 'preset', 'presetOff') };
+    case 'r_imp':
+      return { type: 'imp', tag, extra: keep('name') };
     case 'r_lamp':
     case 'r_pbl':
     case 'r_light':
@@ -444,6 +448,7 @@ function loadSym(p: Part): Sym | null {
     case 'r_load1':
       return { type: 'load', tag, extra: keep('name', 'watt', 'pf') };
     case 'coil':
+    case 'imp':
     case 'timer':
     case 'lamp':
     case 'buzzer':
