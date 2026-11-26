@@ -336,6 +336,9 @@ const UNSUPPORTED: Partial<Record<PartType, string>> = {
   r_tc8: tr('온도 조절기', 'temperature controller'),
   r_vfd: tr('인버터', 'inverter'),
   r_sk: tr('스파크 킬러', 'spark killer'),
+  r_diode: tr('다이오드', 'diode'),
+  r_flr: tr('플로트리스 릴레이', 'floatless relay'),
+  r_tank: tr('수조 전극봉', 'tank electrodes'),
   r_tk4: tr('PID 온도 조절기', 'PID temperature controller'),
   r_rtd2: tr('측온저항체', 'RTD sensor'),
   r_rtd: tr('측온저항체', 'RTD sensor'),
@@ -349,7 +352,7 @@ const UNSUPPORTED: Partial<Record<PartType, string>> = {
   air: tr('공압원', 'air supply'),
 };
 /** 온도 기기의 온도 변화 설정 (묶음 · 연결 부하 · 속도) */
-const TEMP_KEYS = ['zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'rise', 'fall'] as const;
+const TEMP_KEYS = ['zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'rise', 'fall', 'lag'] as const;
 /** 선과 같은 것 (단자대 · 바 · 전류계) */
 const WIRE_LIKE = new Set<PartType>(['r_tb', 'r_nbar', 'r_am']);
 

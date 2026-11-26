@@ -57,6 +57,7 @@ const ROW: Partial<Record<PartType, number>> = {
   r_tc: 2,
   r_tc8: 3,
   r_sk: 4,
+  r_diode: 4,
   r_tk4: 3,
   r_rtd2: 4,
   r_rtd: 4,
@@ -80,7 +81,7 @@ const ROW: Partial<Record<PartType, number>> = {
 const PNEUMATIC = new Set<PartType>(['cyl', 'v32', 'v52', 'v52d', 'v53', 'air', 'frl', 'fc']);
 /** 그림만 있는 것 (배선에 들지 않음) */
 const DRAWING = new Set<PartType>(['text', 'r_panel', 'r_duct', 'r_rail']);
-const TEMP_KEYS = ['sv', 'hys', 'zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'rise', 'fall'] as const;
+const TEMP_KEYS = ['sv', 'hys', 'zone', 'tLoad', 'tLoadCool', 'amb', 'tmax', 'rise', 'fall', 'lag'] as const;
 
 const relBox = (p: Part) => partBox({ ...p, x: 0, y: 0 });
 
@@ -386,6 +387,9 @@ export function toWiring(c: Circuit, opts: { wires?: boolean } = {}): WiringResu
         break;
       case 'fuse':
         two('r_fuse', p.amps ? { amps: p.amps } : {});
+        break;
+      case 'diode':
+        two('r_diode', p.spec ? { spec: p.spec } : {});
         break;
       case 'sk':
         two('r_sk', { ...(p.uf ? { uf: p.uf } : {}), ...(p.ohm ? { ohm: p.ohm } : {}), ...(p.spec ? { spec: p.spec } : {}) });

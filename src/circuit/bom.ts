@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType } from './types';
-import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isPlcPart, isTempDevice, pidSetting, pos3Labels, skValues, vfdSetting, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
+import { CONTACT_A, CONTACT_B, compareTags, counterPreset, isPlcPart, isTempDevice, pidSetting, pos3Labels, skValues, tankSetting, vfdSetting, tempSetting, timerText, lampColorName, OPERATOR, partKindName, partPins, PARTS, plcAddresses, REAL, tbSize, tswSched, VALVES, busSize, BUS_CELL_M } from './parts';
 import { airDriven, CircuitModel, normTag, tagKey } from './engine';
 import { isContactor } from './chart';
 import { formatClock, formatTime } from '../model/format';
@@ -38,6 +38,7 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   fuse3: 1,
   fuse: 1,
   sk: 1,
+  diode: 1,
   ol3: 2,
   coil: 3,
   imp: 3,
@@ -74,6 +75,9 @@ const CAT_ORDER: Partial<Record<PartType, number>> = {
   r_my4: 3,
   r_fuse: 0,
   r_sk: 0,
+  r_diode: 0,
+  r_flr: 4,
+  r_tank: 7,
   r_smps: 1,
   r_pbl: 5,
   r_ls: 6,
@@ -152,7 +156,7 @@ export function socketText(p: Part): string {
 /** 기기의 품명을 정하는 부품 (코일 > 주회로 > 스위치 > 접점) */
 function mainOf(parts: Part[]): Part {
   const rank = (p: Part) =>
-    p.type === 'coil' || p.type === 'imp' || p.type === 'r_imp' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw' || p.type === 'r_counter' || p.type === 'r_ssr' || p.type === 'r_tc' || p.type === 'r_thermo'
+    p.type === 'coil' || p.type === 'imp' || p.type === 'r_imp' || p.type === 'timer' || p.type === 'cyl' || p.type === 'r_mc' || p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_timer8' || p.type === 'r_tsw' || p.type === 'r_counter' || p.type === 'r_ssr' || p.type === 'r_tc' || p.type === 'r_thermo' || p.type === 'r_flr'
       ? 0
       : p.type === 'ol3' || p.type === 'mcb3' || p.type === 'mcb' || p.type === 'r_thr' || p.type === 'r_mcb1' || p.type === 'r_mcb2' || p.type === 'r_mcb3' || p.type === 'r_mcb4' || p.type === 'r_vcb'
         ? 1
@@ -242,6 +246,15 @@ function kindAndSpec(c: Circuit, tag: string, p: Part, a: number, b: number, mai
     case 'r_vfd': {
       const s = vfdSetting(p);
       return { kind: tr('인버터 (VFD)', 'Inverter (VFD)'), spec: [p.spec?.trim() || (p.ph1 ? tr('단상 220V 입력, 3상 출력', '1-phase 220V in, 3-phase out') : tr('3상 입력', '3-phase input')), tr(`다단속 ${s.hzH} · ${s.hzM} · ${s.hzL} Hz, 가감속 ${s.acc} · ${s.dec} s`, `preset ${s.hzH}/${s.hzM}/${s.hzL} Hz, accel/decel ${s.acc}/${s.dec} s`)].join(', ') };
+    }
+    case 'r_diode':
+    case 'diode':
+      return { kind: tr('다이오드 (서지 흡수)', 'Diode (surge suppression)'), spec: p.spec?.trim() || tr('1N4007 (1 A · 1000 V)', '1N4007 (1 A, 1000 V)') };
+    case 'r_flr':
+      return { kind: tr('플로트리스 릴레이 (전극식 수위)', 'Floatless level relay'), spec: [p.spec?.trim() || 'AC 220V', tr('출력 1c (Tc · Ta · Tb), 전극 E1 · E2 · E3', '1 c/o output (Tc, Ta, Tb), electrodes E1, E2, E3'), tr('소켓 별도', 'socket separate')].join(', ') };
+    case 'r_tank': {
+      const e = tankSetting(p).e;
+      return { kind: tr('전극 유지기 + 전극봉 3개', 'Electrode holder + 3 electrodes'), spec: tr(`E1 (상한 ${e[0]}%) · E2 (하한 ${e[1]}%) · E3 (공통 ${e[2]}%)`, `E1 (high ${e[0]}%), E2 (low ${e[1]}%), E3 (common ${e[2]}%)`) };
     }
     case 'r_sk':
     case 'sk': {
@@ -546,6 +559,11 @@ export function checkCircuit(c: Circuit, model: CircuitModel = new CircuitModel(
     if ((p.type === 'ls_no' || p.type === 'ls_nc') && p.cyl && !model.cylDef.has(normTag(p.cyl))) {
       out.push({ level: 'error', msg: tr(`${p.tag || 'LS'}: 실린더 ${p.cyl} 이(가) 없습니다`, `${p.tag || 'LS'}: cylinder ${p.cyl} not found`), partIds: [p.id] });
     }
+    if (p.type === 'r_tank')
+      for (const t of [p.fillTag, p.drainTag]) {
+        if (!t?.trim() || model.loadParts.has(normTag(t)) || model.tagKind.has(normTag(t))) continue;
+        out.push({ level: 'error', msg: tr(`${p.tag || 'TANK'}: ${t === p.fillTag ? '급수' : '배수'} 기기 ${t} 이(가) 회로에 없습니다`, `${p.tag || 'TANK'}: ${t === p.fillTag ? 'fill' : 'drain'} device ${t} not in the circuit`), partIds: [p.id] });
+      }
     if (isTempDevice(p) && p.tLoad?.trim() && !model.loadParts.has(normTag(p.tLoad))) {
       out.push({ level: 'error', msg: tr(`${p.tag || 'TC'}: 온도를 바꾸는 부하 ${p.tLoad} 이(가) 회로에 없습니다`, `${p.tag || 'TC'}: load ${p.tLoad} not in the circuit`), partIds: [p.id] });
     }

@@ -88,6 +88,10 @@ function defaultName(p: Part): string {
       return t_('3단 셀렉터', '3-position selector');
     case 'r_counter':
       return t_('카운터', 'Counter');
+    case 'r_flr':
+      return t_('플로트리스 릴레이', 'Floatless relay');
+    case 'r_tank':
+      return t_('수조', 'Tank');
     case 'r_tc':
     case 'r_tc8':
     case 'r_tk4':
@@ -249,6 +253,18 @@ function rows(c: Circuit, res: ScenarioResult): RowSpec[] {
     if (tr.kind === 'counterVal') out.push({ ...bit(tr, 'counter', G.counter, { name: `${name} ${t_('센 수', 'count')} (${t_('설정', 'preset')} ${counterPreset(tr.part)})` }), kind: 'bus', points: pts(tr) });
     else out.push(bit(tr, 'counter', G.counter, { address: `${tr.tag}.Q`, name: `${name} ${t_('출력', 'output')}` }));
   }
+
+  // 수위: 수조마다 수위 (아날로그 %, 전극봉 높이), 플로트리스 릴레이 출력
+  for (const tr of res.tracks.filter((t) => t.kind === 'level')) {
+    const d = res.model.tankDef.get(keyTag(tr))!;
+    const p = normalize(
+      tr.points.filter((q) => q.t <= until + 1e-9),
+      'analog',
+      d.lv0,
+    );
+    out.push({ ...bit(tr, 'sensor', t_('수위', 'Level'), { address: `${tr.tag}.LV`, name: `${nameOf(c, keyTag(tr), tr.part)} ${t_('수위', 'level')} (%, E1 ${d.e[0]} · E2 ${d.e[1]} · E3 ${d.e[2]})` }), kind: 'analog', points: p, analogMin: 0, analogMax: 100, unit: '%' });
+  }
+  for (const tr of res.tracks.filter((t) => t.kind === 'flrOut')) out.push(bit(tr, 'internal', t_('수위', 'Level'), { address: `${tr.tag}.Ta`, name: `${nameOf(c, keyTag(tr), tr.part)} ${t_('출력 (Ta 닫힘 · Tb 열림)', 'output (Ta closed, Tb open)')}` }));
 
   // 온도: 묶음마다 온도 (아날로그 선), 그 온도를 재는 기기의 출력 · 경보 · 접점
   for (const tr of res.tracks.filter((t) => t.kind === 'tempVal')) {

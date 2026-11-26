@@ -1,5 +1,5 @@
 import type { Circuit, Part, PartType, WireColor } from './types';
-import { circuitWires, hmiTag, rtdInputPins, skLeakMa, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL, RPLC, solAc } from './parts';
+import { circuitWires, hmiTag, rtdInputPins, skLeakMa, tankSetting, partKindName, partPins, pinPositions, PARTS, POLE_SYSTEM, REAL, RPLC, solAc } from './parts';
 import { onWireInterior } from './netlist';
 import type { CircuitModel } from './engine';
 import { nominalVolt, poleLive, systemVolts } from './supply';
@@ -67,7 +67,7 @@ const COLOR_NAME: Record<WireColor, [string, string]> = {
 /** 기기에 적힌 정격 전압: 교류 · 직류와 전압 범위 (없으면 null) */
 export function ratedVoltage(p: Part): { kind: 'ac' | 'dc' | 'any'; lo: number; hi: number; text: string } | null {
   // 덮개에 AC 220V 가 적혀 나오는 기기는 사양을 비워도 그 전압으로 본다
-  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' || p.type === 'r_imp' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_tk4' ? 'AC 100-240V' : p.type === 'r_sk' || p.type === 'sk' ? 'AC 250V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' || p.type === 'r_plc' || p.type === 'r_hmi' ? 'DC 24V' : '';
+  const shown = p.type === 'r_relay8' || p.type === 'r_my2' || p.type === 'r_my4' || p.type === 'r_mc' || p.type === 'r_imp' || p.type === 'r_flr' ? 'AC 220V' : p.type === 'r_counter' || p.type === 'r_tc' || p.type === 'r_tc8' || p.type === 'r_tk4' ? 'AC 100-240V' : p.type === 'r_sk' || p.type === 'sk' ? 'AC 250V' : p.type === 'r_ssr' ? 'DC 4-32V' : p.type === 'r_sol' || p.type === 'r_plc' || p.type === 'r_hmi' ? 'DC 24V' : '';
   const text = p.spec?.trim() || shown;
   if (text) {
     const m = /(\d+(?:\.\d+)?)\s*(?:[~\-–]\s*(\d+(?:\.\d+)?))?\s*V/i.exec(text);
@@ -277,6 +277,57 @@ export function verifyWiring(c: Circuit, model: CircuitModel): WiringIssue[] {
       const phases = new Set(rst.flat());
       if (!p.ph1 && v.rst.some(wired) && phases.size < 3) out.push({ level: 'warn', msg: tr(`${name(p)}: R/L1 · S/L2 · T/L3 에 3상이 다 오지 않습니다 (${[...phases].join(' · ') || '없음'}). 단상 입력 기종이면 속성에서 [단상 입력] 을 켜세요`, `${name(p)}: R/S/T do not get all three phases; tick "single-phase input" for a single-phase model`), partIds: [p.id] });
       if (realCircuit && wired(pinNet(p, 3)) === false) out.push({ level: 'warn', msg: tr(`${name(p)}: 접지 (PE) 가 이어지지 않았습니다. 인버터는 노이즈 필터로 평상시에도 접지로 전류가 새므로 반드시 접지합니다 (전동기 외함도)`, `${name(p)}: PE is not connected; an inverter must be earthed (and the motor frame)`), partIds: [p.id] });
+    } else if (p.type === 'r_flr') {
+      // 플로트리스 릴레이: 전극 E1 · E2 · E3 은 릴레이 안의 낮은 교류로 물을 재는 단자 (전원이 닿으면 탐), 수조 전극봉에 이름대로
+      const d = [...model.flrDef.values()].find((x) => x.part.id === p.id);
+      if (!d) continue;
+      const hot = new Set(d.e.flatMap((x) => [...allPoles(x)].filter(live)));
+      if (hot.size) {
+        out.push({ level: 'error', msg: tr(`${name(p)}: 전극 단자 (E1 · E2 · E3) 에 전원 (${[...hot].join(' · ')}) 이 닿습니다. 전극 회로는 릴레이 안의 낮은 교류 전압으로 물을 재는 곳이라 수조 전극봉만 잇습니다 (입력 회로가 탑니다)`, `${name(p)}: supply (${[...hot].join(', ')}) reaches the electrode terminals; connect only the tank electrodes`), partIds: [p.id] });
+        continue;
+      }
+      if (!d.e.some(wired)) continue;
+      // 이 단자에 (선 · 단자대로) 이어진 수조 전극봉: [수조, 전극 차례]
+      const tanks = c.parts.filter((q) => q.type === 'r_tank');
+      const elec = d.e.map((x) => {
+        for (const q of tanks) for (const k of [0, 1, 2]) if (tie.find(pinNet(q, k)) === tie.find(x)) return [q, k] as const;
+        return null;
+      });
+      if (!elec[0] || !elec[2]) {
+        out.push({ level: 'warn', msg: tr(`${name(p)}: ${[!elec[0] ? 'E1' : '', !elec[2] ? 'E3' : ''].filter(Boolean).join(' · ')} 이(가) 수조 전극봉에 이어지지 않아 수위를 잴 수 없습니다 (E1 = 상한, E2 = 하한, E3 = 공통 · 가장 긴 전극)`, `${name(p)}: ${[!elec[0] ? 'E1' : '', !elec[2] ? 'E3' : ''].filter(Boolean).join(', ')} not wired to the tank electrodes`), partIds: [p.id] });
+        continue;
+      }
+      const h = elec.map((x) => (x ? tankSetting(x[0]).e[x[1]] : null));
+      if (h[1] !== null && (h[0]! <= h[1] || h[2]! > h[1]))
+        out.push({ level: 'warn', msg: tr(`${name(p)}: 전극이 바뀌어 이어졌습니다 (E1 ${h[0]}% · E2 ${h[1]}% · E3 ${h[2]}%). E1 은 가장 짧은 상한 전극, E2 는 하한, E3 은 가장 긴 공통 전극에 잇습니다 (그렇지 않으면 펌프가 짧게 켜졌다 꺼짐을 되풀이합니다)`, `${name(p)}: electrodes swapped (E1 ${h[0]}%, E2 ${h[1]}%, E3 ${h[2]}%); E1 = shortest (high), E2 = low, E3 = longest (common)`), partIds: [p.id, elec[0][0].id] });
+      else if (h[1] === null)
+        out.push({ level: 'warn', msg: tr(`${name(p)}: E2 (하한) 가 수조에 이어지지 않아 E1 에 닿을 때만 켜지고 물결에도 바로 꺼집니다 (펌프가 짧게 켜졌다 꺼짐을 되풀이). 하한 전극을 E2 에 잇습니다`, `${name(p)}: E2 (low) is not wired, so the relay has no hold band and the pump will chatter`), partIds: [p.id] });
+    } else if (p.type === 'diode' || p.type === 'r_diode') {
+      // 다이오드 (환류): 직류 코일 양단에 K (띠) 를 + 쪽으로. 거꾸로면 코일이 켜질 때 단락, 교류에는 쓸 수 없음
+      const [k, a] = [pinNet(p, 0), pinNet(p, 1)];
+      if (![k, a].every(wired)) continue;
+      const [K, A] = [allPoles(k), allPoles(a)];
+      if ([...K, ...A].some((id) => POLE_SYSTEM[id] === 'ac')) {
+        out.push({ level: 'error', msg: tr(`${name(p)}: 교류 회로에 달려 있습니다. 다이오드는 반 주기마다 전류를 그대로 흘려 코일이 동작하지 않거나 단락됩니다. 교류 코일의 서지는 스파크 킬러 (CR) · 바리스터로 흡수합니다`, `${name(p)}: in an AC circuit; a diode conducts every half cycle. Use an RC snubber or varistor on AC coils`), partIds: [p.id] });
+        continue;
+      }
+      const plus = (S: Set<string>) => S.has('+24V');
+      const zero = (S: Set<string>) => S.has('0V');
+      const [fK, fA] = [feedPoles(k), feedPoles(a)];
+      if (plus(fA) && zero(fK)) {
+        out.push({ level: 'error', msg: tr(`${name(p)}: 전원 (+24V → 0V) 에 순방향으로 바로 물려 있어 단락됩니다 (SMPS 보호 · 퓨즈 끊김). 다이오드는 코일 양단에 K (띠) 를 + 쪽으로 답니다`, `${name(p)}: forward-biased straight across the supply (short circuit); fit it across the coil, band (K) to +`), partIds: [p.id] });
+        continue;
+      }
+      if (plus(fK) && zero(fA)) {
+        out.push({ level: 'warn', msg: tr(`${name(p)}: 전원 양단에 바로 물려 있어 서지를 흡수하지 못합니다. 끄고 켜는 코일 (릴레이 · SOL) 의 두 단자에 답니다`, `${name(p)}: across the supply, so it suppresses nothing; fit it across the switched coil`), partIds: [p.id] });
+        continue;
+      }
+      if (plus(A) && zero(K) && !plus(K)) {
+        out.push({ level: 'error', msg: tr(`${name(p)}: 방향이 거꾸로입니다 (A 가 + 쪽). 코일에 전원이 들어가는 순간 다이오드로 단락됩니다. K (띠) 를 + 쪽, A 를 0V 쪽으로 돌려 답니다`, `${name(p)}: reversed (A on the + side); it shorts the supply as soon as the coil is energised. Band (K) to +, A to 0 V`), partIds: [p.id] });
+        continue;
+      }
+      const across = model.conductors.find((q) => !q.always && !FEED.has(q.part.type) && ((tie.find(q.a) === tie.find(a) && tie.find(q.b) === tie.find(k)) || (tie.find(q.a) === tie.find(k) && tie.find(q.b) === tie.find(a))));
+      if (across) out.push({ level: 'warn', msg: tr(`${name(p)}: 접점 ${name(across.part)} 의 양단에 달려 있습니다. 서지를 흡수하려면 접점이 아니라 코일 (부하) 양단에 답니다 (방향에 따라 접점이 열려도 부하가 켜집니다)`, `${name(p)}: fitted across contact ${name(across.part)}; fit it across the coil instead`), partIds: [p.id, across.part.id] });
     } else if (p.type === 'sk' || p.type === 'r_sk') {
       // 스파크 킬러 (CR): 교류 코일 양단이 제자리. 접점 양단이면 열려도 새고, 직류는 다이오드, 전원 양단은 늘 흐름
       const [a, b] = [pinNet(p, 0), pinNet(p, 1)];

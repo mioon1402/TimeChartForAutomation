@@ -5,7 +5,7 @@ import { airDriven, CircuitModel, normTag, tagKey, type CircuitSim, type TagKind
 import { AirSupplyGlyph, FlowCtrlGlyph, FrlGlyph, ProxGlyph, SmpsGlyph, TUBE, TUBE_P, ValveGlyph } from './PneuSymbols';
 import { contactNumbers, parseTerm } from '../circuit/contacts';
 import { planGroups } from '../circuit/plan';
-import { ImpGlyph, SkGlyph, VfdGlyph, BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
+import { DiodeGlyph, FlrGlyph, TankGlyph, ImpGlyph, SkGlyph, VfdGlyph, BusGlyph, CounterGlyph, HmiGlyph, RPlcGlyph, Rtd2Glyph, RtdGlyph, Tc8Glyph, Tk4Glyph, TcGlyph, ThermoGlyph, Prox2Glyph, Ss3Glyph, SsrGlyph, KepcoGlyph, VcbGlyph, TrGlyph, MyRelayGlyph, FuseGlyph, RSmpsGlyph, RProxGlyph, LsGlyph, FswGlyph, FloatGlyph, PswGlyph, PblGlyph, BuzzerGlyph, SolGlyph, FanGlyph, NbarGlyph, MeterGlyph, DuctGlyph, RailGlyph, OutletGlyph, Motor6Glyph, EstopGlyph, LightGlyph, LoadGlyph, PanelGlyph, PanelTitle, panelTitleWidth, Sw3Glyph, SwGlyph, TswGlyph, McbGlyph, McGlyph, PbGlyph, Relay8Glyph, RLampGlyph, RMotorGlyph, SsGlyph, TbGlyph, TermGlyph, Timer8Glyph, ThrGlyph, WIRE_HEX } from './RealSymbols';
 import { wireNoLabels, wiringList } from '../circuit/wiring';
 import type { PowerState } from '../circuit/power';
 import { FONT } from './layout';
@@ -39,6 +39,8 @@ export interface PartState {
   vfd?: { hz: number; dir: 1 | -1 | 0; run: boolean; trip: boolean; powered: boolean } | null;
   /** 임펄스 릴레이의 접점 상태 (래치) */
   latch?: boolean;
+  /** 수조: 지금 수위 (%) */
+  level?: number;
   /** 접점이 본체가 아닌 보조 릴레이 (X1-2) 에 들어갈 때 그 기호 */
   termDev?: string;
   closed: boolean;
@@ -98,6 +100,7 @@ export function partState(p: Part, model: CircuitModel, sim: CircuitSim | null):
   }
   if (p.type === 'r_imp' && sim) st.latch = sim.on(tagKey(p));
   if (p.type === 'r_vfd' && sim) st.vfd = sim.vfdView(p.id);
+  if (p.type === 'r_tank' && sim) st.level = sim.tankLevel(tagKey(p));
   return st;
 }
 
@@ -349,6 +352,21 @@ export function PartGlyph({ part: p, st, c, sensors }: { part: Part; st: PartSta
       );
     case 'r_sk':
       return <SkGlyph p={p} c={c} />;
+    case 'diode':
+      // 다이오드: 아래 A → 위 K (띠). 직류 코일 양단에 K 를 + 쪽으로
+      return (
+        <g>
+          <path d="M0,-40V-9M0,9V40" stroke={c.ink} />
+          <path d="M-10,9H10L0,-9Z" fill={c.ink} stroke={c.ink} strokeWidth={1.2} />
+          <path d="M-11,-9H11" stroke={c.ink} strokeWidth={2.4} />
+        </g>
+      );
+    case 'r_diode':
+      return <DiodeGlyph p={p} c={c} />;
+    case 'r_flr':
+      return <FlrGlyph p={p} st={st} c={c} />;
+    case 'r_tank':
+      return <TankGlyph p={p} st={st} c={c} />;
     case 'fuse3':
       return (
         <g>

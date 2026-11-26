@@ -197,6 +197,57 @@ export function partGuide(type: PartType): PartGuide | null {
         tr('시뮬레이션 동작에는 영향이 없고, [검사] 가 자리 (접점 양단 · 전원 양단 · 직류 회로) 와 정격 전압을 봅니다.', 'It does not change the simulation; Check looks at where it is fitted and its voltage rating.'),
         'sol-alternate',
       );
+    case 'r_diode':
+    case 'diode':
+      return g(
+        tr('서지 흡수용 다이오드 (환류 다이오드, 1N4007 꼴) 입니다. 직류 코일 (DC 24V 릴레이 · 솔레노이드) 은 접점 · 트랜지스터가 끊는 순간 반대 방향으로 큰 전압을 냅니다. 코일 양단에 거꾸로 (K 를 + 쪽) 달아 그 전류를 코일 안에서 돌려 사그라지게 합니다.', 'A suppression (flyback) diode, 1N4007 type. A DC coil (24 V relay or solenoid) kicks back a large reverse voltage when its contact or transistor opens; fitted reverse-biased across the coil (K to +) it lets that current circulate and die away.'),
+        [
+          [tr('K (띠 쪽)', 'K (band)'), tr('코일의 + 쪽 단자 (+24V 가 들어오는 쪽)', 'the + end of the coil (where +24 V comes in)')],
+          ['A', tr('코일의 0V 쪽 단자', 'the 0 V end of the coil')],
+        ],
+        [
+          tr('코일의 두 단자에 나란히, 띠 (K) 가 + 쪽이 되게 답니다. 평소에는 전류가 흐르지 않습니다', 'Across the two coil terminals with the band (K) on the + side; normally no current flows'),
+          tr('거꾸로 달면 코일에 전원이 들어가는 순간 다이오드로 단락됩니다 (퓨즈 · SMPS 보호 동작)', 'Fitted the wrong way it shorts the supply as soon as the coil is energised'),
+          tr('교류 코일에는 쓰지 않습니다. 교류는 스파크 킬러 (CR) · 바리스터', 'Not for AC coils: use an RC snubber or varistor there'),
+          tr('코일이 떨어지는 시간이 조금 (수 ms ~ 수십 ms) 늦어집니다. 빨리 떨어져야 하면 제너 다이오드 · TVS 를 함께 씁니다', 'The coil drops out a little later (ms to tens of ms); add a Zener or TVS where fast release matters'),
+        ],
+        tr('시뮬레이션 동작에는 영향이 없고, [검사] 가 방향 (거꾸로면 단락) · 자리 (전원 양단 · 접점 양단) · 교류 회로를 봅니다.', 'It does not change the simulation; Check looks at its direction (reversed = short), where it is fitted and AC circuits.'),
+      );
+    case 'r_flr':
+      return g(
+        tr('플로트리스 릴레이 (전극식 수위 릴레이, 61F 꼴) 입니다. 수조에 매단 전극봉 사이가 물로 통하는지를 재서, 물이 상한 E1 에 닿으면 내부 릴레이가 켜지고 하한 E2 아래로 내려가면 꺼집니다. 급수 펌프 · 배수 펌프 자동 운전에 씁니다.', 'A floatless (electrode) level relay, 61F type. It senses whether the electrodes hanging in the tank are bridged by water: the internal relay picks up when the water reaches the high electrode E1 and drops when it falls below the low electrode E2. Used for automatic fill or drain pumps.'),
+        [
+          ['S1 · S2', tr('릴레이 전원 (AC 220V)', 'relay supply (AC 220V)')],
+          ['E1', tr('상한 전극 (가장 짧은 전극봉)', 'high electrode (the shortest rod)')],
+          ['E2', tr('하한 전극', 'low electrode')],
+          ['E3', tr('공통 전극 (가장 긴 전극봉, 접지)', 'common electrode (the longest rod, earthed)')],
+          ['Tc → Ta · Tb', tr('출력 1c: 물이 E1 에 닿으면 Tc-Ta 닫힘 · Tc-Tb 열림, E2 아래로 내려가면 되돌아감', 'output 1 c/o: at E1 Tc-Ta closes and Tc-Tb opens; below E2 they return')],
+        ],
+        [
+          tr('수조의 전극봉 E1 · E2 · E3 을 같은 이름 단자에 잇습니다 (전극 회로는 릴레이 안의 낮은 교류 전압. L · N 을 잇지 마세요)', 'Wire the tank electrodes to the same-named terminals (the electrode circuit runs on a low internal AC voltage; never connect L or N)'),
+          tr('급수 (물탱크를 채움): Tc-Tb 를 펌프 전자접촉기 코일 회로에 → 물이 적으면 운전, 가득 차면 정지', 'Filling: Tc-Tb in the pump contactor circuit → runs while low, stops when full'),
+          tr('배수 (집수정을 비움): Tc-Ta 를 펌프 회로에 → 물이 차면 운전, E2 아래면 정지', 'Draining (sump): Tc-Ta in the pump circuit → runs when full, stops below E2'),
+          tr('E2 를 빼면 유지가 없어 물결마다 펌프가 켜졌다 꺼집니다. 단자 이름은 61F 꼴 기능 이름이니 실물은 기기 옆면 결선도를 따르세요', 'Without E2 there is no hold band and the pump chatters. Terminal names follow the 61F style; follow the label on your relay'),
+        ],
+        AUTO() + ' ' + tr('수조의 수위가 바뀌어 전극이 잠기고 드러나는 대로 동작하고, 타임차트의 수위 칸에 출력이 나옵니다.', 'It follows the tank level as the electrodes are covered and uncovered; its output appears in the level group of the chart.'),
+        'water-supply',
+      );
+    case 'r_tank':
+      return g(
+        tr('수조 (물탱크) 와 전극 유지기 · 전극봉 세 개입니다. 물에 잠긴 전극끼리 물로 통합니다. 수위는 급수 기기 (펌프 · 밸브) 가 켜져 있는 동안 오르고, 배수 기기 · 늘 쓰는 양만큼 내려갑니다.', 'A water tank with an electrode holder and three rods. Submerged electrodes are connected through the water. The level rises while the fill device (pump, valve) is on and falls with the drain device and the constant use.'),
+        [
+          ['E1', tr('상한 전극 (짧음, 기본 80%)', 'high electrode (short, 80% by default)')],
+          ['E2', tr('하한 전극 (기본 40%)', 'low electrode (40% by default)')],
+          ['E3', tr('공통 전극 (가장 김, 기본 10%)', 'common electrode (longest, 10% by default)')],
+        ],
+        [
+          tr('E1 · E2 · E3 을 플로트리스 릴레이의 같은 이름 단자에 잇습니다', 'Wire E1, E2, E3 to the same-named terminals of the floatless relay'),
+          tr('[속성] 에서 전극 높이, 처음 수위, 급수 · 배수 기기의 기호 (예: M1) 와 속도 (%/s), 늘 쓰는 양을 정합니다', 'In Properties set the electrode heights, start level, fill/drain device tags (e.g. M1), their rates (%/s) and the constant use'),
+          tr('가득 찼는데 급수가 계속되면 (넘침) · 비었는데 배수가 계속되면 (공운전) 시뮬레이션이 알립니다', 'The simulation warns on overflow (still filling when full) and dry running (still draining when empty)'),
+        ],
+        tr('시뮬레이션 중 수조를 누르면 누른 높이로 수위가 바뀝니다 (조작 순서의 [수위 →] 로도). 수위는 타임차트에 % 아날로그 선으로 나옵니다.', 'Click the tank while simulating to set the level at that height (or use [Level →] in the sequence). The level is drawn as an analog % line in the chart.'),
+        'water-supply',
+      );
     case 'r_smps':
       return g(
         tr('SMPS (직류 전원 장치) 입니다. 교류 L · N 을 받아 직류 24V 를 만듭니다. 센서 · PLC · 직류 릴레이 · 솔레노이드의 전원입니다.', 'A switching power supply: AC in, 24 V DC out, for sensors, PLCs, DC relays and solenoids.'),
@@ -496,6 +547,7 @@ export function partGuide(type: PartType): PartGuide | null {
           tr('조작 L → C2, AL1 → 경보등 X1, X2 → N', 'Control L → C2, AL1 → alarm lamp X1, X2 → N'),
           tr("측온저항체를 10 · 11 · 12 에. 파라미터의 입력 종류를 Pt100 (DPt100) 으로 바꿉니다 (다른 센서로 두면 온도가 틀립니다)", 'RTD on 10, 11, 12; set the input type parameter to Pt100 (DPt100), otherwise the reading is wrong'),
           tr('속성에서 설정 온도 · P · I · D · 제어 주기 · 경보 온도를 정합니다. 실제 기기는 오토튜닝 (AT) 으로 P · I · D 를 구합니다', 'Set SV, P, I, D, cycle and alarm in the properties; real units find P, I, D by auto-tuning (AT)'),
+          tr('P · I · D 가 하는 일: P (비례대 ℃) = 편차만큼 출력, 좁을수록 세게 (너무 좁으면 흔들림), P 만이면 설정보다 조금 낮은 곳에서 멈춤 (잔류 편차). I (적분 시간 s) = 남은 편차를 쌓아 없앰, 짧을수록 빨리 (너무 짧으면 넘침). D (미분 시간 s) = 빨리 오를 때 미리 줄여 넘침을 막음. 예제 [PID 배우기] 에서 네 가지를 한 차트로 비교합니다', 'What P, I, D do: P (band, ℃) gives output in proportion to the error, narrower = stronger (too narrow swings) and P alone settles a little below SV (offset). I (integral time, s) builds up the remaining error and removes it, shorter = faster (too short overshoots). D (derivative time, s) brakes a fast rise to limit overshoot. The example "Learn PID" compares all four on one chart'),
           tr('나머지 단자 (전원 · 출력 · 경보 · 통신) 번호는 기종 (옵션 기호) 마다 다르니 기기 옆면 결선도를 따르세요', 'Other terminal numbers depend on the option code; follow the label on the side'),
         ],
         tr('처음에는 MV 100% 로 계속 켜져 있다가 설정에 가까워지면 20초 중 켜 두는 시간이 줄어들고, 설정 온도에 머무르면 열이 빠지는 만큼만 켭니다. 앞면에 MV % 가 보입니다. 센서가 끊기면 oPEn 으로 출력을 끕니다. 제어 방식을 ON/OFF 로 바꾸면 T3S 처럼 히스테리시스로 동작합니다.', 'It starts at MV 100%, then shortens the on-time per 20 s as it nears SV and settles at just enough heat to cover the losses; MV % is shown on the front. An open sensor shows oPEn and switches the output off. Set the method to ON/OFF to behave like the T3S.'),

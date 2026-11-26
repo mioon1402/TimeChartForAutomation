@@ -176,6 +176,8 @@ export const PARTS: Record<PartType, PartDef> = {
   imp: { type: 'imp', cat: 'relay', pins: pins2('A1', 'A2'), load: true, box: BOX2, prefix: 'LR' },
   // 스파크 킬러 (CR): 시뮬레이션에서는 아무것도 하지 않는다 (서지 흡수 · 누설은 [검사] 가 본다)
   sk: { type: 'sk', cat: 'protect', pins: V2, box: BOX2, prefix: 'SK' },
+  // 다이오드 (직류 코일 서지 흡수, 환류): 위 K (띠) 를 + 쪽, 아래 A 를 0V 쪽으로 코일 양단에. 시뮬레이션은 아무것도 하지 않는다 ([검사] 가 방향을 본다)
+  diode: { type: 'diode', cat: 'protect', pins: pins2('K', 'A'), box: BOX2, prefix: 'D' },
   fuse3: { type: 'fuse3', cat: 'protect', pins: P3, poles: POLES3, box: BOX3, prefix: 'F' },
   mcb: { type: 'mcb', cat: 'protect', pins: pins2('1', '2'), poles: [[0, 1]], operate: 'toggle', defaultOn: true, box: BOX2W, prefix: 'CB' },
   mcb3: { type: 'mcb3', cat: 'protect', pins: P3, poles: POLES3, operate: 'toggle', defaultOn: true, box: BOX3, prefix: 'MCCB' },
@@ -463,6 +465,26 @@ export const PARTS: Record<PartType, PartDef> = {
   },
   // 스파크 킬러 (CR 서지 흡수기, 오카야 CRE 꼴): 몸통 아래 리드선 1 · 2 를 코일 양단에
   r_sk: { type: 'r_sk', cat: 'protect', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], box: [-1.8, -1.8, 1.8, 2.4], prefix: 'SK' },
+  // 다이오드 (리드선 K · A, 1N4007 꼴): 직류 코일 양단에 K (띠) 를 + 쪽으로
+  r_diode: { type: 'r_diode', cat: 'protect', pins: [pin(-1, 2, 'K'), pin(1, 2, 'A')], box: [-1.8, -1.8, 1.8, 2.4], prefix: 'D' },
+  // 플로트리스 릴레이 (61F 꼴): 위 전극 E1 (상한) · E2 (하한) · E3 (공통, 접지), 아래 전원 S1 · S2 와 출력 Tc → Ta (a) · Tb (b).
+  // E1-E3 이 물로 통하면 켜지고, E2-E3 이 통하는 동안 유지 (E2 아래로 내려가면 꺼짐). 급수는 Tb, 배수는 Ta 로 펌프를 돌린다
+  r_flr: {
+    type: 'r_flr',
+    cat: 'relay',
+    pins: [pin(-4, 5, 'S1'), pin(-2, 5, 'S2'), pin(-2, -5, 'E1'), pin(0, -5, 'E2'), pin(2, -5, 'E3'), pin(0, 5, 'Tc'), pin(2, 5, 'Ta'), pin(4, 5, 'Tb')],
+    poles: [
+      [5, 6],
+      [5, 7],
+    ],
+    polesNc: [false, true],
+    load: true,
+    loadPins: [0, 1],
+    box: [-5, -6, 5, 6],
+    prefix: 'FLR',
+  },
+  // 수조 (물탱크) + 전극봉 홀더: 위 단자 E1 · E2 · E3. 물에 잠긴 전극끼리 통한다 (엔진이 수위로 정함)
+  r_tank: { type: 'r_tank', cat: 'switch', pins: [pin(-2, -7, 'E1'), pin(0, -7, 'E2'), pin(2, -7, 'E3')], box: [-6, -8, 6, 7], prefix: 'TANK' },
   r_sol: { type: 'r_sol', cat: 'output', pins: [pin(-1, 2, '1'), pin(1, 2, '2')], load: true, box: [-2.9, -3.4, 2.9, 2.9], prefix: 'SOL' },
   r_fan: { type: 'r_fan', cat: 'output', pins: [pin(-1, 3, 'L'), pin(1, 3, 'N')], load: true, box: [-3, -3, 3, 3.8], prefix: 'FAN' },
   r_pbl: {
@@ -643,7 +665,7 @@ export const PARTS: Record<PartType, PartDef> = {
 };
 
 /** 실물 배선도 기기 */
-export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd', 'r_rtd2', 'r_tk4', 'r_sk', 'r_imp', 'r_vfd']);
+export const REAL: ReadonlySet<PartType> = new Set(['r_term', 'r_mcb1', 'r_mcb2', 'r_mcb3', 'r_mc', 'r_thr', 'r_pb', 'r_lamp', 'r_motor3', 'r_relay8', 'r_timer8', 'r_my2', 'r_my4', 'r_fuse', 'r_smps', 'r_prox', 'r_ls', 'r_buzzer', 'r_sol', 'r_fan', 'r_pbl', 'r_nbar', 'r_vm', 'r_am', 'r_duct', 'r_rail', 'r_fsw', 'r_float', 'r_psw', 'r_outlet', 'r_motor6', 'r_ss', 'r_estop', 'r_tb', 'r_tsw', 'r_light', 'r_sw', 'r_sw3', 'r_load1', 'r_load3', 'r_panel', 'r_mcb4', 'r_bus', 'r_kepco', 'r_vcb', 'r_tr3', 'r_ss3', 'r_counter', 'r_ssr', 'r_prox2', 'r_tc', 'r_thermo', 'r_plc', 'r_hmi', 'r_tc8', 'r_rtd', 'r_rtd2', 'r_tk4', 'r_sk', 'r_imp', 'r_vfd', 'r_diode', 'r_flr', 'r_tank']);
 
 /** 부스바: 막대 수, 길이 (칸) */
 export function busSize(p: Part): { bars: number; len: number } {
@@ -730,8 +752,9 @@ export function pos3Labels(p: Pick<Part, 'pos3'>): [string, string, string] {
 }
 
 /** 조작 순서의 동작 이름 (3단 셀렉터는 자리 이름) */
-export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp' | 'leak', part?: Part, op?: { value?: number; hold?: number }): string {
+export function opActionLabel(action: 'press' | 'on' | 'off' | 'left' | 'right' | 'temp' | 'leak' | 'level', part?: Part, op?: { value?: number; hold?: number }): string {
   if (action === 'temp') return `${tr('온도', 'Temp.')} → ${op?.value ?? 0}℃${op?.hold ? ` (${formatTime(op.hold, 's')})` : ''}`;
+  if (action === 'level') return `${tr('수위', 'Level')} → ${op?.value ?? 0}%${op?.hold ? ` (${formatTime(op.hold, 's')})` : ''}`;
   if (action === 'leak') {
     const rf = op?.value ?? 0;
     const ins = rf > 0 ? `${tr('절연', 'insulation')} ${rf >= 1000 ? `${rf / 1000} kΩ` : `${rf} Ω`}` : tr('완전 지락', 'solid fault');
@@ -750,6 +773,12 @@ export function vfdSetting(p: Pick<Part, 'hz' | 'hzH' | 'hzM' | 'hzL' | 'acc' | 
   const acc = typeof p.acc === 'number' && p.acc >= 0.1 ? p.acc : 5;
   const dec = typeof p.dec === 'number' && p.dec >= 0.1 ? p.dec : 5;
   return { hz: f(p.hz, 60), hzH: f(p.hzH, 60), hzM: f(p.hzM, 30), hzL: f(p.hzL, 10), acc, dec, up: 60 / (acc * 1000), down: 60 / (dec * 1000) };
+}
+
+/** 수조 설정: 처음 수위, 전극봉 높이 E1 · E2 · E3 (%), 급수 · 배수 · 사용 속도 (%/s) */
+export function tankSetting(p: Pick<Part, 'lv0' | 'e1' | 'e2' | 'e3' | 'fillRate' | 'drainRate' | 'useRate'>): { lv0: number; e: [number, number, number]; fill: number; drain: number; use: number } {
+  const pct = (v: number | undefined, d: number) => (typeof v === 'number' && v >= 0 && v <= 100 ? v : d);
+  return { lv0: pct(p.lv0, 50), e: [pct(p.e1, 80), pct(p.e2, 40), pct(p.e3, 10)], fill: pct(p.fillRate, 5), drain: pct(p.drainRate, 5), use: pct(p.useRate, 0) };
 }
 
 /** 스파크 킬러 값 (없으면 0.1 µF + 120 Ω) */
@@ -1051,6 +1080,13 @@ export function partKindName(type: PartType): string {
       return tr('임펄스 릴레이 (래칭)', 'Impulse relay (latching)');
     case 'r_vfd':
       return tr('인버터 (VFD)', 'Inverter (VFD)');
+    case 'r_diode':
+    case 'diode':
+      return tr('다이오드 (서지 흡수)', 'Diode (surge suppression)');
+    case 'r_flr':
+      return tr('플로트리스 릴레이 (전극식 수위)', 'Floatless level relay (electrodes)');
+    case 'r_tank':
+      return tr('수조 (전극봉)', 'Water tank (electrodes)');
     case 'r_smps':
       return tr('SMPS (DC 24V 전원)', 'SMPS (24 V DC supply)');
     case 'r_prox':
@@ -1181,6 +1217,7 @@ export function palette(): PaletteGroup[] {
         it('r_mcb2', tr('누전차단기 2P', 'ELB 2P'), { elb: true }, 'elb2', 'ELB'),
         it('r_fuse', tr('퓨즈 홀더', 'Fuse holder'), { amps: 10 }),
         it('r_sk', tr('스파크 킬러 (CR)', 'Spark killer (RC)')),
+        it('r_diode', tr('다이오드 (직류 코일 서지)', 'Diode (DC coil surge)')),
         it('r_thr', tr('열동 계전기 THR', 'Overload THR')),
       ],
     },
@@ -1198,6 +1235,7 @@ export function palette(): PaletteGroup[] {
         it('r_timer8', tr('플리커 (점멸) 타이머', 'Flicker timer'), { sock: 'pf', timerMode: 'flicker', preset: 1000 }, 'rt8-flk'),
         it('r_timer8', tr('인터벌 (원샷) 타이머', 'Interval (one-shot) timer'), { sock: 'pf', timerMode: 'interval', preset: 3000 }, 'rt8-int'),
         it('r_counter', tr('카운터 (프리셋)', 'Counter (preset)'), { count: 5 }),
+        it('r_flr', tr('플로트리스 릴레이 (수위)', 'Floatless level relay')),
         it('r_tc', tr('온도 조절기 (48×48)', 'Temperature controller (48×48)'), { sv: 60, hys: 2, alarm: 80 }),
         it('r_tc8', tr('온도 조절기 8핀 (T3S 꼴 · Pt100)', 'Temp. controller 8-pin (T3S type, Pt100)'), { sv: 60, hys: 2 }),
         it('r_tk4', tr('PID 온도 조절기 (TK4S 꼴)', 'PID temp. controller (TK4S type)'), { sv: 60, hys: 2, alarm: 80 }),
@@ -1235,6 +1273,7 @@ export function palette(): PaletteGroup[] {
         it('r_prox2', tr('근접 센서 DC 2선식', 'Proximity DC 2-wire'), { sense: 'inductive' }, 'rprox2-dc'),
         it('r_prox2', tr('근접 센서 AC 2선식', 'Proximity AC 2-wire'), { sense: 'inductive', ac: true }, 'rprox2-ac'),
         it('r_float', tr('플로트 스위치 (수위)', 'Float switch')),
+        it('r_tank', tr('수조 + 전극봉 (E1 · E2 · E3)', 'Tank + electrodes (E1, E2, E3)')),
         it('r_psw', tr('압력 스위치', 'Pressure switch')),
         it('r_rtd', tr('측온저항체 Pt100 (3선식)', 'RTD Pt100 (3-wire)')),
         it('r_rtd2', tr('측온저항체 Pt100 더블 (3선식 × 2)', 'RTD Pt100 duplex (2 × 3-wire)')),
@@ -1309,7 +1348,7 @@ export function palette(): PaletteGroup[] {
     {
       title: tr('보호 기기', 'Protection'),
       mode: 'symbol',
-      items: [it('mcb3', 'MCCB 3P'), it('mcb', tr('차단기 1P', 'Breaker 1P')), it('fuse', tr('퓨즈', 'Fuse')), it('fuse3', tr('퓨즈 3P', 'Fuse 3P')), it('ol3', 'THR 3P'), it('sk', tr('스파크 킬러 (CR)', 'Spark killer (RC)'))],
+      items: [it('mcb3', 'MCCB 3P'), it('mcb', tr('차단기 1P', 'Breaker 1P')), it('fuse', tr('퓨즈', 'Fuse')), it('fuse3', tr('퓨즈 3P', 'Fuse 3P')), it('ol3', 'THR 3P'), it('sk', tr('스파크 킬러 (CR)', 'Spark killer (RC)')), it('diode', tr('다이오드 (서지 흡수)', 'Diode (surge)'))],
     },
     {
       title: tr('조작 스위치', 'Switches'),
